@@ -151,7 +151,13 @@ def test_content_alone_detects_every_supported_format(expected: str, fixture: Pa
     run = analyse_run(fixture.read_bytes())
     assert run.detected_format == expected
     assert run.events and run.source is None
-    assert run.canonical_analysis["extraction_quality_summary"]["skipped_records_by_reason"] == {}
+    summary = run.canonical_analysis["extraction_quality_summary"]
+    if expected == "claude_code":
+        assert summary["skipped_record_count"] == 0
+        assert summary["skipped_records_by_reason"] == {}
+    else:
+        assert summary["skipped_record_count"] is None
+        assert summary["skipped_records_by_reason"] is None
     assert run.warnings == []
 
 
@@ -165,6 +171,79 @@ def test_openclaw_session_lines_detect_from_content():
     run = analyse_run(_OPENCLAW_SESSION_LINES)
     assert run.detected_format == "openclaw"
     assert len(run.events) == 2
+
+
+def test_ac1_openclaw_session_reports_null_skip_counts():
+    summary = analyse_run(_OPENCLAW_SESSION_LINES).canonical_analysis["extraction_quality_summary"]
+    assert summary["skipped_record_count"] is None
+    assert summary["skipped_records_by_reason"] is None
+
+
+def test_ac1_event_list_input_reports_null_skip_counts():
+    events = analyse_run(_CLAUDE_CODE.read_bytes()).events
+    summary = analyse_run(events).canonical_analysis["extraction_quality_summary"]
+    assert summary["skipped_record_count"] is None
+    assert summary["skipped_records_by_reason"] is None
+
+
+def _assert_skip_counts_well_typed(parser: object) -> None:
+    by_reason = parser.skipped_records_by_reason  # type: ignore[attr-defined]
+    count = parser.skipped_record_count  # type: ignore[attr-defined]
+    if by_reason is None:
+        assert count is None
+        return
+    assert isinstance(by_reason, dict)
+    assert all(isinstance(k, str) and type(v) is int for k, v in by_reason.items())
+    assert type(count) is int
+    assert count == sum(by_reason.values())
+
+
+_PARSER_INPUTS = {**{k: v.read_text() for k, v in _SOURCE_FIXTURES.items()},
+                  "openclaw": _OPENCLAW_SESSION_LINES}
+
+
+@pytest.mark.parametrize("name", sorted(_PARSER_INPUTS))
+def test_ac4_every_registry_parser_declares_well_typed_skip_counts_and_resets(name: str):
+    from driftshield.parsers.registry import PARSERS
+
+    text = _PARSER_INPUTS[name]
+    parser = PARSERS[name]()
+    _assert_skip_counts_well_typed(parser)
+    if name == "claude_code":
+        parser.parse(text + "\n{not json\n[1]")
+        _assert_skip_counts_well_typed(parser)
+        assert parser.skipped_records_by_reason == {"not_json": 1, "not_an_object": 1}
+    parser.parse(text)
+    _assert_skip_counts_well_typed(parser)
+    if name == "claude_code":
+        assert parser.skipped_records_by_reason == {}
+        assert parser.skipped_record_count == 0
+    else:
+        assert parser.skipped_records_by_reason is None
+        assert parser.skipped_record_count is None
+
+
+def test_ac4_registry_is_fully_covered_by_parser_inputs():
+    from driftshield.parsers.registry import PARSERS
+
+    assert set(PARSERS) == set(_PARSER_INPUTS)
+
+
+def test_ac4_a_missing_or_wrongly_typed_skip_count_fails_the_check():
+    class Missing:
+        pass
+
+    class WrongType:
+        skipped_records_by_reason: dict = {"x": "1"}  # noqa: RUF012
+        skipped_record_count = 1
+
+    class Inconsistent:
+        skipped_records_by_reason: dict = {"x": 2}  # noqa: RUF012
+        skipped_record_count = 1
+
+    for bad in (Missing(), WrongType(), Inconsistent()):
+        with pytest.raises((AssertionError, AttributeError)):
+            _assert_skip_counts_well_typed(bad)
 
 
 def test_str_and_bytes_give_the_same_run():
