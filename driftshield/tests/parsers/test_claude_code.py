@@ -241,3 +241,31 @@ def test_ac3_parser_with_no_skipped_records_reports_zero():
     parser.parse("\n".join(_valid_lines()))
     assert parser.skipped_records_by_reason == {}
     assert parser.skipped_record_count == 0
+
+
+def test_ac2_assistant_string_content_is_counted_as_content_not_usable():
+    parser = ClaudeCodeParser()
+    parser.parse("\n".join(_valid_lines() + [_record("assistant", {"content": "just text"})]))
+    assert parser.skipped_records_by_reason == {"content_not_usable": 1}
+    assert parser.skipped_record_count == 1
+
+
+def test_ac2_unusable_content_is_counted_for_user_and_assistant_records():
+    lines = [
+        _record("assistant", {"content": 5}),
+        _record("assistant", {"content": None}),
+        _record("user", {"content": None}),
+        _record("user", {"content": 7}),
+        _record("user", {"content": {"a": 1}}),
+    ]
+    parser = ClaudeCodeParser()
+    parser.parse("\n".join(_valid_lines() + lines))
+    assert parser.skipped_records_by_reason == {"content_not_usable": 5}
+
+
+def test_ac2_user_string_content_is_not_skipped():
+    clean = ClaudeCodeParser().parse("\n".join(_valid_lines()))
+    parser = ClaudeCodeParser()
+    events = parser.parse("\n".join(_valid_lines() + [_record("user", {"content": "hello"})]))
+    assert parser.skipped_records_by_reason == {}
+    assert len(events) >= len(clean)
