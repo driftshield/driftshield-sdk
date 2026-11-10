@@ -44,6 +44,7 @@ _SOURCE_FIXTURES = {
     "claude_desktop": FIXTURES / "sample_claude_desktop_session.json",
     "crewai": FIXTURES / "sample_crewai_session.json",
     "langchain": FIXTURES / "sample_langchain_session.json",
+    "chatgpt_export": FIXTURES / "sample_chatgpt_export.json",
 }
 
 _OPENCLAW_SESSION_LINES = "\n".join(
@@ -653,3 +654,15 @@ def test_ac3_no_skipped_records_reports_zero_and_no_extra_warning():
     assert run.canonical_analysis["extraction_quality_summary"]["skipped_record_count"] == 0
     assert run.canonical_analysis["extraction_quality_summary"]["skipped_records_by_reason"] == {}
     assert run.warnings == []
+
+
+def test_ac8_chatgpt_title_does_not_reach_the_redacted_transcript(tmp_path: Path) -> None:
+    conversation = json.loads((FIXTURES / "sample_chatgpt_export.json").read_text())[0]
+    conversation["title"] = "Quarterly layoffs plan for Acme"
+    run = analyse_run(json.dumps([conversation]))
+    assert "Quarterly layoffs" not in json.dumps(run.redacted_transcript)
+
+
+def test_ac8_title_outside_a_chatgpt_conversation_is_kept() -> None:
+    payload = {"events": [{"title": "kept", "action": "x"}]}
+    assert redact(payload).payload == payload

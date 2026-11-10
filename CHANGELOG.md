@@ -3,6 +3,14 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### ChatGPT conversation exports
+
+- New source `chatgpt_export`: a ChatGPT export holding a single conversation is
+  analysed along the branch ending at `current_node`. An export with several
+  conversations is refused with a clear message; splitting is not supported yet. (#204)
+
 ## 0.2.2 - 2026-09-11
 
 ### Codex sessions can fail, and recovery needs matching evidence
