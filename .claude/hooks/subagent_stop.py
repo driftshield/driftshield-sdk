@@ -99,7 +99,8 @@ def readable_verdict(v: dict) -> str:
     known = ("blocking", "major", "minor", "nit")
     order = [s for s in known if s in by_sev] + sorted(set(by_sev) - set(known))
     breakdown = ": " + ", ".join(f"{by_sev[s]} {s}" for s in order) if findings else ""
-    lines = [f"{met} of {_count(len(assessed), 'checklist item')} met. {_count(len(findings), 'finding')}{breakdown}.", ""]
+    checklist = f"{met} of {_count(len(assessed), 'checklist item')} met." if assessed else "No checklist."
+    lines = [f"{checklist} {_count(len(findings), 'finding')}{breakdown}.", ""]
     if assessed:
         lines += ["| Item | Status | Evidence |", "| --- | --- | --- |"]
         for a in assessed:
