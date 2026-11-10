@@ -54,10 +54,13 @@ graph, inspect the inflection node, and read the generated forensic report.
 | Source | Format | Status |
 |--------|--------|--------|
 | Claude Code | JSONL | Stable |
+| ChatGPT export | JSON | Experimental |
 | Claude Desktop | JSON | Experimental |
 | Codex CLI | JSONL | Experimental |
 | Codex Desktop | JSON | Experimental |
 | OpenClaw | JSONL | Experimental |
+
+ChatGPT export reads one conversation from `conversations.json` (the branch ending at `current_node`); a file holding several conversations is refused for now.
 
 Codex CLI covers the rollout files under `~/.codex/sessions/`; the Codex app and its VS Code extension write the same files.
 
