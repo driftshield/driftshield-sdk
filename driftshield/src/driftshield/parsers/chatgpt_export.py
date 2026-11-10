@@ -10,12 +10,13 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
+from driftshield.parsers.protocol import NoSkipCountMixin
 
 _AGENT_ID = "chatgpt"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
-class ChatGPTExportParser:
+class ChatGPTExportParser(NoSkipCountMixin):
     """Read the branch ending at ``current_node`` of a single exported conversation."""
 
     @property

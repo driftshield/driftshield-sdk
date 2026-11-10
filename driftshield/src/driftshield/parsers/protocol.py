@@ -20,3 +20,25 @@ class TranscriptParser(Protocol):
     def source_type(self) -> str:
         """Return identifier for this parser type (e.g., 'claude_code')."""
         ...
+
+    @property
+    def skipped_records_by_reason(self) -> dict[str, int] | None:
+        """Source records the last parse() skipped, by reason; None if not counted."""
+        ...
+
+    @property
+    def skipped_record_count(self) -> int | None:
+        """Total records the last parse() skipped; None if the parser does not count."""
+        ...
+
+
+class NoSkipCountMixin:
+    """For parsers that do not count skipped records: both counts are None."""
+
+    @property
+    def skipped_records_by_reason(self) -> dict[str, int] | None:
+        return None
+
+    @property
+    def skipped_record_count(self) -> int | None:
+        return None

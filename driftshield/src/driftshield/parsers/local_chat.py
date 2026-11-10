@@ -9,9 +9,10 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
+from driftshield.parsers.protocol import NoSkipCountMixin
 
 
-class LocalChatTranscriptParser:
+class LocalChatTranscriptParser(NoSkipCountMixin):
     TOOL_CATEGORY_MAP = {
         "read": "file_io",
         "write": "file_io",
