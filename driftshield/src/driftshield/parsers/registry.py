@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from driftshield.parsers.chatgpt_export import ChatGPTExportParser
 from driftshield.parsers.claude_code import ClaudeCodeParser
 from driftshield.parsers.claude_desktop import ClaudeDesktopParser
 from driftshield.parsers.codex_cli import CodexCliParser, is_rollout_record
@@ -22,6 +23,7 @@ from driftshield.parsers.openclaw_trajectory import OpenClawTrajectoryParser
 from driftshield.parsers.protocol import TranscriptParser
 
 PARSERS: dict[str, type[TranscriptParser]] = {
+    "chatgpt_export": ChatGPTExportParser,
     "claude_code": ClaudeCodeParser,
     "claude_desktop": ClaudeDesktopParser,
     "codex_cli": CodexCliParser,
@@ -103,6 +105,8 @@ def _detect_single_document(whole: Any) -> str | None:
     """Detect formats that ship as one JSON document (object or array)."""
     if isinstance(whole, list):
         first = next((e for e in whole if isinstance(e, dict)), None)
+        if first is not None and "mapping" in first and "current_node" in first:
+            return "chatgpt_export"
         if first is not None and ("run_type" in first or ("trace_id" in first and "inputs" in first)):
             return "langchain"
         return None
