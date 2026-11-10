@@ -183,3 +183,34 @@ def test_ac2_teams_uses_configured_intake_address_over_builtin(tmp_path, monkeyp
     result = runner.invoke(app, ["submit", "--path", str(session), "--tier", "teams"])
     assert result.exit_code == 0, result.output
     assert captured["intake_url"] == custom
+
+
+def test_ac1_cli_teams_submit_uses_built_in_address_without_local_config(tmp_path, monkeypatch):
+    from driftshield.telemetry import DEFAULT_COMMUNITY_INTAKE_URL
+
+    captured = {}
+
+    def fake_teams_upload(*, config, payload, workflow_reference, file_name, provenance, **_):
+        captured["intake_url"] = config.intake_url
+        captured["api_key"] = config.api_key
+
+        class _Resp:
+            submission_id = "sub_teams"
+            processing_status = "received"
+
+        class _Result:
+            response = _Resp()
+            server_contract_version = None
+
+        return _Result()
+
+    monkeypatch.setattr(
+        "driftshield.public.submit_teams_via_presigned_upload", fake_teams_upload
+    )
+    monkeypatch.setenv("DRIFTSHIELD_API_KEY", "test-key")
+    monkeypatch.setenv("DRIFTSHIELD_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("DRIFTSHIELD_TELEMETRY_HOME", str(tmp_path / "tele"))
+    session = _write_session(tmp_path)
+    result = runner.invoke(app, ["submit", "--path", str(session), "--tier", "teams"])
+    assert result.exit_code == 0, result.output
+    assert captured == {"intake_url": DEFAULT_COMMUNITY_INTAKE_URL, "api_key": "test-key"}
