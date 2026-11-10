@@ -73,15 +73,64 @@ def issue_items(run: dict) -> list[str]:
     return [i["id"] for i in parsed.get("acceptance_criteria", []) + parsed.get("must_not_change", []) if i.get("id")]
 
 
-def comment_body(round_no: int, raw: str, v: dict, withheld: list[str]) -> str:
-    findings = v.get("findings") or []
-    serious = [f for f in findings if f.get("severity") in ("blocking", "major")]
+def _cell(value) -> str:
+    """One line of free text, safe inside a Markdown table cell or bullet."""
+    return re.sub(r"\s+", " ", str(value if value is not None else "")).replace("|", "\\|").replace("<", "&lt;").strip()
+
+
+def _code(value) -> str:
+    text = re.sub(r"\s+", " ", str(value if value is not None else "")).replace("`", "'").replace("<", "&lt;").strip()
+    return f"`{text}`" if text else "none"
+
+
+def _count(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def readable_verdict(v: dict) -> str:
+    """The verdict for a person: summary line, checklist table, findings."""
+    assessed = [a for a in v.get("ac_assessment") or [] if isinstance(a, dict)]
+    findings = [f for f in v.get("findings") or [] if isinstance(f, dict)]
+    met = sum(1 for a in assessed if str(a.get("status")).lower() == "met")
+    by_sev: dict[str, int] = {}
+    for f in findings:
+        sev = str(f.get("severity") or "unrated")
+        by_sev[sev] = by_sev.get(sev, 0) + 1
+    known = ("blocking", "major", "minor", "nit")
+    order = [s for s in known if s in by_sev] + sorted(set(by_sev) - set(known))
+    breakdown = ": " + ", ".join(f"{by_sev[s]} {s}" for s in order) if findings else ""
+    lines = [f"{met} of {_count(len(assessed), 'checklist item')} met. {_count(len(findings), 'finding')}{breakdown}.", ""]
+    if assessed:
+        lines += ["| Item | Status | Evidence |", "| --- | --- | --- |"]
+        for a in assessed:
+            status = str(a.get("status") or "unclear").replace("_", " ").replace("-", " ").strip().capitalize()
+            lines.append(f"| {_cell(a.get('ac'))} | {status} | {_code(a.get('evidence_ref'))} |")
+        lines.append("")
+    if findings:
+        for f in findings:
+            where = ", ".join(x for x in (_cell(f.get("ac")) if f.get("ac") else "", _code(f.get("location")) if f.get("location") else "") if x)
+            lines.append(f"- **{_cell(f.get('id'))}** {_cell(f.get('severity') or 'unrated')}: {_cell(f.get('finding'))}"
+                         + (f" ({where})" if where else ""))
+    else:
+        lines.append("No findings.")
+    resolved = [r.get("id") if isinstance(r, dict) else r for r in v.get("resolved") or []]
+    if resolved:
+        lines += ["", "Resolved from earlier rounds: " + ", ".join(_cell(r) for r in resolved) + "."]
+    return "\n".join(lines)
+
+
+def comment_body(round_no: int, v: dict, withheld: list[str]) -> str:
+    """Marker line first (intel parses it), then the readable part, then the verdict JSON in a collapsed block.
+    The first ```json block after the marker is the one intel parses, so no other json block goes before it."""
     word = "approved" if v["verdict"] == "approve" else "changes requested"
-    head = (f"<!-- {dslib.REVIEW_MARKER} round={round_no} head={v.get('head_sha')} verdict={v['verdict']} -->\n"
-            f"**Reviewer, round {round_no}: {word}.** {len(findings)} findings, {len(serious)} blocking or major.\n\n")
+    head = f"<!-- {dslib.REVIEW_MARKER} round={round_no} head={v.get('head_sha')} verdict={v['verdict']} -->\n**Reviewer, round {round_no}: {word}.** "
     if withheld:
-        return head + "The full verdict failed the public safety scan, so it is kept off GitHub.\n"
-    return head + "```json\n" + raw + "\n```\n"
+        findings = v.get("findings") or []
+        serious = [f for f in findings if f.get("severity") in ("blocking", "major")]
+        return (head + f"{len(findings)} findings, {len(serious)} blocking or major.\n\n"
+                "The full verdict failed the public safety scan, so it is kept off GitHub.\n")
+    data = json.dumps(v, indent=2, ensure_ascii=False)
+    return (head + readable_verdict(v) + "\n\n<details><summary>Verdict data</summary>\n\n```json\n" + data + "\n```\n\n</details>\n")
 
 
 def main() -> int:
@@ -124,7 +173,7 @@ def main() -> int:
     withheld = dslib.unsafe(raw)
     comment_id, posted_as, reviewer_login, app_note, queued, queue_note = None, None, None, None, None, None
     if pr:
-        text = comment_body(round_no, raw, verdict, withheld)
+        text = comment_body(round_no, verdict, withheld)
         # Through the run store, where the reviewer poster in AWS puts it on the PR as the reviewer's GitHub App;
         # else as the App directly when its key is set; else as the run's identity. Each step says why it was skipped.
         ctx = {"repo": run.get("repository"), "issue": run.get("issue"), "pr": pr["number"],
