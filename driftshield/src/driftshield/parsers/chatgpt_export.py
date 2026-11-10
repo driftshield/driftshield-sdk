@@ -12,6 +12,7 @@ from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
 
 _AGENT_ID = "chatgpt"
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class ChatGPTExportParser:
@@ -22,13 +23,12 @@ class ChatGPTExportParser:
         return "chatgpt_export"
 
     def parse_file(self, file_path: str) -> list[CanonicalEvent]:
-        return normalize_events(
-            self.parse(Path(file_path).read_text()),
-            source_type=self.source_type,
-            source_path=file_path,
-        )
+        return self._read(Path(file_path).read_text(), source_path=file_path)
 
     def parse(self, content: str) -> list[CanonicalEvent]:
+        return self._read(content, source_path=None)
+
+    def _read(self, content: str, *, source_path: str | None) -> list[CanonicalEvent]:
         payload = json.loads(content)
         conversations = payload if isinstance(payload, list) else [payload]
         conversations = [c for c in conversations if isinstance(c, dict)]
@@ -39,7 +39,8 @@ class ChatGPTExportParser:
             )
         if not conversations:
             return []
-        return self._parse_conversation(conversations[0])
+        events = self._parse_conversation(conversations[0])
+        return normalize_events(events, source_type=self.source_type, source_path=source_path)
 
     def _parse_conversation(self, conversation: dict[str, Any]) -> list[CanonicalEvent]:
         session_id = str(
@@ -64,6 +65,7 @@ class ChatGPTExportParser:
         events: list[CanonicalEvent] = []
         pending_call: CanonicalEvent | None = None
         previous_id: UUID | None = None
+        last_time = self._timestamp(conversation.get("create_time"), _EPOCH)
 
         for index, node in enumerate(branch):
             message = node.get("message")
@@ -73,7 +75,8 @@ class ChatGPTExportParser:
             text = self._text(message.get("content"))
             if not text:
                 continue
-            timestamp = self._timestamp(message.get("create_time"))
+            timestamp = self._timestamp(message.get("create_time"), last_time)
+            last_time = timestamp
 
             if role == "tool":
                 if pending_call is not None:
@@ -120,10 +123,12 @@ class ChatGPTExportParser:
                         "raw_action": "text",
                     },
                 )
+            if event.event_type != EventType.TOOL_CALL:
+                pending_call = None
             events.append(event)
             previous_id = event.id
 
-        return normalize_events(events, source_type=self.source_type)
+        return events
 
     @staticmethod
     def _text(content: Any) -> str:
@@ -138,7 +143,7 @@ class ChatGPTExportParser:
         return text.strip() if isinstance(text, str) else ""
 
     @staticmethod
-    def _timestamp(value: Any) -> datetime:
-        if isinstance(value, (int, float)):
+    def _timestamp(value: Any, fallback: datetime) -> datetime:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return datetime.fromtimestamp(value, tz=timezone.utc)
-        return datetime.now(timezone.utc)
+        return fallback
