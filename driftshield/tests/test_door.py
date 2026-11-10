@@ -44,6 +44,7 @@ _SOURCE_FIXTURES = {
     "claude_desktop": FIXTURES / "sample_claude_desktop_session.json",
     "crewai": FIXTURES / "sample_crewai_session.json",
     "langchain": FIXTURES / "sample_langchain_session.json",
+    "chatgpt_export": FIXTURES / "sample_chatgpt_export.json",
 }
 
 _OPENCLAW_SESSION_LINES = "\n".join(
