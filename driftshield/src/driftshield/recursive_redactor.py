@@ -406,12 +406,19 @@ def _redact_content_blocks(items: list[Any], path: str, entries: list[RedactionE
     return redacted_items
 
 
+def _is_chatgpt_conversation(record: dict[str, Any]) -> bool:
+    """A ChatGPT export conversation: its ``title`` is generated from the user's text."""
+    return "mapping" in record and "current_node" in record
+
+
 def _redact_value(value: Any, path: str, entries: list[RedactionEntry]) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            if key in _DROPPED_KEYS:
+            if key in _DROPPED_KEYS or (
+                key == "title" and isinstance(item, str) and _is_chatgpt_conversation(value)
+            ):
                 entries.append(
                     RedactionEntry(
                         path=child_path,
