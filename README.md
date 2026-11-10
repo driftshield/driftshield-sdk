@@ -54,10 +54,13 @@ graph, inspect the inflection node, and read the generated forensic report.
 | Source | Format | Status |
 |--------|--------|--------|
 | Claude Code | JSONL | Stable |
+| ChatGPT export | JSON | Experimental |
 | Claude Desktop | JSON | Experimental |
 | Codex CLI | JSONL | Experimental |
 | Codex Desktop | JSON | Experimental |
 | OpenClaw | JSONL | Experimental |
+
+ChatGPT export reads one conversation from `conversations.json` (the branch ending at `current_node`); a file holding several conversations is refused for now.
 
 Codex CLI covers the rollout files under `~/.codex/sessions/`; the Codex app and its VS Code extension write the same files.
 
@@ -74,7 +77,7 @@ source .venv/bin/activate
 driftshield signatures pull community-general --ref <git-tag-or-commit>
 ```
 
-By default this pulls from `tborys/driftshield` and stores the validated manifest under `~/.local/share/driftshield/signatures/<pack-name>/<pack-version>/`.
+By default this pulls from `driftshield/driftshield-sdk` and stores the validated manifest under `~/.local/share/driftshield/signatures/<pack-name>/<pack-version>/`.
 
 If you need to test or mirror a pack source, override the source URL directly:
 
@@ -121,8 +124,8 @@ If a public sentence sounds like a bundled promise about what repeats across run
 ### 1. Setup from a clean clone
 
 ```bash
-git clone https://github.com/tborys/driftshield.git
-cd driftshield
+git clone https://github.com/driftshield/driftshield-sdk.git
+cd driftshield-sdk
 ./scripts/dev-setup.sh
 ```
 
@@ -176,7 +179,7 @@ driftshield submit --path <session.json> --include-analysis
 ```
 
 The hosted intel layer persists the investigation and makes it available on the investigation surface.
-Teams customers set `DRIFTSHIELD_API_KEY` and pass `--tier teams`; no other configuration is needed.
+Every tier uses the same built-in DriftShield address; the API key decides the workspace. Teams and Enterprise customers need only `DRIFTSHIELD_API_KEY` and `--tier teams`; no other configuration is needed.
 
 ### 5. Run the full local stack
 
@@ -447,7 +450,7 @@ Contributions are welcome. DriftShield is founded and maintained by Tomasz Borys
    ```bash
    ./scripts/dev-verify.sh
    ```
-6. **Open a pull request** from your fork's branch to `tborys/driftshield:main`
+6. **Open a pull request** from your fork's branch to `driftshield/driftshield-sdk:main`
 
 All pull requests are reviewed and merged by Tomasz Borys, DriftShield's founder and current maintainer. Direct pushes to `main` are not accepted.
 

@@ -22,7 +22,7 @@ Analyse one agent run.
 |----------|---------|
 | `content` | The raw transcript as `bytes` or `str`, or an already parsed event sequence (for example `run.events` from an earlier call). |
 | `source` | Optional provenance label, usually the file path. Only a hint for format detection; the content decides. Also recorded on the run and used as the upload file name. |
-| `format` | Force a parser instead of detecting one: `claude_code`, `claude_desktop`, `codex_cli`, `codex_desktop`, `crewai`, `langchain`, `openclaw`, `openclaw_trajectory`. |
+| `format` | Force a parser instead of detecting one: `chatgpt_export`, `claude_code`, `claude_desktop`, `codex_cli`, `codex_desktop`, `crewai`, `langchain`, `openclaw`, `openclaw_trajectory`. |
 | `run_id` | Fix the run identity (a `uuid.UUID`). Event ids derive from it, so the same content with the same `run_id` always yields the same ids. |
 
 Supported inputs: native Claude Code, Codex CLI, OpenClaw session and
@@ -59,7 +59,7 @@ detail for DriftShield's own CLI and API and are not part of the contract.
 | Error | When |
 |-------|------|
 | `UnsupportedFormatError` | `format` names a parser DriftShield does not have. A caller error; the message lists the available names. |
-| `NoParseableEventsError` | Not a single event could be read. `.reason` is `empty` (blank content), `unrecognised_format` (no parser matches and no path hint helps), `parse_failed` (the parser raised on the content) or `no_events` (a recognised format that yielded nothing). `.warnings` carries what was learned before giving up. |
+| `NoParseableEventsError` | Not a single event could be read. `.reason` is `empty` (blank content), `not_a_transcript` (no parser matches and no path hint helps, including stray non-`.jsonl` files in a native session store), `parse_failed` (the parser raised on the content) or `no_events` (a recognised format that yielded nothing). `.warnings` carries what was learned before giving up. |
 
 Both subclass `ValueError`. Zero parseable events is always an error, never
 an empty success.

@@ -1,0 +1,153 @@
+[
+  {
+    "id": "synthetic-conv-0001",
+    "conversation_id": "synthetic-conv-0001",
+    "title": "Synthetic arithmetic example",
+    "create_time": 1700000000.0,
+    "update_time": 1700000050.0,
+    "current_node": "n6",
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": null,
+        "parent": null,
+        "children": [
+          "n1"
+        ]
+      },
+      "n1": {
+        "id": "n1",
+        "message": {
+          "id": "n1",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000000.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          },
+          "recipient": "all"
+        },
+        "parent": "root",
+        "children": [
+          "n2"
+        ]
+      },
+      "n2": {
+        "id": "n2",
+        "message": {
+          "id": "n2",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000010.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Please add 2 and 3 and tell me the sum."
+            ]
+          },
+          "recipient": "all"
+        },
+        "parent": "n1",
+        "children": [
+          "n3",
+          "n4"
+        ]
+      },
+      "n3": {
+        "id": "n3",
+        "message": {
+          "id": "n3",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000020.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "The sum is 6."
+            ]
+          },
+          "recipient": "all"
+        },
+        "parent": "n2",
+        "children": []
+      },
+      "n4": {
+        "id": "n4",
+        "message": {
+          "id": "n4",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000030.0,
+          "content": {
+            "content_type": "code",
+            "text": "print(2 + 3)"
+          },
+          "recipient": "python"
+        },
+        "parent": "n2",
+        "children": [
+          "n5"
+        ]
+      },
+      "n5": {
+        "id": "n5",
+        "message": {
+          "id": "n5",
+          "author": {
+            "role": "tool",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000040.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "5"
+            ]
+          },
+          "recipient": "all"
+        },
+        "parent": "n4",
+        "children": [
+          "n6"
+        ]
+      },
+      "n6": {
+        "id": "n6",
+        "message": {
+          "id": "n6",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1700000050.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "The sum is 5."
+            ]
+          },
+          "recipient": "all"
+        },
+        "parent": "n5",
+        "children": []
+      }
+    }
+  }
+]

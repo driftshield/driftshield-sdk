@@ -77,6 +77,18 @@ PUBLIC_REPO_BASES = (
     "http://github.com/tborys/driftshield",
     "git@github.com:tborys/driftshield",
     "ssh://git@github.com/tborys/driftshield",
+    "driftshield/driftshield",
+    "github.com/driftshield/driftshield",
+    "https://github.com/driftshield/driftshield",
+    "http://github.com/driftshield/driftshield",
+    "git@github.com:driftshield/driftshield",
+    "ssh://git@github.com/driftshield/driftshield",
+    "driftshield/driftshield-sdk",
+    "github.com/driftshield/driftshield-sdk",
+    "https://github.com/driftshield/driftshield-sdk",
+    "http://github.com/driftshield/driftshield-sdk",
+    "git@github.com:driftshield/driftshield-sdk",
+    "ssh://git@github.com/driftshield/driftshield-sdk",
 )
 SAME_OWNER_PREFIXES = (
     "tborys/",
@@ -85,6 +97,12 @@ SAME_OWNER_PREFIXES = (
     "http://github.com/tborys/",
     "git@github.com:tborys/",
     "ssh://git@github.com/tborys/",
+    # The driftshield org: URL forms only. A bare "driftshield/" prefix would match source paths.
+    "github.com/driftshield/",
+    "https://github.com/driftshield/",
+    "http://github.com/driftshield/",
+    "git@github.com:driftshield/",
+    "ssh://git@github.com/driftshield/",
 )
 EXCLUDED_FILES = {
     "scripts/check-public-scope.sh",

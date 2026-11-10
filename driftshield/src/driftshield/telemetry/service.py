@@ -13,7 +13,7 @@ from typing import Any
 
 _VALID_OUTCOME_STATUSES = {"matched", "unclassified", "not_classifiable"}
 
-# Canonical community intake endpoint. The OSS lane submits here when no
+# Canonical community intake endpoint. Every tier submits here when no
 # remote_intake_url has been configured, so community opt-in is zero-config.
 # An explicit `telemetry remote-enable --intake-url ...` always overrides.
 DEFAULT_COMMUNITY_INTAKE_URL = "https://api.driftshield.ai/v1/intake"
@@ -30,7 +30,7 @@ class TelemetryConfig:
     remote_api_key: str | None = None
     remote_installation_id: str | None = None
     # Explicit opt-out from remote submission. Distinguishes "never configured"
-    # (community default applies on the OSS lane) from "user ran remote-disable"
+    # (community default applies for every tier) from "user ran remote-disable"
     # (no remote target at all, baked default included).
     remote_opt_out: bool = False
 
@@ -134,7 +134,7 @@ class TelemetryService:
     def remote_disable(self) -> TelemetryConfig:
         """Clear remote configuration and opt out of remote submission.
 
-        The opt-out is persisted so the OSS lane's baked community default
+        The opt-out is persisted so the baked community default
         does not apply either: after remote-disable, no submission target
         exists until remote-enable runs again.
         """
@@ -218,7 +218,7 @@ class TelemetryService:
 
 
 def effective_oss_intake_url(config: TelemetryConfig) -> str | None:
-    """Resolve the URL the OSS lane will use.
+    """Resolve the intake address used for every tier (name kept for compatibility).
 
     A configured override wins; otherwise the baked community default applies,
     unless the user explicitly opted out via remote-disable (then None).

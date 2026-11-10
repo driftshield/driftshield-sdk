@@ -44,6 +44,7 @@ _SOURCE_FIXTURES = {
     "claude_desktop": FIXTURES / "sample_claude_desktop_session.json",
     "crewai": FIXTURES / "sample_crewai_session.json",
     "langchain": FIXTURES / "sample_langchain_session.json",
+    "chatgpt_export": FIXTURES / "sample_chatgpt_export.json",
 }
 
 _OPENCLAW_SESSION_LINES = "\n".join(
@@ -150,6 +151,7 @@ def test_content_alone_detects_every_supported_format(expected: str, fixture: Pa
     run = analyse_run(fixture.read_bytes())
     assert run.detected_format == expected
     assert run.events and run.source is None
+    assert run.canonical_analysis["extraction_quality_summary"]["skipped_records_by_reason"] == {}
     assert run.warnings == []
 
 
@@ -205,9 +207,9 @@ def test_unknown_explicit_format_is_a_caller_error():
     [
         (b"", "empty"),
         (b"   \n", "empty"),
-        (b'{"some": "unknown shape"}', "unrecognised_format"),
-        (b"not json at all", "unrecognised_format"),
-        (json.dumps([{"session_id": "x"}]).encode(), "unrecognised_format"),
+        (b'{"some": "unknown shape"}', "not_a_transcript"),
+        (b"not json at all", "not_a_transcript"),
+        (json.dumps([{"session_id": "x"}]).encode(), "not_a_transcript"),
         (json.dumps({"type": "summary", "sessionId": "s"}).encode(), "no_events"),
     ],
 )
@@ -217,9 +219,25 @@ def test_zero_parseable_events_is_an_explicit_error(content: bytes, reason: str)
     assert excinfo.value.reason == reason
 
 
-def test_parser_crash_is_reported_as_parse_failed():
+def test_non_jsonl_file_under_claude_projects_is_not_a_transcript():
     with pytest.raises(NoParseableEventsError) as excinfo:
-        analyse_run(b"123\n", source="corrupt.jsonl")
+        analyse_run(b"just some notes", source="/h/.claude/projects/p/notes.md")
+    assert excinfo.value.reason == "not_a_transcript"
+    assert "not_a_transcript" in str(excinfo.value)
+    doc = NoParseableEventsError.__doc__ or ""
+    assert "not_a_transcript" in doc
+    assert "unrecognised_format" not in doc
+
+
+def test_parser_crash_is_reported_as_parse_failed(monkeypatch):
+    from driftshield.parsers.claude_code import ClaudeCodeParser
+
+    def _boom(self, content):
+        raise TypeError("forced parser crash")
+
+    monkeypatch.setattr(ClaudeCodeParser, "parse", _boom)
+    with pytest.raises(NoParseableEventsError) as excinfo:
+        analyse_run(_CLAUDE_CODE.read_bytes(), source="corrupt.jsonl")
     assert excinfo.value.reason == "parse_failed"
     assert "claude_code" in str(excinfo.value)
 
@@ -569,6 +587,25 @@ def test_submit_when_remote_is_disabled_raises_before_any_network(home, run, mon
         submit(run)
 
 
+def test_ac1_workspace_submit_uses_built_in_address_without_local_config(
+    tmp_path, run, monkeypatch
+):
+    from driftshield.telemetry import DEFAULT_COMMUNITY_INTAKE_URL
+
+    monkeypatch.setenv("DRIFTSHIELD_HOME", str(tmp_path))
+    captured = {}
+
+    def fake_upload(*, config, payload, workflow_reference, file_name, provenance, backfill=False):
+        captured.update(url=config.intake_url, key=config.api_key)
+        return _Result("sub_ws")
+
+    monkeypatch.setattr("driftshield.public.submit_teams_via_presigned_upload", fake_upload)
+
+    submit(run, "teams", "ws-key")
+
+    assert captured == {"url": DEFAULT_COMMUNITY_INTAKE_URL, "key": "ws-key"}
+
+
 def test_cli_submit_include_analysis_rides_the_door(home, monkeypatch):
     captured = {}
 
@@ -584,3 +621,48 @@ def test_cli_submit_include_analysis_rides_the_door(home, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert captured["summary"] is not None and captured["summary"].matches
+
+
+_SKIP_GOOD_LINES = (
+    '{"type":"user","sessionId":"s1","timestamp":"2026-01-01T00:00:00Z",'
+    '"message":{"role":"user","content":"hello"}}\n'
+    '{"type":"assistant","sessionId":"s1","timestamp":"2026-01-01T00:00:01Z",'
+    '"message":{"role":"assistant","model":"m","content":[{"type":"text","text":"hi"}]}}\n'
+)
+
+
+def test_ac1_skipped_records_are_counted_in_extraction_quality_summary():
+    text = _SKIP_GOOD_LINES + "{not json\n[1, 2]\n" + '{"type":"user","message":"oops"}\n'
+    run = analyse_run(text.encode(), format="claude_code")
+    assert run.canonical_analysis["extraction_quality_summary"]["skipped_record_count"] == 3
+
+
+def test_ac2_skipped_records_are_grouped_by_reason_in_summary():
+    text = _SKIP_GOOD_LINES + "{not json\n{also bad\n[1, 2]\n" + '{"type":"user","message":"oops"}\n'
+    run = analyse_run(text.encode(), format="claude_code")
+    summary = run.canonical_analysis["extraction_quality_summary"]
+    assert summary["skipped_records_by_reason"] == {
+        "not_json": 2,
+        "not_an_object": 1,
+        "message_not_an_object": 1,
+    }
+    assert summary["skipped_record_count"] == 4
+
+
+def test_ac3_no_skipped_records_reports_zero_and_no_extra_warning():
+    run = analyse_run(_SKIP_GOOD_LINES.encode(), format="claude_code")
+    assert run.canonical_analysis["extraction_quality_summary"]["skipped_record_count"] == 0
+    assert run.canonical_analysis["extraction_quality_summary"]["skipped_records_by_reason"] == {}
+    assert run.warnings == []
+
+
+def test_ac8_chatgpt_title_does_not_reach_the_redacted_transcript(tmp_path: Path) -> None:
+    conversation = json.loads((FIXTURES / "sample_chatgpt_export.json").read_text())[0]
+    conversation["title"] = "Quarterly layoffs plan for Acme"
+    run = analyse_run(json.dumps([conversation]))
+    assert "Quarterly layoffs" not in json.dumps(run.redacted_transcript)
+
+
+def test_ac8_title_outside_a_chatgpt_conversation_is_kept() -> None:
+    payload = {"events": [{"title": "kept", "action": "x"}]}
+    assert redact(payload).payload == payload

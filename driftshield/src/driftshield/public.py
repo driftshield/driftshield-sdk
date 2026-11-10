@@ -101,7 +101,7 @@ SubmitError = RemoteSubmissionError
 class NoParseableEventsError(ValueError):
     """``analyse_run`` could not read a single event from the content.
 
-    ``reason`` is one of ``empty``, ``unrecognised_format``, ``parse_failed``
+    ``reason`` is one of ``empty``, ``not_a_transcript``, ``parse_failed``
     or ``no_events``; ``warnings`` carries whatever was learned on the way.
     """
 
@@ -239,13 +239,16 @@ def analyse_run(
     run_id = run_id or uuid.uuid4()
     if isinstance(content, (bytes, str)):
         raw = content if isinstance(content, bytes) else content.encode("utf-8")
-        events, detected, transcript, warnings = _parse_bytes(raw, source=source, format=format)
+        events, detected, transcript, warnings, skipped = _parse_bytes(
+            raw, source=source, format=format
+        )
     else:
         events = list(content)
         detected = format or _events_format(events)
         transcript = {"events": [_event_record(event) for event in events]}
         raw = json.dumps(transcript, sort_keys=True, default=str).encode("utf-8")
         warnings = []
+        skipped = {}
 
     if not events:
         raise NoParseableEventsError(
@@ -257,6 +260,7 @@ def analyse_run(
     _stabilise_event_ids(events, run_id)
     normalize_events(events, source_type=detected, source_path=source)
     analysis = analyze_session(events, session_id=events[0].session_id or str(run_id))
+    analysis.skipped_records_by_reason = skipped
 
     session = Session(
         id=run_id,
@@ -315,7 +319,7 @@ def analyse_run(
 
 def _parse_bytes(
     raw: bytes, *, source: str | None, format: str | None
-) -> tuple[list[CanonicalEvent], str, dict[str, Any], list[str]]:
+) -> tuple[list[CanonicalEvent], str, dict[str, Any], list[str], dict[str, int]]:
     warnings: list[str] = []
     text = raw.decode("utf-8", errors="replace")
     replaced = text.count("�")
@@ -331,8 +335,8 @@ def _parse_bytes(
             warnings.append(hint_warning)
     if detected is None:
         raise NoParseableEventsError(
-            "unrecognised_format",
-            "unrecognised transcript format: no known parser matches the content",
+            "not_a_transcript",
+            "unrecognised transcript format (not_a_transcript): no parser matches the content",
             warnings,
         )
 
@@ -354,12 +358,14 @@ def _parse_bytes(
         transcript = _line_records(text, warnings)
 
     try:
-        events = get_parser(detected).parse(parse_input)
+        parser = get_parser(detected)
+        events = parser.parse(parse_input)
     except Exception as exc:  # noqa: BLE001 - a malformed transcript is data, not a crash
         raise NoParseableEventsError(
             "parse_failed", f"failed to parse as '{detected}': {exc}", warnings
         ) from exc
-    return events, detected, transcript, warnings
+    skipped = getattr(parser, "skipped_records_by_reason", None)
+    return events, detected, transcript, warnings, dict(skipped) if isinstance(skipped, dict) else {}
 
 
 def _line_records(text: str, warnings: list[str]) -> dict[str, Any]:
@@ -547,20 +553,13 @@ def submit(
             raise SubmitError(f"environment must be one of: {', '.join(sorted(DECLARED_ENVIRONMENTS))}.")
 
     config = TelemetryService().load_config()
-    if resolved == "community":
-        intake_url = effective_oss_intake_url(config)
-        if intake_url is None:
-            raise SubmitError(
-                "Remote submission is disabled (`telemetry remote-disable`). "
-                "Run `driftshield telemetry remote-enable --intake-url URL` to re-enable."
-            )
-    else:
-        intake_url = config.remote_intake_url
-        if intake_url is None:
-            raise SubmitError(
-                "Remote submission is not configured. Run `driftshield telemetry "
-                "remote-enable --intake-url URL` first."
-            )
+    # Every tier uses the same address; the API key decides the workspace.
+    intake_url = effective_oss_intake_url(config)
+    if intake_url is None:
+        raise SubmitError(
+            "Remote submission is disabled (`telemetry remote-disable`). "
+            "Run `driftshield telemetry remote-enable --intake-url URL` to re-enable."
+        )
 
     if workflow_reference is None:
         declared = run.transcript.get("workflow_reference")

@@ -1,7 +1,7 @@
 {
   "schema": "delivery-manifest.v1",
   "note": "Public-safe copy of the pinned DriftShield delivery manifest for this repository, synced by the operator when the pin rolls. Coordination fields that reference private infrastructure are deliberately omitted; agents working in this repository need nothing beyond what is here.",
-  "repository": "tborys/driftshield",
+  "repository": "driftshield/driftshield-sdk",
   "implementation": {
     "max_review_rounds": 3,
     "trigger_label": "flow:implement",
