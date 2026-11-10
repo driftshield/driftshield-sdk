@@ -44,7 +44,7 @@ publisher, see below).
 Then set up trusted publishing so the next release is automatic:
 
 - On PyPI, open the `driftshield-sdk` project, Publishing, and add a GitHub
-  publisher: owner `tborys`, repository `driftshield`, workflow
+  publisher: owner `driftshield`, repository `driftshield-sdk`, workflow
   `release-publish.yml`, environment `pypi`.
 - On GitHub, create the `pypi` environment (Settings, Environments) and add
   the account holder as a required reviewer. The publish job pauses there
