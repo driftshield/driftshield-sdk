@@ -170,7 +170,9 @@ def check_gh(words: list[str]) -> str | None:
     m = re.fullmatch(r"issues/(\d+)/comments", tail)
     if m and method == "POST":
         if call["fields"] or set(data) != {"body"}:
-            return "Post a comment as {\"body\": ...} with --input .driftshield/body.json."
+            return "Post a comment as {\"body\": ...} with --input .driftshield/comment.json."
+        if Path(call["input"]).name == "body.json":
+            return "Comments use their own file, .driftshield/comment.json. body.json is the PR body: a failed write there would post the PR body on the issue."
         number, body = int(m.group(1)), str(data["body"])
         first = re.search(rf"<!-- (?:{dslib.CLAIM_MARKER}|{dslib.BLOCKED_MARKER}) run={run.get('nonce')} -->", body)
         if number != run.get("issue") and not (run.get("issue") is None and first):
