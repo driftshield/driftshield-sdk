@@ -9,6 +9,11 @@ Used three ways, one copy of the code:
 It reads GitHub through the `gh` CLI, with whatever token `gh` already has (the cloud worker's, the
 workflow's GITHUB_TOKEN, or your own login), and posts with the DriftShield API key. No new token.
 
+A merged pull request from any branch of the repository gets a record when DS_RECORDS_ALL_PULLS=true. Its work
+item is the pull request itself (GitHub numbers pull requests and issues in one sequence, so the work id never
+clashes), unless it is a lineage pull request, which keeps its issue. Without the setting only lineage
+pull requests (`auto/`, `fm/`) are sent.
+
 Variables: DRIFTSHIELD_API_KEY (not needed for --dry-run), DS_DRIFTSHIELD_API_BASE (default
 https://api.driftshield.ai), DS_REVIEWER_LOGINS (comma separated GitHub logins whose reviews count;
 required, never guessed from the repository owner), DS_PROFILE (default
@@ -192,6 +197,18 @@ def pull_issue(repository: str, branch, head_repository):
     return dslib.lineage_issue(branch, repository, strict=False, prefixes=("auto", "fm"))
 
 
+def pull_work_item(repository: str, pull) -> int | None:
+    """The work item of any merged same repository pull request: its lineage issue, else the pull request itself.
+    GitHub numbers pull requests and issues in one sequence, so a pull request's own number never clashes with an
+    issue's, and every plain pull request is its own work item (two pull requests that close one issue never
+    replace each other's records). None for a pull request from another repository (a fork)."""
+    head = pull["head"]
+    if (head.get("repo") or {}).get("full_name") != repository:
+        return None
+    lineage = pull_issue(repository, head["ref"], repository)
+    return lineage if lineage is not None else pull["number"]
+
+
 def find_issues(gh, repository: str, issue: int) -> list[int]:
     """Numbers of the lineage pull requests of one issue, read from the repository's pull request list."""
     return [p["number"] for p in gh.pages(f"repos/{repository}/pulls?state=all&sort=updated&direction=desc")
@@ -309,14 +326,14 @@ def map_review(repository: str, pull_number: int, review, dismissed: dict):
 
 def required_checks_from_profile(profile) -> list[str]:
     checks = (profile or {}).get("records_required_checks")
-    if not isinstance(checks, list) or not checks:
+    if not isinstance(checks, list):   # a missing key is "not configured"; an empty list is a repo with no CI
         raise NotConfigured("the profile has no records_required_checks")
     return checks
 
 
 def acceptance_for(repository: str, checks, logins, revision=None) -> dict:
-    if not checks or not all(isinstance(name, str) and name.strip() for name in checks):
-        raise AcceptanceError(f"the required checks for {repository} are empty or blank")
+    if not isinstance(checks, list) or not all(isinstance(name, str) and name.strip() for name in checks):
+        raise AcceptanceError(f"the required checks for {repository} are not a list of names, or one is blank")
     logins = [str(x).strip() for x in logins if str(x).strip()]
     if not logins:
         raise AcceptanceError("no reviewer logins")
@@ -348,7 +365,7 @@ class Collected:
     dropped_comment_ids: list = field(default_factory=list)
 
 
-def collect_issue(gh, repository: str, issue_number: int, acceptance: dict, now: datetime, known_pulls=(), deadline=None, clock=time.time) -> Collected:
+def collect_issue(gh, repository: str, issue_number: int, acceptance: dict, now: datetime, known_pulls=(), deadline=None, clock=time.time, explicit_pulls=()) -> Collected:
     """Read one issue and everything on it, and build its body. Raises on a read that fails, on no lineage PR, and
     OutOfTime when the deadline passes (checked before each read of a pull request and of a head)."""
     def tick():
@@ -368,8 +385,10 @@ def collect_issue(gh, repository: str, issue_number: int, acceptance: dict, now:
     for number in candidates:
         tick()
         pull = gh.get(f"repos/{repository}/pulls/{number}")
-        if pull_issue(repository, pull["head"]["ref"], (pull["head"].get("repo") or {}).get("full_name")) != issue_number:
-            continue
+        same_repo = (pull["head"].get("repo") or {}).get("full_name") == repository
+        if number not in explicit_pulls or not same_repo:
+            if pull_issue(repository, pull["head"]["ref"], (pull["head"].get("repo") or {}).get("full_name")) != issue_number:
+                continue
         timeline = list(gh.pages(f"repos/{repository}/issues/{number}/timeline"))
         commits = list(gh.pages(f"repos/{repository}/pulls/{number}/commits"))
         reviews = list(gh.pages(f"repos/{repository}/pulls/{number}/reviews"))
@@ -482,7 +501,7 @@ def post_body(api_url: str, key: str, body, sleep=time.sleep, timeout: int = 60,
 # ---------------------------------------------------------------- deliver one issue
 
 def deliver(gh, repository: str, issue: int, *, key, api_base, acceptance, now, known_pulls=(), dry_run=False,
-            previous_digest=None, sleep=time.sleep, deadline=None) -> dict:
+            previous_digest=None, sleep=time.sleep, deadline=None, explicit_pulls=()) -> dict:
     """Collect and post one issue's body. Never raises on GitHub or the network: the outcome says what happened.
     status is one of posted, stale_ignored, unchanged, dry_run, failed. The key never appears in the outcome."""
     outcome = {"repository": repository, "issue": issue, "status": "failed"}
@@ -491,7 +510,8 @@ def deliver(gh, repository: str, issue: int, *, key, api_base, acceptance, now, 
         outcome["error"] = refused
         return outcome
     try:
-        got = collect_issue(gh, repository, issue, acceptance, now, known_pulls=known_pulls, deadline=deadline)
+        got = collect_issue(gh, repository, issue, acceptance, now, known_pulls=known_pulls, deadline=deadline,
+                            explicit_pulls=explicit_pulls)
     except (GitHubError, CollectError, KeyError, TypeError, ValueError) as error:
         outcome["error"] = scrub(error, [key])[:300]
         return outcome
@@ -564,7 +584,10 @@ def main(argv: list[str], env: dict | None = None, gh=None) -> int:
     ap.add_argument("--only", default="", help="one issue, owner/repo#N")
     ap.add_argument("--pull", type=int, default=0, help="a merged lineage pull request number, in GITHUB_REPOSITORY")
     ap.add_argument("--dry-run", action="store_true", help="read GitHub, print sizes and counts, post nothing")
+    ap.add_argument("--any-pull", action="store_true",
+                    help="with --pull: any merged same repository pull request, not only a lineage one (or set DS_RECORDS_ALL_PULLS=true)")
     args = ap.parse_args(argv)
+    any_pull = args.any_pull or str(env.get("DS_RECORDS_ALL_PULLS", "")).strip().lower() == "true"
     try:
         only = parse_only(args.only)
     except ValueError as error:
@@ -590,14 +613,18 @@ def main(argv: list[str], env: dict | None = None, gh=None) -> int:
         return 0 if args.pull else 1
     gh = gh or GhCli()
     known: list[int] = []
+    explicit: list[int] = []
     try:
         if args.pull:
             pull = gh.get(f"repos/{repository}/pulls/{args.pull}")
-            issue = pull_issue(repository, pull["head"]["ref"], (pull["head"].get("repo") or {}).get("full_name"))
+            head_repository = (pull["head"].get("repo") or {}).get("full_name")
+            issue = pull_work_item(repository, pull) if any_pull else pull_issue(repository, pull["head"]["ref"], head_repository)
             if not pull.get("merged") or issue is None:
-                print(f"{repository}#{args.pull}: not a merged lineage pull request of this repository, nothing to post")
+                what = "a merged pull request of this repository" if any_pull else "a merged lineage pull request of this repository"
+                print(f"{repository}#{args.pull}: not {what}, nothing to post")
                 return 0
             known = [args.pull]
+            explicit = [args.pull] if any_pull else []
         else:
             issue = only[1]
             known = find_issues(gh, repository, issue)
@@ -605,7 +632,7 @@ def main(argv: list[str], env: dict | None = None, gh=None) -> int:
         print(f"FAILED {repository}: {scrub(error, [key])}")
         return 1
     outcome = deliver(gh, repository, issue, key=key, api_base=api_base, acceptance=acceptance, now=datetime.now(timezone.utc),
-                      known_pulls=known, dry_run=args.dry_run)
+                      known_pulls=known, dry_run=args.dry_run, explicit_pulls=explicit)
     print(describe(outcome))
     write_summary(env, describe(outcome))
     return 1 if outcome["status"] == "failed" else 0
