@@ -443,3 +443,32 @@ def test_unfinished_and_keyless_outcomes_are_logged_once(tmp_path: Path) -> None
     logged = [r["outcome"] for r in ledger.read_status(50) if r.get("outcome") != "tick"]
     assert logged.count("not_finished") == 1
     assert "api_key_missing" in logged
+
+
+def test_dry_run_holds_on_a_blocked_term_in_the_project_like_the_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import driftshield.public as public
+    from driftshield.capture import dry_run
+
+    @dataclasses.dataclass(frozen=True)
+    class FakeRun:
+        redacted_transcript: dict[str, Any]
+
+    monkeypatch.setattr(public, "analyse_run", lambda *a, **k: FakeRun({"t": "clean"}))
+    path = _write(tmp_path / "s.jsonl", "x")
+    row = dry_run.Row(
+        "claude_code",
+        "main",
+        path,
+        NOW,
+        "s",
+        dry_run.WOULD_SEND,
+        "",
+        "",
+        project="acme/app",
+        agent_id="driftshield-capture:claude-code",
+    )
+    settings = settings_for(tmp_path, blocked=BlockedTerms(terms=("acme",), hold_over=5))
+    [checked] = dry_run.check_blocked_terms([row], settings)
+    assert checked.verdict == dry_run.HELD and checked.hits == 2

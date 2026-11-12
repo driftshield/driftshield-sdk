@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from driftshield.capture.config import CaptureSettings
-from driftshield.capture.dry_run import project_for
+from driftshield.capture.dry_run import project_for, sent_identifiers, workflow_reference
 from driftshield.capture.ledger import (
     Ledger,
     LedgerUnreadable,
@@ -136,16 +136,16 @@ class SdkSender:
         cleaned, hits = settings.blocked.scrub(run.redacted_transcript)
         # Identifiers sent beside the transcript are not rewritten: a hit
         # in any of them holds the session whatever the limit.
-        fields = [
-            request.project_reference,
-            request.workflow_reference,
-            request.model_name,
-            request.path.name,
-            request.source_session_id,
-            request.source_report_id,
-            request.agent_id,
-        ]
-        field_hits = settings.blocked.count([f for f in fields if f])
+        fields = sent_identifiers(
+            project=request.project_reference,
+            workflow=request.workflow_reference,
+            model_name=request.model_name,
+            file_name=request.path.name,
+            session_id=request.source_session_id,
+            report_id=request.source_report_id,
+            agent_id=request.agent_id,
+        )
+        field_hits = settings.blocked.count(fields)
         if field_hits or settings.blocked.held(hits) or settings.blocked.count(cleaned):
             raise Held(hits + field_hits)
         if hits:
@@ -178,11 +178,6 @@ def resolve_key(environ: dict[str, str] | None = None) -> str | None:
     from driftshield.telemetry import TelemetryService
 
     return TelemetryService().load_config().remote_api_key
-
-
-def workflow_reference(agent: str, project: str | None) -> str:
-    slug = project.replace("/", "-").lower() if project else "no-project"
-    return f"capture/{agent}/{slug}"
 
 
 class CaptureService:
