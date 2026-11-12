@@ -18,7 +18,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Sequence
 
 from driftshield.capture.config import CaptureSettings
 from driftshield.capture.scope import ScopeGate
@@ -118,13 +118,19 @@ def denied_profile_count(settings: CaptureSettings, cutoff: datetime) -> int:
     return count
 
 
-def evaluate(settings: CaptureSettings, *, days: int, now: datetime | None = None) -> list[Row]:
+def evaluate(
+    settings: CaptureSettings,
+    *,
+    days: int,
+    now: datetime | None = None,
+    rules: Sequence[Any] | None = None,
+) -> list[Row]:
     """Judge as if capture were on: the report is read before switching it on."""
     if settings.invalid is None:
         settings = dataclasses.replace(settings, enabled=True)
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
-    gate = ScopeGate(settings)
+    gate = ScopeGate(settings, rules)
     rows: list[Row] = []
     for source, kind, path in candidates(settings):
         modified = _modified(path)
