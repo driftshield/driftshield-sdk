@@ -67,7 +67,10 @@ def project_for(cwd: str | None, fallback: str | None) -> str | None:
         try:
             done = subprocess.run(
                 ["git", "-C", cwd, "remote", "get-url", "origin"],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError):
             done = None
@@ -129,19 +132,49 @@ def evaluate(settings: CaptureSettings, *, days: int, now: datetime | None = Non
             continue
         decision, session_id = gate.check_path(source, path)
         if not decision.allowed:
-            rows.append(Row(source, kind, path, modified, session_id, SKIPPED, decision.reason, decision.detail))
+            rows.append(
+                Row(
+                    source,
+                    kind,
+                    path,
+                    modified,
+                    session_id,
+                    SKIPPED,
+                    decision.reason,
+                    decision.detail,
+                )
+            )
             continue
         facts = read_session(source, path)
         decision = gate.check_facts(facts)
         if not decision.allowed:
             rows.append(
-                Row(source, kind, path, modified, facts.session_id, SKIPPED, decision.reason, decision.detail, facts.cwd)
+                Row(
+                    source,
+                    kind,
+                    path,
+                    modified,
+                    facts.session_id,
+                    SKIPPED,
+                    decision.reason,
+                    decision.detail,
+                    facts.cwd,
+                )
             )
             continue
         if source == SOURCE_CODEX and facts.is_subagent:
             rows.append(
-                Row(source, kind, path, modified, facts.session_id, SKIPPED, "codex_subagent",
-                    "Codex subagent threads are not sent", facts.cwd)
+                Row(
+                    source,
+                    kind,
+                    path,
+                    modified,
+                    facts.session_id,
+                    SKIPPED,
+                    "codex_subagent",
+                    "Codex subagent threads are not sent",
+                    facts.cwd,
+                )
             )
             continue
         if facts.record_count == 0:
@@ -151,8 +184,19 @@ def evaluate(settings: CaptureSettings, *, days: int, now: datetime | None = Non
         else:
             verdict, reason = WOULD_SEND, decision.reason
         rows.append(
-            Row(source, kind, path, modified, facts.session_id, verdict, reason, decision.detail, facts.cwd,
-                project_for(facts.cwd, settings.project), settings.agent_id(AGENT_FOR_SOURCE[source]))
+            Row(
+                source,
+                kind,
+                path,
+                modified,
+                facts.session_id,
+                verdict,
+                reason,
+                decision.detail,
+                facts.cwd,
+                project_for(facts.cwd, settings.project),
+                settings.agent_id(AGENT_FOR_SOURCE[source]),
+            )
         )
     return rows
 
@@ -171,7 +215,11 @@ def check_blocked_terms(rows: list[Row], settings: CaptureSettings) -> list[Row]
         try:
             run = analyse_run(row.path.read_bytes(), source=str(row.path))
         except Exception as exc:  # noqa: BLE001 - a session that cannot be analysed is not sent either
-            out.append(dataclasses.replace(row, verdict=SKIPPED, reason="analysis_failed", detail=type(exc).__name__))
+            out.append(
+                dataclasses.replace(
+                    row, verdict=SKIPPED, reason="analysis_failed", detail=type(exc).__name__
+                )
+            )
             continue
         cleaned, hits = settings.blocked.scrub(run.redacted_transcript)
         after = settings.blocked.count(cleaned)
@@ -234,7 +282,10 @@ def render(rows: list[Row], settings: CaptureSettings, *, days: int, now: dateti
         ]
         for row in sorted(checked, key=lambda r: (-(r.hits or 0), r.modified)):
             action = "hold" if row.verdict == HELD else ("send scrubbed" if row.hits else "send")
-            lines.append(f"| {row.session_id[:12]} | {_md(row.project)} | {row.hits} | {row.hits_after} | {action} |")
+            lines.append(
+                f"| {row.session_id[:12]} | {_md(row.project)} | {row.hits} | "
+                f"{row.hits_after} | {action} |"
+            )
     lines += ["", "## Skipped, by reason", ""]
     by_reason: dict[str, dict[str, int]] = {}
     for row in skipped:
@@ -243,7 +294,10 @@ def render(rows: list[Row], settings: CaptureSettings, *, days: int, now: dateti
         group[label] = group.get(label, 0) + 1
     for reason, groups in sorted(by_reason.items(), key=lambda kv: -sum(kv[1].values())):
         lines += [f"### {reason} ({sum(groups.values())})", ""]
-        lines += [f"- {count} x {_md(label)}" for label, count in sorted(groups.items(), key=lambda kv: -kv[1])]
+        lines += [
+            f"- {count} x {_md(label)}"
+            for label, count in sorted(groups.items(), key=lambda kv: -kv[1])
+        ]
         lines.append("")
     return "\n".join(lines) + "\n"
 

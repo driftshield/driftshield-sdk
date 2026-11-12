@@ -66,23 +66,30 @@ def _lexical(path: str) -> Path:
     return Path(os.path.normpath(os.path.expanduser(path)))
 
 
+def _within_folded(path: Path, root: Path) -> bool:
+    """``_within`` ignoring case, for denied folders on case insensitive disks."""
+    return _within(Path(str(path).casefold()), Path(str(root).casefold()))
+
+
 def _denied_by(path: str, folder: str) -> bool:
-    """Either the resolved or the written path under the folder: deny wins."""
-    return _within(_real(path), _real(folder)) or _within(_lexical(path), Path(folder))
+    """The resolved or the written path under the folder, in any case: deny wins."""
+    return _within_folded(_real(path), _real(folder)) or _within_folded(
+        _lexical(path), Path(folder)
+    )
 
 
 def _allowed_by(path: str, folder: str) -> bool:
-    """The resolved path, so a symlink pointing out of the folder is refused.
-    A folder that no longer exists (a removed worktree) is judged by its path."""
-    real = _real(path)
-    if not real.exists():
-        return _within(_lexical(path), Path(folder)) or _within(real, _real(folder))
-    return _within(real, _real(folder))
+    """The resolved path only. ``realpath`` resolves every symlink that exists,
+    so a link out of the folder (dangling or not) never passes, and a removed
+    folder still resolves inside it."""
+    return _within(_real(path), _real(folder))
 
 
 def _off(settings: CaptureSettings) -> Decision | None:
     if settings.invalid:
-        return Decision(False, INVALID, f"settings file {settings.path} is invalid: {settings.invalid}")
+        return Decision(
+            False, INVALID, f"settings file {settings.path} is invalid: {settings.invalid}"
+        )
     if not settings.enabled:
         return Decision(False, OFF, "capture is switched off")
     return None
@@ -108,13 +115,19 @@ def decide_folders(settings: CaptureSettings, cwds: Sequence[str | None]) -> Dec
         return off
     unique = list(dict.fromkeys(c for c in cwds if isinstance(c, str) and c.strip()))
     if not unique:
-        return Decision(False, NO_FOLDER, "no working folder recorded, so scope cannot be established")
+        return Decision(
+            False, NO_FOLDER, "no working folder recorded, so scope cannot be established"
+        )
     first: Decision | None = None
     for index, cwd in enumerate(unique, start=1):
         verdict = decide_folder(settings, cwd)
         if not verdict.allowed:
             if len(unique) > 1:
-                return Decision(False, verdict.reason, f"working folder {index} of {len(unique)}: {verdict.detail}")
+                return Decision(
+                    False,
+                    verdict.reason,
+                    f"working folder {index} of {len(unique)}: {verdict.detail}",
+                )
             return verdict
         first = first or verdict
     assert first is not None
@@ -135,7 +148,11 @@ class ScopeGate:
         if source == SOURCE_CLAUDE_CODE and not any(
             _within(_real(path), _real(profile)) for profile in self.settings.claude_profiles
         ):
-            return Decision(False, OUTSIDE_PROFILES, "transcript is outside every configured Claude Code profile")
+            return Decision(
+                False,
+                OUTSIDE_PROFILES,
+                "transcript is outside every configured Claude Code profile",
+            )
         return None
 
     def check_path(self, source: str, path: Path, _depth: int = 0) -> tuple[Decision, str]:
@@ -165,13 +182,17 @@ class ScopeGate:
             return refusal
         return decide_folders(self.settings, facts.cwds)
 
-    def _parent(self, source: str, parent_id: str, parent_path: Path | None, depth: int) -> Decision:
+    def _parent(
+        self, source: str, parent_id: str, parent_path: Path | None, depth: int
+    ) -> Decision:
         if parent_path is None or depth >= MAX_PARENT_DEPTH:
             return Decision(False, PARENT_UNKNOWN, f"parent session {parent_id} was not found")
         decision, _ = self.check_path(source, parent_path, depth + 1)
         if decision.allowed:
             return decision
-        return Decision(False, PARENT_REFUSED, f"parent session {parent_id} is refused ({decision.reason})")
+        return Decision(
+            False, PARENT_REFUSED, f"parent session {parent_id} is refused ({decision.reason})"
+        )
 
 
 __all__ = [

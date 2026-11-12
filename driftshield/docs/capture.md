@@ -50,7 +50,8 @@ agent_id_prefix = "driftshield-capture"
 ```
 
 A file that does not parse, an unknown key, a relative path or an allowed folder
-that contains your whole home folder turns capture off and `status` says why.
+that contains your whole home folder, or a `terms_from_folders` folder that is
+missing or cannot be listed, turns capture off and `status` says why.
 Nothing falls back to a wider default. The API key is never in this file.
 
 ## How a session is judged
@@ -65,7 +66,8 @@ Nothing falls back to a wider default. The API key is never in this file.
 
 A working folder passes when it is outside every denied folder and inside an
 allowed one. Symlinks are resolved, so a link that points out of an allowed
-folder does not pass. Only working folders decide; the text of a session never
+folder does not pass, even when what it points at is gone. Denied folders match
+in any letter case. Only working folders decide; the text of a session never
 does.
 
 ## Blocked terms

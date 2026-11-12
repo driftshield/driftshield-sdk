@@ -34,7 +34,9 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-def claude_lines(cwd: str, session: str = "s1", *, finished: bool = True, sidechain: bool = False) -> str:
+def claude_lines(
+    cwd: str, session: str = "s1", *, finished: bool = True, sidechain: bool = False
+) -> str:
     def rec(kind: str, content: Any, **extra: Any) -> dict[str, Any]:
         return {
             "type": kind,
@@ -50,7 +52,9 @@ def claude_lines(cwd: str, session: str = "s1", *, finished: bool = True, sidech
     if finished:
         records.append(rec("assistant", [{"type": "text", "text": "done"}], model="test-model"))
     else:
-        records.append(rec("assistant", [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]))
+        records.append(
+            rec("assistant", [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}])
+        )
     return "\n".join(json.dumps(r) for r in records) + "\n"
 
 
@@ -91,14 +95,14 @@ enabled = true
 workspace = "ws"
 project = "org/proj"
 [allow]
-folders = ["{tmp_path / 'work'}"]
+folders = ["{tmp_path / "work"}"]
 [deny]
-folders = ["{tmp_path / 'work' / 'private'}"]
+folders = ["{tmp_path / "work" / "private"}"]
 [sources]
 main_idle_minutes = 5
 [scrub]
 terms = ["acme"]
-terms_from_folders = ["{tmp_path / 'repos'}"]
+terms_from_folders = ["{tmp_path / "repos"}"]
 ignore = ["tools"]
 hold_over = 2
 [upload]
@@ -168,6 +172,46 @@ def test_symlink_out_of_an_allowed_folder_is_refused(tmp_path: Path) -> None:
     link = tmp_path / "work" / "project" / "link"
     os.symlink(tmp_path / "elsewhere", link)
     assert not decide_folders(settings, [str(link)]).allowed
+
+
+def test_symlink_to_a_missing_folder_outside_is_refused(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path)
+    project = tmp_path / "work" / "project"
+    project.mkdir(parents=True)
+    (tmp_path / "elsewhere").mkdir()
+    os.symlink(tmp_path / "elsewhere", project / "link")
+    os.symlink(tmp_path / "nowhere", project / "dangling")
+    assert not decide_folders(settings, [str(project / "link" / "gone")]).allowed
+    assert not decide_folders(settings, [str(project / "dangling")]).allowed
+    # A removed folder inside the allowed one still passes.
+    assert decide_folders(settings, [str(project / "removed-worktree")]).allowed
+
+
+def test_deny_ignores_case(tmp_path: Path) -> None:
+    project = tmp_path / "work" / "project"
+    settings = settings_for(tmp_path, deny_folders=(str(project / "Private"),))
+    assert decide_folders(settings, [str(project / "private" / "x")]).reason == DENIED
+
+
+def test_missing_scrub_folder_turns_capture_off(tmp_path: Path) -> None:
+    text = f'enabled = true\n[scrub]\nterms_from_folders = ["{tmp_path / "gone"}"]\n'
+    settings = load_settings(_write(tmp_path / "capture.toml", text))
+    assert settings.invalid is not None and "cannot be listed" in settings.invalid
+
+
+def test_unreadable_scrub_folder_turns_capture_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "repos").mkdir()
+    text = f'enabled = true\n[scrub]\nterms_from_folders = ["{tmp_path / "repos"}"]\n'
+
+    def refuse(_self: Path) -> Any:
+        raise PermissionError("no")
+
+    monkeypatch.setattr(Path, "iterdir", refuse)
+    settings = load_settings(_write(tmp_path / "capture.toml", text))
+    assert settings.invalid is not None and "cannot be listed" in settings.invalid
+    assert not settings.active
 
 
 def test_transcript_outside_profiles_or_in_denied_folder_is_never_opened(tmp_path: Path) -> None:
@@ -250,7 +294,11 @@ def test_dry_run_lists_sends_and_skips_and_writes_nothing(tmp_path: Path) -> Non
     text = dry_run.render(rows, settings, days=14, now=now)
     after = sorted(p for p in tmp_path.rglob("*"))
     verdicts = {r.session_id: r.verdict for r in rows}
-    assert verdicts == {"s-ok": dry_run.WOULD_SEND, "s-busy": "not_finished", "s-out": dry_run.SKIPPED}
+    assert verdicts == {
+        "s-ok": dry_run.WOULD_SEND,
+        "s-busy": "not_finished",
+        "s-out": dry_run.SKIPPED,
+    }
     assert before == after
     assert "Would send: **1**" in text
     assert "capture is OFF" in text
@@ -261,7 +309,9 @@ def test_dry_run_lists_sends_and_skips_and_writes_nothing(tmp_path: Path) -> Non
 def test_dry_run_ignores_old_sessions(tmp_path: Path) -> None:
     allowed = tmp_path / "work" / "project"
     allowed.mkdir(parents=True)
-    old = _write(tmp_path / "profile" / "projects" / "a" / "s.jsonl", claude_lines(str(allowed), "s"))
+    old = _write(
+        tmp_path / "profile" / "projects" / "a" / "s.jsonl", claude_lines(str(allowed), "s")
+    )
     stamp = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
     os.utime(old, (stamp, stamp))
     assert dry_run.evaluate(settings_for(tmp_path), days=14) == []
@@ -273,7 +323,14 @@ def test_scrub_check_holds_sessions_over_the_limit(tmp_path: Path) -> None:
         redacted_transcript: dict[str, Any]
 
     row = dry_run.Row(
-        "claude_code", "main", tmp_path / "s.jsonl", datetime.now(timezone.utc), "s", dry_run.WOULD_SEND, "", ""
+        "claude_code",
+        "main",
+        tmp_path / "s.jsonl",
+        datetime.now(timezone.utc),
+        "s",
+        dry_run.WOULD_SEND,
+        "",
+        "",
     )
     _write(row.path, "x")
     settings = settings_for(tmp_path, blocked=BlockedTerms(terms=("acme",), hold_over=1))
@@ -297,7 +354,9 @@ def test_scrub_check_holds_sessions_over_the_limit(tmp_path: Path) -> None:
 # --- cli --------------------------------------------------------------------------------------
 
 
-def test_cli_init_writes_once_and_status_never_shows_terms(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_init_writes_once_and_status_never_shows_terms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     target = tmp_path / "capture.toml"
     monkeypatch.setenv(CONFIG_ENV, str(target))
     assert runner.invoke(app, ["capture", "init"]).exit_code == 0
@@ -310,7 +369,9 @@ def test_cli_init_writes_once_and_status_never_shows_terms(tmp_path: Path, monke
     assert "acme" not in status.stdout
 
 
-def test_cli_dry_run_refuses_without_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_dry_run_refuses_without_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv(CONFIG_ENV, str(tmp_path / "missing.toml"))
     result = runner.invoke(app, ["capture", "dry-run", "--no-scrub-check"])
     assert result.exit_code == 1 and "OFF" in result.stdout

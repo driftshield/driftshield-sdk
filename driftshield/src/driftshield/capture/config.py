@@ -110,7 +110,10 @@ class CaptureSettings:
 
     def describe(self) -> list[str]:
         if self.missing:
-            return [f"Capture: OFF (no settings file at {self.path}; `driftshield capture init` writes one)"]
+            return [
+                f"Capture: OFF (no settings file at {self.path}; "
+                "`driftshield capture init` writes one)"
+            ]
         if self.invalid:
             return [f"Capture: OFF, settings file {self.path} is invalid: {self.invalid}"]
         return [
@@ -223,7 +226,10 @@ def _parse(path: Path, data: dict[str, Any]) -> CaptureSettings:
     deny_folders = _folders(deny, "folders", "deny.folders")
 
     profiles = tuple(
-        _expand(p) for p in _strings(sources, "claude_profiles", "sources.claude_profiles", list(DEFAULT_CLAUDE_PROFILES))
+        _expand(p)
+        for p in _strings(
+            sources, "claude_profiles", "sources.claude_profiles", list(DEFAULT_CLAUDE_PROFILES)
+        )
     )
     codex = sources.get("codex_sessions", DEFAULT_CODEX_SESSIONS)
     if not isinstance(codex, str) or not os.path.isabs(_expand(codex)):
@@ -232,12 +238,16 @@ def _parse(path: Path, data: dict[str, Any]) -> CaptureSettings:
     token = scrub.get("token", DEFAULT_TOKEN)
     if not isinstance(token, str) or not token.strip():
         raise _Invalid("scrub.token must be a non empty string")
-    blocked = BlockedTerms(
-        terms=_strings(scrub, "terms", "scrub.terms", []),
-        folder_terms=folder_names(
+    try:
+        folder_terms = folder_names(
             _folders(scrub, "terms_from_folders", "scrub.terms_from_folders"),
             _strings(scrub, "ignore", "scrub.ignore", []),
-        ),
+        )
+    except OSError as exc:
+        raise _Invalid(f"scrub.terms_from_folders cannot be listed: {type(exc).__name__}") from exc
+    blocked = BlockedTerms(
+        terms=_strings(scrub, "terms", "scrub.terms", []),
+        folder_terms=folder_terms,
         token=token,
         hold_over=_int(scrub, "hold_over", "scrub.hold_over", DEFAULT_HOLD_OVER, 0),
     )
@@ -261,7 +271,9 @@ def _parse(path: Path, data: dict[str, Any]) -> CaptureSettings:
         codex_sessions=_expand(codex),
         main_sessions=_bool(sources, "main_sessions", "sources.main_sessions", True),
         main_idle_seconds=60
-        * _int(sources, "main_idle_minutes", "sources.main_idle_minutes", DEFAULT_MAIN_IDLE_MINUTES, 1),
+        * _int(
+            sources, "main_idle_minutes", "sources.main_idle_minutes", DEFAULT_MAIN_IDLE_MINUTES, 1
+        ),
         blocked=blocked,
         agent_id_prefix=prefix,
     )
@@ -284,7 +296,7 @@ def load_settings(path: Path | None = None) -> CaptureSettings:
 
 
 def template() -> str:
-    return '''# DriftShield capture settings. Only sessions whose working folders are all
+    return """# DriftShield capture settings. Only sessions whose working folders are all
 # under [allow] are ever read; [deny] wins over [allow]. Check what this lets
 # through before switching it on, with nothing sent:
 #   driftshield capture dry-run --days 14
@@ -317,7 +329,7 @@ hold_over = 3
 
 [upload]
 agent_id_prefix = "driftshield-capture"
-'''
+"""
 
 
 __all__ = [

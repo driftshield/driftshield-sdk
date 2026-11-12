@@ -109,7 +109,11 @@ def read_claude(path: Path) -> SessionFacts:
         if kind in ("user", "assistant"):
             facts.turn_complete = completed_assistant(record)
         message = record.get("message")
-        if kind == "assistant" and isinstance(message, dict) and isinstance(message.get("model"), str):
+        if (
+            kind == "assistant"
+            and isinstance(message, dict)
+            and isinstance(message.get("model"), str)
+        ):
             facts.model_name = message["model"]
     if not facts.is_subagent and seen_session:
         facts.session_id = seen_session
@@ -136,7 +140,9 @@ def codex_parent(payload: dict[str, Any], thread_id: str) -> str | None:
 
 
 def read_codex(path: Path) -> SessionFacts:
-    facts = SessionFacts(source=SOURCE_CODEX, session_id=codex_thread_id(path) or path.stem, path=path)
+    facts = SessionFacts(
+        source=SOURCE_CODEX, session_id=codex_thread_id(path) or path.stem, path=path
+    )
     last: dict[str, Any] | None = None
     for record in iter_records(path):
         facts.record_count += 1
@@ -207,7 +213,12 @@ def probe_claude(path: Path) -> Probe:
     if parent and path.parent.name == SUBAGENTS_DIR:
         candidate = path.parent.parent.parent / f"{parent}.jsonl"
         parent_path = candidate if candidate.is_file() else None
-    return Probe(path.stem if sidechain else (record_session or path.stem), (cwd,) if cwd else (), parent, parent_path)
+    return Probe(
+        path.stem if sidechain else (record_session or path.stem),
+        (cwd,) if cwd else (),
+        parent,
+        parent_path,
+    )
 
 
 def probe_codex(path: Path, sessions_root: Path | None) -> Probe:
@@ -218,7 +229,11 @@ def probe_codex(path: Path, sessions_root: Path | None) -> Probe:
         first = next(iter_records(path), None)
     except OSError:
         first = None
-    payload = first.get("payload") if isinstance(first, dict) and first.get("type") == "session_meta" else None
+    payload = (
+        first.get("payload")
+        if isinstance(first, dict) and first.get("type") == "session_meta"
+        else None
+    )
     if not isinstance(payload, dict):
         return Probe(thread, ())
     if isinstance(payload.get("id"), str):

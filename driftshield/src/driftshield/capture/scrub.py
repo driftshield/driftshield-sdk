@@ -92,13 +92,17 @@ class BlockedTerms:
 
 
 def folder_names(folders: tuple[str, ...], ignore: tuple[str, ...]) -> tuple[str, ...]:
-    """The names of the folders directly under each of ``folders``."""
+    """The names of the folders directly under each of ``folders``.
+
+    Raises OSError when a folder cannot be listed; the caller turns that into
+    invalid settings, so an unreadable list never means an empty one.
+    """
     skip = {name.lower() for name in ignore}
     names: set[str] = set()
     for folder in folders:
         root = Path(os.path.expanduser(folder))
         if not root.is_dir():
-            continue
+            raise FileNotFoundError(folder)
         for child in root.iterdir():
             if child.is_dir() and not child.name.startswith(".") and child.name.lower() not in skip:
                 names.add(child.name)
