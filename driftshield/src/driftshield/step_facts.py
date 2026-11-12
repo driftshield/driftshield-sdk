@@ -1323,19 +1323,119 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
-def _substitution_bodies(command: str) -> list[str]:
-    """The text inside every backtick pair and ``$(...)``, wherever it appears.
+_MAX_SUBSTITUTION_DEPTH = 4
+_MAX_SUBSTITUTION_BODIES = 64
+_MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
+_HEREDOC_OPERATOR = re.compile(r"<<(?!<)(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\(\w+)|(\w+))")
 
-    Substitutions run inside double quotes too, so they are read there. Only
-    single quotes hide them. A nested ``$(...)`` is returned inside its parent
-    and is found again when the parent is classified.
+
+def _heredoc_spans(text: str) -> list[tuple[int, int, bool]]:
+    """``(start, end, quoted)`` of every here document body, in order.
+
+    A body is data, not commands, so it is cut out before the command is split
+    into parts. Only a quoted delimiter (``<<'EOF'``) also stops substitutions
+    from running inside the body; an unquoted body still expands them.
     """
+    spans: list[tuple[int, int, bool]] = []
+    position = 0
+    while True:
+        match = _HEREDOC_OPERATOR.search(text, position)
+        if match is None:
+            return spans
+        dash, single, double, escaped, bare = match.groups()
+        delimiter = next(d for d in (single, double, escaped, bare) if d is not None)
+        quoted = bare is None
+        line_end = text.find("\n", match.end())
+        if line_end == -1:
+            return spans
+        terminator = re.compile(
+            r"^" + (r"[ \t]*" if dash else "") + re.escape(delimiter) + r"[ \t]*$", re.M
+        ).search(text, line_end + 1)
+        end = terminator.end() if terminator else len(text)
+        spans.append((line_end + 1, end, quoted))
+        position = end
+
+
+def _without_heredoc_bodies(text: str, spans: list[tuple[int, int, bool]]) -> str:
+    if not spans:
+        return text
+    pieces: list[str] = []
+    cursor = 0
+    for start, end, _ in spans:
+        pieces.append(text[cursor:start])
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def _end_of_backtick(text: str, start: int) -> int:
+    position = start
+    while position < len(text) and text[position] != "`":
+        position += 2 if text[position] == "\\" else 1
+    return min(position, len(text))
+
+
+def _end_of_paren(text: str, start: int) -> int:
+    """Index of the ``)`` that closes a ``$(`` whose body starts at ``start``.
+
+    Quotes are tracked, so a ``)`` inside quotes does not close it, and a
+    ``$(`` inside double quotes opens a new level. An unterminated body runs
+    to the end of the text.
+    """
+    depth = 1
+    saved: list[str] = []
+    quote = ""
+    escaped = False
+    position = start
+    while position < len(text):
+        char = text[position]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "$" and text[position + 1 : position + 2] == "(":
+            saved.append(quote)
+            quote = ""
+            depth += 1
+            position += 1
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            saved.append("")
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return position
+            quote = saved.pop()
+        position += 1
+    return len(text)
+
+
+def _substitution_bodies(text: str) -> list[str]:
+    """The text inside each backtick pair and ``$(...)`` of ``text``, one level down.
+
+    Substitutions run inside double quotes too, so they are read there. They do
+    not run inside single quotes, comments or quoted here document bodies, so
+    those are skipped. A nested substitution is returned inside its parent and
+    found again when the parent is read.
+    """
+    skip = {start: end for start, end, quoted in _heredoc_spans(text) if quoted}
     bodies: list[str] = []
     quote = ""
     escaped = False
-    index = 0
-    while index < len(command):
-        char = command[index]
+    position = 0
+    while position < len(text):
+        if position in skip:
+            position = skip[position]
+            continue
+        char = text[position]
         if escaped:
             escaped = False
         elif char == "\\" and quote != "'":
@@ -1344,25 +1444,63 @@ def _substitution_bodies(command: str) -> list[str]:
             if char == "'":
                 quote = ""
         elif char == "`":
-            end = index + 1
-            while end < len(command) and command[end] != "`":
-                end += 2 if command[end] == "\\" else 1
-            bodies.append(command[index + 1 : end])
-            index = end
-        elif char == "$" and command[index + 1 : index + 2] == "(":
-            depth, end = 1, index + 2
-            while end < len(command) and depth:
-                depth += {"(": 1, ")": -1}.get(command[end], 0)
-                end += 1
-            bodies.append(command[index + 2 : end - 1 if depth == 0 else end])
-            index = end - 1
+            end = _end_of_backtick(text, position + 1)
+            bodies.append(text[position + 1 : end])
+            position = end
+        elif char == "$" and text[position + 1 : position + 2] == "(":
+            end = _end_of_paren(text, position + 2)
+            bodies.append(text[position + 2 : end])
+            position = end
         elif quote == '"':
             if char == '"':
                 quote = ""
         elif char in "'\"":
             quote = char
-        index += 1
+        elif char == "#" and (position == 0 or text[position - 1] in " \t\n;&|("):
+            newline = text.find("\n", position)
+            position = len(text) if newline == -1 else newline
+        position += 1
     return bodies
+
+
+def _write_kind_of(text: str) -> _Result | None:
+    """The most serious write kind among the plain parts of ``text``, or ``None``."""
+    tokens = _tokenise(_without_heredoc_bodies(text, _heredoc_spans(text)))
+    if not tokens:
+        return None
+    results = [_classify_simple(segment) for segment in _segments(tokens)[0]]
+    for kind in _RISK_ORDER:
+        for result in results:
+            if result[0] == kind:
+                return result
+    return None
+
+
+def _substitution_write_kinds(command: str) -> list[_Result]:
+    """Write kinds found inside substitutions, to a fixed depth and work budget.
+
+    Past the depth, body count or character budget the rest is not read, so a
+    hostile command can only cost a bounded amount of work. Whatever was found
+    before the cap is kept, and the command is never a check anyway because it
+    contains a substitution.
+    """
+    found: list[_Result] = []
+    queue = [(command, 0)]
+    work = len(command)
+    count = 0
+    for text, depth in queue:
+        if depth >= _MAX_SUBSTITUTION_DEPTH:
+            continue
+        for body in _substitution_bodies(text):
+            count += 1
+            work += len(body)
+            if count > _MAX_SUBSTITUTION_BODIES or work > _MAX_SUBSTITUTION_WORK:
+                return found
+            kind = _write_kind_of(body)
+            if kind is not None:
+                found.append(kind)
+            queue.append((body, depth + 1))
+    return found
 
 
 def _classify_command(command: object) -> tuple[str, str]:
@@ -1377,16 +1515,13 @@ def _classify_command(command: object) -> tuple[str, str]:
     """
     if not isinstance(command, str) or not command.strip() or len(command) > _MAX_COMMAND_CHARS:
         return "unknown", "unknown"
-    tokens = _tokenise(command)
+    tokens = _tokenise(_without_heredoc_bodies(command, _heredoc_spans(command)))
     if not tokens:
         return "unknown", "unknown"
     segments, _ = _segments(tokens)
     results = [_classify_simple(segment) for segment in segments]
     # A substitution runs whatever is inside it, so its write kind counts too.
-    for body in _substitution_bodies(command):
-        inner = _classify_command(body)
-        if inner[0] in _RISK_ORDER:
-            results.append(inner)
+    results.extend(_substitution_write_kinds(command))
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:

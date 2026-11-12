@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import pytest
@@ -165,6 +166,27 @@ CLASSIFICATION_TABLE = [
     ('echo "$(ls)"', "unknown", "unknown"),
     ("echo 'git push origin main'", "read_only", "own_checkout"),
     ("echo '$(git push origin main)'", "read_only", "unknown"),
+    # an unterminated substitution runs to the end of the command
+    ("echo `git push origin main", "git_push", "main_branch"),
+    ("echo $(git push origin main", "git_push", "main_branch"),
+    ("echo $(ls", "unknown", "unknown"),
+    ("echo `ls", "unknown", "unknown"),
+    # a ) inside quotes does not close $( and the push after it is still found
+    ('echo "$(echo ")"; git push origin main)"', "git_push", "main_branch"),
+    ("echo \"$(echo ')'; git push origin main)\"", "git_push", "main_branch"),
+    ('echo "$(echo \\"x\\")"', "unknown", "unknown"),
+    # a substitution in a comment or in a quoted here document body never runs
+    ("echo hi # $(git push origin main)", "unknown", "unknown"),
+    ("echo hi # `rm -rf build`", "unknown", "unknown"),
+    ("cat <<'EOF'\n$(git push origin main)\nEOF", "unknown", "unknown"),
+    ("cat <<'EOF'\ngit push origin main\nEOF", "unknown", "unknown"),
+    ('cat <<"EOF"\n`rm -rf build`\nEOF', "unknown", "unknown"),
+    ("cat <<EOF\nplain text\nEOF", "unknown", "unknown"),
+    # an unquoted here document body still runs its substitutions
+    ("cat <<EOF\n$(git push origin main)\nEOF", "git_push", "main_branch"),
+    ("cat <<-EOF\n\t`rm -rf build`\n\tEOF", "delete", "own_checkout"),
+    # the shell around a here document is still read
+    ("cat <<'EOF' | git push origin main\ntext\nEOF", "git_push", "main_branch"),
     # a formatter or a fixer rewrites files, so it is not a check
     ("ruff format .", "unknown", "unknown"),
     ("ruff format --check .", "test", "own_checkout"),
@@ -818,3 +840,39 @@ def test_the_round_two_and_three_cases_do_not_excuse_a_later_push(builder, fmt, 
     )
     assert first["command_kind"] not in CHECK_KINDS
     assert second["checked_before"] is False
+
+
+def _nested_quoted(depth: int, inner: str = "git push origin main") -> str:
+    for _ in range(depth):
+        inner = f'echo "$({inner})"'
+    return inner
+
+
+@pytest.mark.parametrize("depth", [1, 3, 4, 6, 40])
+def test_deeply_nested_substitutions_still_find_the_write_kind(depth: int):
+    assert classify_command(_nested_quoted(depth)) == ("git_push", "main_branch")
+
+
+HOSTILE_NESTING = [
+    "$(" * 3000 + "x" + ")" * 3000 + " ; git push origin main",
+    "echo " + '"$(echo ' * 1500 + "git push origin main" + ')"' * 1500,
+    ("`echo " * 2000) + "x" + "`" * 2000,
+    "$(" * 8000,
+    "`" * 15000,
+    "echo " + "'$(" * 4000,
+    "cat <<'A'\n" * 1500,
+    '"$(' * 5000 + ")" * 5000,
+]
+
+
+@pytest.mark.parametrize("command", HOSTILE_NESTING)
+def test_hostile_nesting_finishes_fast_and_never_becomes_a_check(command: str):
+    started = time.perf_counter()
+    kind, _ = classify_command(command)
+    assert time.perf_counter() - started < 0.5
+    assert kind not in CHECK_KINDS
+
+
+def test_hostile_nesting_keeps_a_write_kind_found_before_the_cap():
+    command = "$(" * 3000 + "x" + ")" * 3000 + " ; git push origin main"
+    assert classify_command(command) == ("git_push", "main_branch")
