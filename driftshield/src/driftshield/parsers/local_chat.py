@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from driftshield.core.json_values import is_one_of
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
 from driftshield.parsers.protocol import NoSkipCountMixin
@@ -70,7 +71,7 @@ class LocalChatTranscriptParser(NoSkipCountMixin):
                 continue
             entry = json.loads(line)
             session_id = session_id or entry.get("session_id") or entry.get("sessionId") or entry.get("id")
-            if entry.get("type") in {"session", "session_meta"}:
+            if is_one_of(entry.get("type"), {"session", "session_meta"}):
                 started_at = started_at or entry.get("timestamp")
                 continue
             messages.append(entry)
@@ -176,7 +177,8 @@ class LocalChatTranscriptParser(NoSkipCountMixin):
             return [
                 item
                 for item in content
-                if isinstance(item, dict) and item.get("type") in {"tool_call", "tool_use", "toolCall"}
+                if isinstance(item, dict)
+                and is_one_of(item.get("type"), {"tool_call", "tool_use", "toolCall"})
             ]
         return []
 

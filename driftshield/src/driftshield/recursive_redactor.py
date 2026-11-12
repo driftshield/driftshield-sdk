@@ -39,12 +39,15 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from hashlib import sha256
+import logging
 import re
 from typing import Any
 
 from driftshield.intake_contract import REQUIRED_REDACTION_FIELDS
 from driftshield.step_facts import STEP_FACTS_KEY, compute_step_facts
 
+
+logger = logging.getLogger(__name__)
 
 REDACTOR_VERSION = "recursive-redactor.v3.1.0"
 REDACTION_RULESET_VERSION = "ruleset.v4"
@@ -495,7 +498,15 @@ def redact(payload: dict[str, Any]) -> RedactionResult:
     audit-trail consumers.
     """
     entries: list[RedactionEntry] = []
-    token = _STEP_FACTS.set(compute_step_facts(payload, skip_keys=_DROPPED_KEYS))
+    try:
+        facts = compute_step_facts(payload, skip_keys=_DROPPED_KEYS)
+    except Exception as error:  # noqa: BLE001
+        # Step facts are extra data: a shape they cannot read must never stop
+        # analysis. Say that facts were dropped and why (the exception type only,
+        # never any transcript content) so a future bug is not silent.
+        logger.warning("step facts dropped for this transcript: %s", type(error).__name__)
+        facts = {}
+    token = _STEP_FACTS.set(facts)
     try:
         redacted_payload = _redact_value(payload, "", entries)
     finally:

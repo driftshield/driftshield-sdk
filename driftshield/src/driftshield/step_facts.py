@@ -494,21 +494,18 @@ def _split_unquoted_newlines(command: str) -> str:
         if escaped:
             escaped = False
             out.append(char)
-            continue
-        if char == "\\" and quote != "'":
+        elif char == "\\" and quote != "'":
             escaped = True
             out.append(char)
-            continue
-        if quote:
+        elif quote:
             if char == quote:
                 quote = ""
             out.append(char)
-            continue
-        if char in "'\"":
+        elif char in "'\"":
             quote = char
             out.append(char)
-            continue
-        out.append(" ; " if char == "\n" else char)
+        else:
+            out.append(" ; " if char == "\n" else char)
     return "".join(out)
 
 
@@ -516,6 +513,9 @@ def _tokenise(command: str) -> list[str] | None:
     try:
         lexer = shlex.shlex(_split_unquoted_newlines(command), posix=True, punctuation_chars=True)
         lexer.whitespace_split = False
+        # A ``#`` is not a comment here: the text after it is read like any
+        # other text, so a comment can never hide a command on a later line.
+        lexer.commenters = ""
         # shlex ends a word at these when punctuation_chars is on; they are plain
         # characters in refs and URLs (HEAD:main, user@host, a+b, 1,2).
         lexer.wordchars += ":@%+,^"
@@ -530,6 +530,12 @@ def _tokenise(command: str) -> list[str] | None:
         return None
 
 
+def _operand_length(tokens: list[str], index: int) -> int:
+    """1 when the token after a redirect is its operand, 0 when it is a new command."""
+    following = tokens[index + 1] if index + 1 < len(tokens) else ";"
+    return 0 if following in _OPERATORS else 1
+
+
 def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
     """Split into simple commands. The flag is True for a write redirect or heredoc."""
     segments: list[list[str]] = [[]]
@@ -541,14 +547,14 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
             segments.append([])
         elif token in _HEREDOC:
             opaque = True
-            index += 1
+            index += _operand_length(tokens, index)
         elif token in _REDIRECTS or re.fullmatch(r"\d?>>?", token):
             target = tokens[index + 1] if index + 1 < len(tokens) else ""
             if target not in {"/dev/null", "&", "&1", "&2"}:
                 opaque = True
-            index += 1
+            index += _operand_length(tokens, index)
         elif token in {">&", "<", "<&", "2>&"}:
-            index += 1
+            index += _operand_length(tokens, index)
         elif token == "(" and index > 0 and tokens[index - 1].endswith("$"):
             segments.append([])  # a command substitution: its words are their own command
         elif token not in {"(", ")", "{", "}", "!"}:
@@ -1323,6 +1329,141 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
+_MAX_SUBSTITUTION_DEPTH = 4
+_MAX_SUBSTITUTION_BODIES = 64
+_MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
+
+
+def _end_of_backtick(text: str, start: int) -> int:
+    position = start
+    while position < len(text) and text[position] != "`":
+        position += 2 if text[position] == "\\" else 1
+    return min(position, len(text))
+
+
+def _end_of_paren(text: str, start: int) -> int:
+    """Index of the ``)`` that closes a ``$(`` whose body starts at ``start``.
+
+    Quotes are tracked, so a ``)`` inside quotes does not close it, and a
+    ``$(`` inside double quotes opens a new level. An unterminated body runs
+    to the end of the text.
+    """
+    depth = 1
+    saved: list[str] = []
+    quote = ""
+    escaped = False
+    position = start
+    while position < len(text):
+        char = text[position]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "$" and text[position + 1 : position + 2] == "(":
+            saved.append(quote)
+            quote = ""
+            depth += 1
+            position += 1
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            saved.append("")
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return position
+            quote = saved.pop()
+        position += 1
+    return len(text)
+
+
+def _substitution_bodies(text: str) -> list[str]:
+    """The text inside each backtick pair and ``$(...)`` of ``text``, one level down.
+
+    Substitutions run inside double quotes too, so they are read there. They do
+    not run inside single quotes, so those are skipped. Comment text and here
+    document bodies are read like any other text: a substitution in them may
+    not run, but reading it can only make a step look more like a write. A
+    nested substitution is returned inside its parent and is found again when
+    the parent is read.
+    """
+    bodies: list[str] = []
+    quote = ""
+    escaped = False
+    position = 0
+    while position < len(text):
+        char = text[position]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "`":
+            end = _end_of_backtick(text, position + 1)
+            bodies.append(text[position + 1 : end])
+            position = end
+        elif char == "$" and text[position + 1 : position + 2] == "(":
+            end = _end_of_paren(text, position + 2)
+            bodies.append(text[position + 2 : end])
+            position = end
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        position += 1
+    return bodies
+
+
+def _write_kind_of(text: str) -> _Result | None:
+    """The most serious write kind among the plain parts of ``text``, or ``None``."""
+    tokens = _tokenise(text)
+    if not tokens:
+        return None
+    results = [_classify_simple(segment) for segment in _segments(tokens)[0]]
+    for kind in _RISK_ORDER:
+        for result in results:
+            if result[0] == kind:
+                return result
+    return None
+
+
+def _substitution_write_kinds(command: str) -> list[_Result]:
+    """Write kinds found inside substitutions, to a fixed depth and work budget.
+
+    Past the depth, body count or character budget the rest is not read, so a
+    hostile command can only cost a bounded amount of work. Whatever was found
+    before the cap is kept, and the command is never a check anyway because it
+    contains a substitution.
+    """
+    found: list[_Result] = []
+    queue = [(command, 0)]
+    work = len(command)
+    count = 0
+    for text, depth in queue:
+        if depth >= _MAX_SUBSTITUTION_DEPTH:
+            continue
+        for body in _substitution_bodies(text):
+            count += 1
+            work += len(body)
+            if count > _MAX_SUBSTITUTION_BODIES or work > _MAX_SUBSTITUTION_WORK:
+                return found
+            kind = _write_kind_of(body)
+            if kind is not None:
+                found.append(kind)
+            queue.append((body, depth + 1))
+    return found
+
+
 def _classify_command(command: object) -> tuple[str, str]:
     """Fail closed.
 
@@ -1340,6 +1481,8 @@ def _classify_command(command: object) -> tuple[str, str]:
         return "unknown", "unknown"
     segments, _ = _segments(tokens)
     results = [_classify_simple(segment) for segment in segments]
+    # A substitution runs whatever is inside it, so its write kind counts too.
+    results.extend(_substitution_write_kinds(command))
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:
@@ -1420,6 +1563,17 @@ def _openclaw_exit_status(message: Mapping[str, Any]) -> str:
     return "success"
 
 
+def _block_type(node: Mapping[str, Any]) -> str | None:
+    """The ``type`` of a block, only when it is a string.
+
+    ``type`` in a transcript can be anything: JSON schemas inside tool
+    definitions use lists (``["string", "null"]``) and objects, and a set or
+    dict lookup on an unhashable value raises. Only a string is a block type.
+    """
+    kind = node.get("type")
+    return kind if isinstance(kind, str) else None
+
+
 def _carriers(
     node: object, skip_keys: Collection[str], depth: int = 0
 ) -> list[tuple[str, dict[str, Any]]]:
@@ -1428,7 +1582,7 @@ def _carriers(
     if depth > _MAX_DEPTH:
         return found
     if isinstance(node, dict):
-        kind = node.get("type")
+        kind = _block_type(node)
         if kind in _CALL_BLOCK_TYPES and isinstance(node.get("name"), str):
             found.append(("call", node))
         elif kind in _CODEX_CALL_TYPES and isinstance(node.get("name"), str):
@@ -1458,7 +1612,7 @@ def _call_id(node: Mapping[str, Any]) -> str | None:
 
 
 def _result_id_and_status(node: Mapping[str, Any]) -> tuple[str | None, str]:
-    kind = node.get("type")
+    kind = _block_type(node)
     if kind == "tool_result":
         call_id = node.get("tool_use_id")
         return (call_id if isinstance(call_id, str) else None), (
