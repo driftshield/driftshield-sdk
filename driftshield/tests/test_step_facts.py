@@ -91,6 +91,58 @@ CLASSIFICATION_TABLE = [
     ("gh api -X PATCH repos/o/r -f a=b", "outside_write", "outside_service"),
     ("ssh host systemctl restart app", "outside_write", "outside_service"),
     ("aws s3 cp out.txt s3://bucket/out.txt", "outside_write", "outside_service"),
+    # HTTPie and xh give the method as a word, and request items give a body
+    ("http POST example.com/x a=b", "outside_write", "outside_service"),
+    ("http example.com/x a=b", "outside_write", "outside_service"),
+    ("http --form example.com/x", "outside_write", "outside_service"),
+    ("http PUT example.com/x", "outside_write", "outside_service"),
+    ("http DELETE example.com/x", "delete", "outside_service"),
+    ("xh DELETE example.com/x", "delete", "outside_service"),
+    ("http GET example.com/x", "read_only", "outside_service"),
+    ("http example.com/x q==1 Accept:application/json", "read_only", "outside_service"),
+    ("xh --auth u:p example.com/x", "read_only", "outside_service"),
+    ("http --download example.com/f", "unknown", "unknown"),
+    # runner flags are skipped before the program is read
+    ("uv run --extra dev pytest tests -q", "test", "own_checkout"),
+    ("uv run --with rich --python 3.12 ruff check .", "test", "own_checkout"),
+    ("npx -y vitest run", "test", "own_checkout"),
+    ("npx --package typescript tsc --noEmit", "test", "own_checkout"),
+    # option values are never read as the subcommand
+    ("kubectl -n prod delete pod web", "delete", "outside_service"),
+    ("kubectl --context c apply -f x.yaml", "deploy", "outside_service"),
+    ("kubectl -n x get pods", "read_only", "outside_service"),
+    ("helm -n ns uninstall rel", "delete", "outside_service"),
+    ("aws --profile p s3 rm s3://bucket/key", "delete", "outside_service"),
+    (
+        "aws --profile p --region eu-west-1 lambda update-function-code --function-name f",
+        "deploy",
+        "outside_service",
+    ),
+    ("aws --profile p ec2 describe-instances", "read_only", "outside_service"),
+    ("gh -R owner/repo pr merge 3", "merge", "outside_service"),
+    ("docker -H tcp://host:2375 push img", "deploy", "outside_service"),
+    ("npm --prefix web test", "test", "own_checkout"),
+    ("pnpm --filter app build", "build", "own_checkout"),
+    ("make -C sub test", "test", "own_checkout"),
+    ("make -j 4", "build", "own_checkout"),
+    # a read only program that writes a file is not read only
+    ("terraform fmt", "unknown", "unknown"),
+    ("terraform fmt -check", "read_only", "own_checkout"),
+    ("terraform plan -out=plan.bin", "unknown", "unknown"),
+    ("yq -i '.a = 1' f.yaml", "unknown", "unknown"),
+    ("yq '.a' f.yaml", "read_only", "own_checkout"),
+    ("sort -o out.txt in.txt", "unknown", "unknown"),
+    ("sort in.txt", "read_only", "own_checkout"),
+    ("uniq in.txt out.txt", "unknown", "unknown"),
+    ("uniq in.txt", "read_only", "own_checkout"),
+    ("tree -o tree.txt", "unknown", "unknown"),
+    ("date -s '2026-01-01'", "unknown", "unknown"),
+    ("git diff --output=d.patch", "unknown", "unknown"),
+    ("curl -o out.bin https://example.com/f", "unknown", "unknown"),
+    ("curl -sSLO https://example.com/f", "unknown", "unknown"),
+    ("curl -o /dev/null https://example.com/health", "read_only", "outside_service"),
+    ("wget https://example.com/f", "unknown", "unknown"),
+    ("wget -qO- https://example.com/f", "read_only", "outside_service"),
     # unknown
     ("", "unknown", "unknown"),
     ("   ", "unknown", "unknown"),
@@ -582,3 +634,14 @@ def test_a_tool_without_facts_has_no_step_facts_key_in_its_activity():
         if (e.get("structured_payload") or {}).get("tool_activity")
     ]
     assert activity and all("step_facts" not in a for a in activity)
+
+
+@pytest.mark.parametrize(("builder", "fmt", "tool"), ADAPTERS)
+@pytest.mark.parametrize(
+    "writer", ["http POST example.com/x a=b", "terraform fmt", "curl -o f https://example.com/f"]
+)
+def test_a_command_that_writes_does_not_count_as_a_check(builder, fmt, tool, writer):
+    first, second = redacted_facts(
+        builder, fmt, tool, [(writer, "c1", False), ("git push origin x", "c2", False)]
+    )
+    assert second["checked_before"] is False

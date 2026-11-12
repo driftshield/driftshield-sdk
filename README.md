@@ -296,7 +296,9 @@ or to lower it.
 `command_kind` and `target_kind` are decided on your machine by reading the
 command, then only the label leaves. A command that does not match a known shape
 is `unknown`. A command that runs other commands inside it (`$(...)`, backticks)
-or writes through a redirect is never `read_only`, `test` or `build`. For a
+or writes a file through a redirect or a flag such as `-o`, `-i` or `--output`
+is never `read_only`, `test` or `build`. A download that saves a file is
+`unknown`. For a
 chain such as `pytest && git push`, the most serious part decides.
 `exit_status` comes from the tool result's own error flag or exit code.
 `checked_before` is true when an earlier shell step in the same run was

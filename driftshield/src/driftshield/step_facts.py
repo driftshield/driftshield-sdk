@@ -213,7 +213,6 @@ _OPAQUE_PROGRAMS = frozenset(
         "gawk",
         "php",
         "deno",
-        "bun",
         "tee",
         "script",
     }
@@ -327,6 +326,116 @@ _GH_WRITE_ACTIONS = frozenset(
     }
 )
 _HTTP_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_HTTPIE_PROGRAMS = frozenset({"http", "https", "xh", "xhs"})
+_HTTPIE_METHODS = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
+)
+_HTTPIE_BODY_FLAGS = frozenset({"--form", "-f", "--json", "-j", "--raw", "--multipart"})
+_HTTPIE_VALUE_FLAGS = frozenset(
+    {
+        "-a",
+        "--auth",
+        "--auth-type",
+        "-A",
+        "--session",
+        "--session-read-only",
+        "--timeout",
+        "--proxy",
+        "--verify",
+        "--cert",
+        "--cert-key",
+        "--pretty",
+        "-s",
+        "--style",
+        "--print",
+        "-p",
+        "--max-redirects",
+        "--default-scheme",
+        "--max-headers",
+        "--ssl",
+        "--ciphers",
+        "-o",
+        "--output",
+    }
+)
+# Options that take a separate value. A value after one of these is never the
+# subcommand, so it is dropped before the subcommand is read (``kubectl -n x
+# delete pod y`` is a delete, not a command called ``x``).
+_VALUE_FLAGS: dict[str, frozenset[str]] = {
+    "kubectl": frozenset(
+        {
+            "-n",
+            "--namespace",
+            "--context",
+            "--cluster",
+            "--user",
+            "--kubeconfig",
+            "-s",
+            "--server",
+            "--token",
+            "--as",
+            "--request-timeout",
+        }
+    ),
+    "helm": frozenset(
+        {
+            "-n",
+            "--namespace",
+            "--kube-context",
+            "--kubeconfig",
+            "--kube-as-user",
+            "--registry-config",
+        }
+    ),
+    "aws": frozenset(
+        {
+            "--profile",
+            "--region",
+            "--output",
+            "--endpoint-url",
+            "--query",
+            "--cli-input-json",
+            "--ca-bundle",
+            "--color",
+            "--cli-read-timeout",
+            "--cli-connect-timeout",
+        }
+    ),
+    "gh": frozenset({"-R", "--repo", "--hostname"}),
+    "docker": frozenset({"-H", "--host", "--context", "-c", "--config", "-l", "--log-level"}),
+    "npm": frozenset({"--prefix", "-C", "--workspace", "-w", "--registry"}),
+    "yarn": frozenset({"--cwd", "--registry"}),
+    "pnpm": frozenset({"-C", "--dir", "--filter", "-F", "--registry"}),
+    "bun": frozenset({"--cwd", "--filter", "--registry"}),
+    "make": frozenset({"-C", "--directory", "-f", "--file", "-j", "--jobs", "-I"}),
+    "cargo": frozenset({"--manifest-path", "-p", "--package", "--features", "-F", "--target"}),
+    "vercel": frozenset({"--scope", "-S", "--token", "-t", "--cwd"}),
+}
+_VALUE_FLAGS["oc"] = _VALUE_FLAGS["kubectl"]
+_VALUE_FLAGS["podman"] = _VALUE_FLAGS["docker"]
+_VALUE_FLAGS["gmake"] = _VALUE_FLAGS["make"]
+# Flags of ``uv run`` and friends that take a value, skipped before the
+# program they run is read.
+_RUNNER_VALUE_FLAGS = frozenset(
+    {
+        "--extra",
+        "--with",
+        "--with-requirements",
+        "--project",
+        "--python",
+        "-p",
+        "--group",
+        "--directory",
+        "--package",
+        "--env-file",
+        "--index",
+        "--only-group",
+        "--no-group",
+        "--package-name",
+    }
+)
+_NPX_VALUE_FLAGS = frozenset({"-p", "--package", "--registry", "--cache"})
+_NO_FLAGS: frozenset[str] = frozenset()
 _CURL_BODY_FLAGS = frozenset(
     {
         "-d",
@@ -431,6 +540,31 @@ def _strip_prefixes(tokens: list[str]) -> list[str]:
     return tokens
 
 
+def _drop_value_flags(tokens: list[str], flags: frozenset[str]) -> list[str]:
+    """``tokens`` without the options in ``flags`` and the value that follows each."""
+    if not flags:
+        return tokens
+    kept: list[str] = []
+    skip = False
+    for token in tokens:
+        if skip:
+            skip = False
+        elif token in flags:
+            skip = True
+        else:
+            kept.append(token)
+    return kept
+
+
+def _skip_leading_flags(tokens: list[str], value_flags: frozenset[str]) -> list[str]:
+    index = 0
+    while index < len(tokens) and tokens[index].startswith("-") and tokens[index] != "--":
+        index += 2 if tokens[index] in value_flags else 1
+    if index < len(tokens) and tokens[index] == "--":
+        index += 1
+    return tokens[index:]
+
+
 def _unwrap_runner(tokens: list[str]) -> list[str]:
     """``uv run pytest`` and ``npx vitest`` are classified as the program they run."""
     for _ in range(4):
@@ -438,15 +572,12 @@ def _unwrap_runner(tokens: list[str]) -> list[str]:
             return tokens
         head = tokens[0].lower()
         if head in _RUNNERS_WITH_RUN and len(tokens) > 2 and tokens[1] == "run":
-            tokens = _strip_prefixes(tokens[2:])
+            tokens = _strip_prefixes(_skip_leading_flags(tokens[2:], _RUNNER_VALUE_FLAGS))
         elif head in {"npx", "bunx", "pipx"} or (
             head == "pnpm" and tokens[1:2] in (["dlx"], ["exec"])
         ):
             skip = 1 if head != "pnpm" else 2
-            rest = tokens[skip:]
-            while rest and rest[0].startswith("-"):
-                rest = rest[1:]
-            tokens = rest
+            tokens = _skip_leading_flags(tokens[skip:], _NPX_VALUE_FLAGS)
         elif head == "bundle" and tokens[1:2] == ["exec"]:
             tokens = tokens[2:]
         elif head in {"python", "python3", "py"} and tokens[1:2] == ["-m"] and len(tokens) > 2:
@@ -472,6 +603,21 @@ def _has_flag(tokens: list[str], *flags: str) -> bool:
     return any(token in flags or any(token.startswith(f + "=") for f in flags) for token in tokens)
 
 
+def _writes_a_file(program: str, rest: list[str], positional: list[str]) -> bool:
+    """True for a normally read only program called in a way that writes a file."""
+    if program in {"sort", "tree"} and (
+        _has_flag(rest, "-o", "--output") or any(t.startswith("-o") and len(t) > 2 for t in rest)
+    ):
+        return True
+    if program == "yq" and (_has_flag(rest, "--inplace") or any(t.startswith("-i") for t in rest)):
+        return True
+    if program == "uniq" and len(positional) > 1:
+        return True  # the second operand is the output file
+    if program == "date" and _has_flag(rest, "-s", "--set"):
+        return True
+    return program == "hostname" and bool(positional)
+
+
 def _fs_target(paths: list[str]) -> str:
     for path in paths:
         if (
@@ -491,6 +637,8 @@ def _git(rest: list[str]) -> _Result:
         return _UNKNOWN
     sub, args = rest[index], rest[index + 1 :]
     positional = _positionals(args)
+    if _has_flag(args, "--output") and sub in {"diff", "log", "show", "blame", "grep"}:
+        return _UNKNOWN  # writes the result to a file
     if sub == "push":
         refs = [a for a in positional[1:]] if positional else []
         if _has_flag(args, "--delete", "-d") or any(r.startswith(":") for r in refs):
@@ -610,6 +758,60 @@ def _gh(rest: list[str]) -> _Result:
     return _UNKNOWN
 
 
+def _downloads_to_file(program: str, rest: list[str]) -> bool:
+    """True when curl or wget saves the response to a file (anything but stdout or null)."""
+    sinks = {"-", "/dev/null", "NUL"}
+    if program == "wget":
+        if _has_flag(rest, "--spider"):
+            return False
+        for index, token in enumerate(rest):
+            if token in {"-O", "--output-document"} and index + 1 < len(rest):
+                return rest[index + 1] not in sinks
+            if token.startswith("--output-document="):
+                return token.split("=", 1)[1] not in sinks
+            short = re.fullmatch(r"-[A-Za-z]*O(.+)", token)
+            if short:  # value attached to the short flag, as in -qO-
+                return short.group(1) not in sinks
+            if re.fullmatch(r"-[A-Za-z]+O", token) and index + 1 < len(rest):
+                return rest[index + 1] not in sinks
+        return True
+    for index, token in enumerate(rest):
+        value = rest[index + 1] if index + 1 < len(rest) else ""
+        if token in {"-o", "--output"} or (re.fullmatch(r"-[A-Za-z]+", token) and token[-1] == "o"):
+            if value not in sinks:
+                return True
+        elif token.startswith("--output="):
+            if token.split("=", 1)[1] not in sinks:
+                return True
+        elif token in {"-O", "--remote-name", "--remote-name-all", "-J"}:
+            return True
+        elif re.fullmatch(r"-[A-Za-z]+", token) and "O" in token:
+            return True
+    return False
+
+
+def _httpie(rest: list[str]) -> _Result:
+    """HTTPie and xh: the method is a positional word, request items give a body."""
+    flags_dropped = _drop_value_flags(rest, _HTTPIE_VALUE_FLAGS)
+    words = _positionals(flags_dropped)
+    method = ""
+    if words and words[0].upper() in _HTTPIE_METHODS:
+        method = words[0].upper()
+        words = words[1:]
+    items = words[1:]  # the first word left is the URL
+    has_body = _has_flag(rest, *_HTTPIE_BODY_FLAGS) or any(
+        ("=" in item and "==" not in item) or ":=" in item or "@" in item.split(":", 1)[0]
+        for item in items
+    )
+    if method == "DELETE":
+        return "delete", "outside_service"
+    if (method and method not in _HTTP_READ_METHODS) or has_body:
+        return "outside_write", "outside_service"
+    if any(token in {"-d", "--download", "-o", "--output"} for token in rest):
+        return _UNKNOWN  # saves the response to a file
+    return "read_only", "outside_service"
+
+
 def _http_client(program: str, rest: list[str]) -> _Result:
     method = "GET"
     for index, token in enumerate(rest):
@@ -629,6 +831,8 @@ def _http_client(program: str, rest: list[str]) -> _Result:
         return "delete", "outside_service"
     if method not in _HTTP_READ_METHODS or body:
         return "outside_write", "outside_service"
+    if _downloads_to_file(program, rest):
+        return _UNKNOWN
     return "read_only", "outside_service"
 
 
@@ -816,7 +1020,7 @@ def _classify_simple(tokens: list[str]) -> _Result:
     if head.startswith(("./", "../", "~")) or head == "." and len(tokens) > 1:
         return _UNKNOWN
     program = posixpath.basename(head).lower() if head.startswith("/") else head.lower()
-    rest = tokens[1:]
+    rest = _drop_value_flags(tokens[1:], _VALUE_FLAGS.get(program, _NO_FLAGS))
     positional = _positionals(rest)
 
     if program == "source" or program == ".":
@@ -829,8 +1033,10 @@ def _classify_simple(tokens: list[str]) -> _Result:
         return _git(rest if program == "git" else [t for t in rest if t != "git"])
     if program == "gh":
         return _gh(rest)
-    if program in {"curl", "wget", "http", "https", "xh"}:
-        return _http_client("wget" if program == "wget" else "curl", rest)
+    if program in _HTTPIE_PROGRAMS:
+        return _httpie(rest)
+    if program in {"curl", "wget"}:
+        return _http_client(program, rest)
     if program in {"ssh", "scp", "rsync", "sftp"}:
         return _remote_shell(program, rest)
     if program == "aws":
@@ -858,7 +1064,7 @@ def _classify_simple(tokens: list[str]) -> _Result:
         if program == "cargo" and positional[:1] == ["fmt"]:
             return ("test", "own_checkout") if _has_flag(rest, "--check") else _UNKNOWN
         return _make_like(program, rest)
-    if program in {"tsc", "vite", "next", "nuxt", "astro", "esbuild"}:
+    if program in {"tsc", "vite", "next", "nuxt", "astro"}:
         if program == "tsc":
             return ("test" if _has_flag(rest, "--noEmit") else "build"), "own_checkout"
         return ("build", "own_checkout") if positional[:1] == ["build"] else _UNKNOWN
@@ -905,7 +1111,7 @@ def _classify_simple(tokens: list[str]) -> _Result:
         "firebase",
         "heroku",
     }:
-        return _infra_tool(program, positional)
+        return _infra_tool(program, positional, rest)
     if program in {"rm", "rmdir", "unlink", "shred", "trash"}:
         return "delete", _fs_target(positional)
     if program == "find":
@@ -920,8 +1126,6 @@ def _classify_simple(tokens: list[str]) -> _Result:
             if _has_flag(rest, "-i", "--in-place") or any(t.startswith("-i") for t in rest)
             else ("read_only", _fs_target(positional[1:]))
         )
-    if program == "env":
-        return ("read_only", "own_checkout") if not rest else _UNKNOWN
     if program == "systemctl":
         return (
             ("read_only", "outside_service")
@@ -929,14 +1133,21 @@ def _classify_simple(tokens: list[str]) -> _Result:
             else _UNKNOWN
         )
     if program in _READ_ONLY_PROGRAMS:
-        return "read_only", _fs_target([p for p in positional])
+        if _writes_a_file(program, rest, positional):
+            return _UNKNOWN
+        return "read_only", _fs_target(positional)
     return _UNKNOWN
 
 
-def _infra_tool(program: str, positional: list[str]) -> _Result:
+def _infra_tool(program: str, positional: list[str], rest: list[str]) -> _Result:
     sub = positional[0] if positional else ""
     if program in {"terraform", "tofu"}:
-        if sub in {"plan", "show", "validate", "fmt", "output", "version", "providers", "graph"}:
+        if sub == "fmt":
+            # fmt rewrites files unless it is only checking.
+            return ("read_only", "own_checkout") if _has_flag(rest, "-check") else _UNKNOWN
+        if sub == "plan" and _has_flag(rest, "-out"):
+            return _UNKNOWN  # writes a plan file
+        if sub in {"plan", "show", "validate", "output", "version", "providers", "graph"}:
             return "read_only", "outside_service"
         if sub == "init":
             return "build", "own_checkout"
@@ -1169,9 +1380,11 @@ def compute_step_facts(
     the redacted block. ``skip_keys`` are keys the redactor drops, so a
     duplicated copy of a step inside a dropped key is not counted twice.
 
-    A step whose command is already hidden (a transcript that was redacted
-    before, for example by intel re-analysing an upload) keeps the facts it
-    carries, validated again; an unmarked one gets ``unknown`` values.
+    A step whose command is already hidden (the transcript was redacted
+    before and is being analysed again) keeps the facts it carries, validated
+    against the fixed lists again; an unmarked one gets ``unknown`` values. A
+    step whose command is visible never keeps facts from the input: they are
+    recomputed.
     """
     facts_by_node: dict[int, dict[str, Any]] = {}
     pending: dict[str, dict[str, Any]] = {}

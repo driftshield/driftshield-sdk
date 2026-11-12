@@ -3,7 +3,7 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## 0.3.0 - 2026-11-12
+## Unreleased
 
 ### Shell steps now carry four fixed list facts
 

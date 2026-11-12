@@ -38,8 +38,11 @@ A shell tool call keeps one extra key, `step_facts`, with four values taken
 from fixed lists: `command_kind`, `target_kind`, `exit_status` and
 `checked_before`. They are computed from the raw command before it is
 replaced, and no command text, path, argument or hash of them is kept. The key
-is written by the redactor only; a `step_facts` key in the input is never
-copied through. See the README section "What is sent for each shell step" for
+is written by the redactor only. A `step_facts` key in the input is never
+copied as is: for a step whose command is visible the facts are recomputed from
+the command, and for a step whose command is already hidden (a transcript that
+was redacted before) the carried facts are kept only after they are checked
+against the fixed lists again. See the README section "What is sent for each shell step" for
 the allowed values.
 
 ### Regex-detected secrets (replaced inline in any string)

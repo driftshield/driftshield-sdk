@@ -70,7 +70,8 @@ _PROMPT_RESPONSE_KEYS: frozenset[str] = frozenset({"content", "text"})
 # transcript by :func:`driftshield.step_facts.compute_step_facts` before any
 # redaction and keyed by ``id()`` of the raw tool call block. Only values from
 # closed lists are ever written (see ``driftshield.step_facts``). A
-# ``step_facts`` key already present in the input is never copied through.
+# ``step_facts`` key in the input is never copied as is: the facts are
+# recomputed, or for an already hidden command re-validated against the lists.
 _STEP_FACTS: ContextVar[dict[int, dict[str, Any]]] = ContextVar("_STEP_FACTS", default={})
 
 # Failure / diagnostic body keys.
