@@ -76,6 +76,16 @@ GH_BACKOFF = 2.0
 RATE_WAIT_CAP = 120  # seconds; a longer rate limit wait is not worth holding a run for
 
 
+def retry_base() -> float:
+    """The first wait between tries, in seconds. DS_RETRY_WAIT sets it, as in dslib.py and runstore.py (0 means no
+    wait; a missing or unreadable value means the default of 2 s). Each later wait doubles it."""
+    raw = os.environ.get("DS_RETRY_WAIT")
+    try:
+        return max(0.0, float(raw)) if raw not in (None, "") else GH_BACKOFF
+    except ValueError:
+        return GH_BACKOFF
+
+
 def split_response(text: str | None):
     """`gh api -i` prints the status line and headers, a blank line, then the body. Plain JSON (no headers) is
     returned as the body with no headers."""
@@ -198,8 +208,8 @@ class GhCli:
         return min(self.timeout, left)
 
     def get(self, path: str):
-        """Three tries. A 5xx, a timeout, a connection error or an unreadable answer waits 2 s, then 4 s (plus up to
-        a second of jitter) before the next try. A 429, or a 403 that says it is a rate limit, waits as long as
+        """Three tries. A 5xx, a timeout, a connection error or an unreadable answer waits 2 s, then 4 s (DS_RETRY_WAIT sets the 2;
+        plus up to a second of jitter) before the next try. A 429, or a 403 that says it is a rate limit, waits as long as
         Retry-After or x-ratelimit-reset asks, if that is at most RATE_WAIT_CAP seconds and still fits inside the
         deadline; otherwise it fails at once. Any other 4xx is final: asking again cannot change the answer."""
         why, status, hint = "no attempt", None, None
@@ -207,12 +217,13 @@ class GhCli:
             if attempt:
                 if hint is not None and hint > RATE_WAIT_CAP:
                     break  # checked on the hint itself, so the test mode below cannot hide it
-                if os.environ.get("DS_RETRY_WAIT") == "0":
+                base = retry_base()
+                if base == 0:
                     delay = 0.0
                 elif hint is not None:
-                    delay = hint + random.uniform(0, 1)
+                    delay = hint + random.uniform(0, min(1.0, base))
                 else:
-                    delay = GH_BACKOFF * 2 ** (attempt - 1) + random.uniform(0, 1)
+                    delay = base * 2 ** (attempt - 1) + random.uniform(0, min(1.0, base))
                 if self.deadline is not None and time.time() + delay >= self.deadline:
                     break
                 time.sleep(delay)
@@ -524,7 +535,7 @@ def post_body(api_url: str, key: str, body, sleep=time.sleep, timeout: int = 60,
     data = body if isinstance(body, bytes) else encode_body(body)
     result = PostResult(False, None, "no attempt")
     for delay in RETRY_DELAYS:
-        delay = 0 if os.environ.get("DS_RETRY_WAIT") == "0" else delay  # tests turn the waits off, as for gh
+        delay = 0 if retry_base() == 0 else delay  # DS_RETRY_WAIT=0 turns the waits off, as for gh
         if deadline is not None and time.time() + delay >= deadline:
             return PostResult(False, result.status, f"{result.detail}; out of time".strip("; "))
         if delay:
