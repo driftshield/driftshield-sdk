@@ -5,6 +5,29 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
+### Shell steps now carry four fixed list facts
+
+- Every tool input is still replaced by a placeholder, so a shell step that ran
+  `ls` looked the same as one that ran `git push`. The redacted transcript now
+  keeps one extra key on each shell tool call, `step_facts`, with four values
+  that can only come from a fixed list: `command_kind` (`read_only`, `test`,
+  `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `unknown`),
+  `target_kind` (`own_checkout`, `main_branch`, `outside_service`, `unknown`),
+  `exit_status` (`success`, `failure`, `unknown`) and `checked_before` (true or
+  false: an earlier shell step in the run was `read_only`, `test` or `build`).
+- The labels fail closed: `read_only`, `test` and `build` are given only to
+  one plain command from a fixed allowlist, with no shell operator and no flag
+  that writes files. A write kind is still found anywhere in a chain.
+- It covers Claude Code `Bash`, OpenClaw `exec` and `bash`, and Codex shell
+  calls. The Claude Code, OpenClaw and Codex parsers carry the key through to
+  `tool_activity.step_facts` on the normalised events.
+- Never sent: command text, paths, arguments, prompts, code, or any hash of
+  them. There is no setting to switch this off or to lower it. The README says
+  exactly what is sent.
+- The redactor version is now `recursive-redactor.v3.1.0` and the ruleset
+  `ruleset.v4`. Redacted output for transcripts with shell steps changes, so
+  expect different hashes for the same input.
+
 ### Choose which local sessions may be sent: `driftshield capture`
 
 - New `driftshield capture` commands: `init` writes a starting

@@ -7,6 +7,7 @@ from typing import Any
 
 from driftshield.core.analysis.tool_outcomes import annotate_tool_recoveries
 from driftshield.core.models import CanonicalEvent, EventType
+from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 
 NORMALIZED_EVENT_VERSION = "phase-2b-v1"
@@ -219,7 +220,7 @@ def _tool_activity(event: CanonicalEvent) -> dict[str, Any] | None:
     else:
         status = "pending"
 
-    return {
+    activity: dict[str, Any] = {
         "name": event.action,
         "category": event.metadata.get("semantic_action_category"),
         "raw_name": event.metadata.get("raw_action") or event.action,
@@ -227,6 +228,12 @@ def _tool_activity(event: CanonicalEvent) -> dict[str, Any] | None:
         "input_keys": _mapping_keys(event.inputs),
         "has_outputs": bool(event.outputs),
     }
+    # Fixed list step facts a parser carried through from the redacted
+    # transcript. Re-validated here so only the closed lists can be emitted.
+    step_facts = sanitise_step_facts(event.metadata.get(STEP_FACTS_KEY))
+    if step_facts is not None:
+        activity[STEP_FACTS_KEY] = step_facts
+    return activity
 
 
 def _summary(event: CanonicalEvent) -> str:

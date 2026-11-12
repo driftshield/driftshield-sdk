@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.parsers.local_chat import LocalChatTranscriptParser
+from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 ROLLOUT_RECORD_TYPES = frozenset(
     {"session_meta", "turn_context", "event_msg", "response_item", "realtime_item", "world_state"}
@@ -361,6 +362,11 @@ class CodexCliParser(LocalChatTranscriptParser):
                     "cwd": cwd,
                     "semantic_action_category": category,
                     "raw_action": action,
+                    **(
+                        {STEP_FACTS_KEY: facts}
+                        if (facts := sanitise_step_facts(payload.get(STEP_FACTS_KEY))) is not None
+                        else {}
+                    ),
                 },
             )
             if call_id:

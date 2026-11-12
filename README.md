@@ -277,6 +277,46 @@ Transcript → Parser → Canonical Events → Decision Graph → Risk Heuristic
 4. **Inflection detection** scores points in the session where the agent's trajectory changed
 5. **Reports** present findings as Markdown, JSON, or through the web dashboard
 
+### What is sent for each shell step
+
+Redaction replaces every tool input with a placeholder, so by default nothing
+tells `ls` and `git push` apart. For each shell step (Claude Code `Bash`,
+OpenClaw `exec` and `bash`, and Codex shell calls) the redacted transcript
+keeps one extra key, `step_facts`, with exactly four values. Each value is
+picked from a fixed list. This is always on. There is no option to turn it off
+or to lower it.
+
+| Field | Allowed values |
+|-------|----------------|
+| `command_kind` | `read_only`, `test`, `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `unknown` |
+| `target_kind` | `own_checkout`, `main_branch`, `outside_service`, `unknown` |
+| `exit_status` | `success`, `failure`, `unknown` |
+| `checked_before` | `true` or `false` |
+
+`command_kind` and `target_kind` are decided on your machine by reading the
+command, then only the label leaves. A command that does not match a known shape
+is `unknown`. The rule is fail closed: `read_only`, `test` and `build` are only
+given to a step that is one plain command from a fixed allowlist with no shell
+operator (`;`, `&&`, `||`, `|`, brackets, `$(...)`, backticks, redirects, `&`,
+a comment or a newline) and no flag that writes files, so a formatter, a
+`--fix` or `-w` run, or a download that saves a file is never a check. A write
+kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
+in any part of a chain, so `pytest && git push origin main` is a `git_push` on
+`main_branch`.
+`exit_status` comes from the tool result's own error flag or exit code.
+`checked_before` is true when an earlier shell step in the same run was
+`read_only`, `test` or `build`. Local changes such as `git commit` or `mkdir`
+are `unknown`.
+
+Never sent: the command text, any path or argument, prompts, code, file
+contents, and any hash or fingerprint of them. The value of each field is
+checked against its list before it is written, so a mistake in the classifier
+can only produce `unknown`, never free text.
+
+Why: a run that pushed to the main branch without any earlier check is a very
+different run from one that listed a directory, and the placeholder hides the
+difference. Four fixed list labels show it without revealing what you typed.
+
 ### What counts as a failure
 
 A run qualifies as a failure (`qualification_state` is `qualified_failure`) when the
