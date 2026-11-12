@@ -5,6 +5,7 @@ import typer
 from driftshield import __version__
 from driftshield.cli.commands.analyze import analyze
 from driftshield.cli.commands.batch import batch
+from driftshield.cli.commands.capture import app as capture_app
 from driftshield.cli.commands.connectors import app as connectors_app
 from driftshield.cli.commands.export_validations import export_validations
 from driftshield.cli.commands.generate_fixtures import generate_fixtures
@@ -34,6 +35,7 @@ app.command(name="generate-fixtures")(generate_fixtures)
 app.command()(ingest)
 app.command(name="show-result")(show_result)
 app.command()(submit)
+app.add_typer(capture_app, name="capture")
 app.add_typer(connectors_app, name="connectors")
 app.add_typer(signatures_app, name="signatures")
 app.add_typer(telemetry_app, name="telemetry")
