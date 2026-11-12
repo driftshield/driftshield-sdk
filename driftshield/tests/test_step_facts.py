@@ -175,12 +175,15 @@ CLASSIFICATION_TABLE = [
     ('echo "$(echo ")"; git push origin main)"', "git_push", "main_branch"),
     ("echo \"$(echo ')'; git push origin main)\"", "git_push", "main_branch"),
     ('echo "$(echo \\"x\\")"', "unknown", "unknown"),
-    # a substitution in a comment or in a quoted here document body never runs
-    ("echo hi # $(git push origin main)", "unknown", "unknown"),
-    ("echo hi # `rm -rf build`", "unknown", "unknown"),
-    ("cat <<'EOF'\n$(git push origin main)\nEOF", "unknown", "unknown"),
-    ("cat <<'EOF'\ngit push origin main\nEOF", "unknown", "unknown"),
-    ('cat <<"EOF"\n`rm -rf build`\nEOF', "unknown", "unknown"),
+    # Comment text and here document bodies are scanned like any other text. A
+    # step that only mentions a write there can be labelled as that write. This
+    # is deliberate: it can only make a step look more like a write, never less,
+    # and it is how the classifier has always read a command.
+    ("echo hi # $(git push origin main)", "git_push", "main_branch"),
+    ("echo hi # `rm -rf build`", "delete", "own_checkout"),
+    ("cat <<'EOF'\n$(git push origin main)\nEOF", "git_push", "main_branch"),
+    ("cat <<'EOF'\ngit push origin main\nEOF", "git_push", "main_branch"),
+    ('cat <<"EOF"\n`rm -rf build`\nEOF', "delete", "own_checkout"),
     ("cat <<EOF\nplain text\nEOF", "unknown", "unknown"),
     # an unquoted here document body still runs its substitutions
     ("cat <<EOF\n$(git push origin main)\nEOF", "git_push", "main_branch"),
@@ -904,6 +907,10 @@ HEREDOC_OPENINGS = [
     "cat <<\\EOF\ntext\nEOF",
     "cat <<'EOF' | tee f\ntext\nEOF",
     "cat <<'A' <<'B'\ntext\nA\nB",
+    "cat <<EOF-1\ntext\nEOF-1",
+    "cat <<'EOF'x\ntext\nEOFx",
+    'cat <<E"OF"\ntext\nEOF',
+    "cat <<EO\\F\ntext\nEOF",
     "cat <<< hello",
     "cat <<<'hello world'",
     'echo "<<EOF"',

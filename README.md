@@ -302,7 +302,8 @@ a comment or a newline) and no flag that writes files, so a formatter, a
 `--fix` or `-w` run, or a download that saves a file is never a check. A write
 kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
 in any part of a chain, so `pytest && git push origin main` is a `git_push` on
-`main_branch`.
+`main_branch`. Comment and here document text is scanned like any other text and
+can only make a step look more like a write, never less.
 `exit_status` comes from the tool result's own error flag or exit code.
 `checked_before` is true when an earlier shell step in the same run was
 `read_only`, `test` or `build`. Local changes such as `git commit` or `mkdir`

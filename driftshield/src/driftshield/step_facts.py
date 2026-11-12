@@ -486,21 +486,11 @@ _SSH_VALUE_FLAGS = frozenset(
 
 
 def _split_unquoted_newlines(command: str) -> str:
-    """Turn newlines outside quotes into ``;`` so shlex sees separate commands.
-
-    A comment is dropped up to its newline, so the text after a ``#`` can never
-    swallow the commands on the following lines.
-    """
+    """Turn newlines outside quotes into ``;`` so shlex sees separate commands."""
     out: list[str] = []
     quote = ""
     escaped = False
-    in_comment = False
-    previous = "\n"
     for char in command:
-        if in_comment:
-            if char != "\n":
-                continue
-            in_comment = False
         if escaped:
             escaped = False
             out.append(char)
@@ -514,12 +504,8 @@ def _split_unquoted_newlines(command: str) -> str:
         elif char in "'\"":
             quote = char
             out.append(char)
-        elif char == "#" and previous in " \t\n;&|(":
-            in_comment = True
-            continue
         else:
             out.append(" ; " if char == "\n" else char)
-        previous = char
     return "".join(out)
 
 
@@ -527,6 +513,9 @@ def _tokenise(command: str) -> list[str] | None:
     try:
         lexer = shlex.shlex(_split_unquoted_newlines(command), posix=True, punctuation_chars=True)
         lexer.whitespace_split = False
+        # A ``#`` is not a comment here: the text after it is read like any
+        # other text, so a comment can never hide a command on a later line.
+        lexer.commenters = ""
         # shlex ends a word at these when punctuation_chars is on; they are plain
         # characters in refs and URLs (HEAD:main, user@host, a+b, 1,2).
         lexer.wordchars += ":@%+,^"
@@ -1343,84 +1332,6 @@ def _has_shell_operators(command: str) -> bool:
 _MAX_SUBSTITUTION_DEPTH = 4
 _MAX_SUBSTITUTION_BODIES = 64
 _MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
-_HEREDOC_OPERATOR = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\(\w+)|(\w+))")
-
-
-def _heredoc_spans(text: str) -> list[tuple[int, int, bool]]:
-    """``(start, end, quoted)`` of every here document body, in order.
-
-    A body is data, not commands, so it is cut out before the command is split
-    into parts. Cutting text out must never hide a write, so a body is only cut
-    when it is certainly one: a ``<<`` or ``<<-`` operator outside quotes,
-    comments, arithmetic and backticks, that is not a here string (``<<<``),
-    with its delimiter read and its closing line found. On any doubt the text
-    is kept and read as commands. Only a quoted delimiter (``<<'EOF'``) also
-    stops substitutions from running inside the body.
-    """
-    spans: list[tuple[int, int, bool]] = []
-    quote = ""
-    escaped = False
-    position = 0
-    while position < len(text):
-        char = text[position]
-        if escaped:
-            escaped = False
-        elif char == "\\" and quote != "'":
-            escaped = True
-        elif quote == "'":
-            if char == "'":
-                quote = ""
-        elif char == "$" and text.startswith("$((", position):
-            position = _end_of_paren(text, position + 2)  # arithmetic: << is a shift
-        elif quote == '"':
-            if char == '"':
-                quote = ""
-        elif char in "'\"":
-            quote = char
-        elif char == "`":
-            position = _end_of_backtick(text, position + 1)
-        elif char == "#" and (position == 0 or text[position - 1] in " \t\n;&|("):
-            newline = text.find("\n", position)
-            position = len(text) if newline == -1 else newline
-        elif char == "(" and text.startswith("((", position):
-            position = _end_of_paren(text, position + 1)  # (( ... )) arithmetic command
-        elif char == "<" and text.startswith("<<<", position):
-            position += 2  # a here string, not a here document
-        elif char == "<" and text.startswith("<<", position):
-            match = _HEREDOC_OPERATOR.match(text, position)
-            if match is not None:
-                dash, single, double, escaped_delimiter, bare = match.groups()
-                delimiter = next(
-                    d for d in (single, double, escaped_delimiter, bare) if d is not None
-                )
-                line_end = text.find("\n", match.end())
-                terminator = None
-                if line_end != -1 and delimiter:
-                    terminator = re.compile(
-                        r"^" + (r"[ \t]*" if dash else "") + re.escape(delimiter) + r"[ \t]*$",
-                        re.M,
-                    ).search(text, line_end + 1)
-                if terminator is not None:
-                    spans.append((line_end + 1, terminator.end(), bare is None))
-                    position = terminator.end()
-                    continue
-                position = match.end() - 1
-            else:
-                position += 1
-        position += 1
-    return spans
-
-
-def _without_heredoc_bodies(text: str, spans: list[tuple[int, int, bool]]) -> str:
-    if not spans:
-        return text
-    pieces: list[str] = []
-    cursor = 0
-    for start, end, _ in spans:
-        pieces.append(text[cursor:start])
-        cursor = end
-    pieces.append(text[cursor:])
-    return "".join(pieces)
 
 
 def _end_of_backtick(text: str, start: int) -> int:
@@ -1477,19 +1388,16 @@ def _substitution_bodies(text: str) -> list[str]:
     """The text inside each backtick pair and ``$(...)`` of ``text``, one level down.
 
     Substitutions run inside double quotes too, so they are read there. They do
-    not run inside single quotes, comments or quoted here document bodies, so
-    those are skipped. A nested substitution is returned inside its parent and
+    not run inside single quotes, so those are skipped. Comment text and here
+    document bodies are read like any other text: a substitution in them may
+    not run, but reading it can only make a step look more like a write. A nested substitution is returned inside its parent and
     found again when the parent is read.
     """
-    skip = {start: end for start, end, quoted in _heredoc_spans(text) if quoted}
     bodies: list[str] = []
     quote = ""
     escaped = False
     position = 0
     while position < len(text):
-        if position in skip:
-            position = skip[position]
-            continue
         char = text[position]
         if escaped:
             escaped = False
@@ -1511,16 +1419,13 @@ def _substitution_bodies(text: str) -> list[str]:
                 quote = ""
         elif char in "'\"":
             quote = char
-        elif char == "#" and (position == 0 or text[position - 1] in " \t\n;&|("):
-            newline = text.find("\n", position)
-            position = len(text) if newline == -1 else newline
         position += 1
     return bodies
 
 
 def _write_kind_of(text: str) -> _Result | None:
     """The most serious write kind among the plain parts of ``text``, or ``None``."""
-    tokens = _tokenise(_without_heredoc_bodies(text, _heredoc_spans(text)))
+    tokens = _tokenise(text)
     if not tokens:
         return None
     results = [_classify_simple(segment) for segment in _segments(tokens)[0]]
@@ -1570,7 +1475,7 @@ def _classify_command(command: object) -> tuple[str, str]:
     """
     if not isinstance(command, str) or not command.strip() or len(command) > _MAX_COMMAND_CHARS:
         return "unknown", "unknown"
-    tokens = _tokenise(_without_heredoc_bodies(command, _heredoc_spans(command)))
+    tokens = _tokenise(command)
     if not tokens:
         return "unknown", "unknown"
     segments, _ = _segments(tokens)
