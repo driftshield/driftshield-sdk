@@ -486,29 +486,40 @@ _SSH_VALUE_FLAGS = frozenset(
 
 
 def _split_unquoted_newlines(command: str) -> str:
-    """Turn newlines outside quotes into ``;`` so shlex sees separate commands."""
+    """Turn newlines outside quotes into ``;`` so shlex sees separate commands.
+
+    A comment is dropped up to its newline, so the text after a ``#`` can never
+    swallow the commands on the following lines.
+    """
     out: list[str] = []
     quote = ""
     escaped = False
+    in_comment = False
+    previous = "\n"
     for char in command:
+        if in_comment:
+            if char != "\n":
+                continue
+            in_comment = False
         if escaped:
             escaped = False
             out.append(char)
-            continue
-        if char == "\\" and quote != "'":
+        elif char == "\\" and quote != "'":
             escaped = True
             out.append(char)
-            continue
-        if quote:
+        elif quote:
             if char == quote:
                 quote = ""
             out.append(char)
-            continue
-        if char in "'\"":
+        elif char in "'\"":
             quote = char
             out.append(char)
+        elif char == "#" and previous in " \t\n;&|(":
+            in_comment = True
             continue
-        out.append(" ; " if char == "\n" else char)
+        else:
+            out.append(" ; " if char == "\n" else char)
+        previous = char
     return "".join(out)
 
 
@@ -530,6 +541,12 @@ def _tokenise(command: str) -> list[str] | None:
         return None
 
 
+def _operand_length(tokens: list[str], index: int) -> int:
+    """1 when the token after a redirect is its operand, 0 when it is a new command."""
+    following = tokens[index + 1] if index + 1 < len(tokens) else ";"
+    return 0 if following in _OPERATORS else 1
+
+
 def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
     """Split into simple commands. The flag is True for a write redirect or heredoc."""
     segments: list[list[str]] = [[]]
@@ -541,14 +558,14 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
             segments.append([])
         elif token in _HEREDOC:
             opaque = True
-            index += 1
+            index += _operand_length(tokens, index)
         elif token in _REDIRECTS or re.fullmatch(r"\d?>>?", token):
             target = tokens[index + 1] if index + 1 < len(tokens) else ""
             if target not in {"/dev/null", "&", "&1", "&2"}:
                 opaque = True
-            index += 1
+            index += _operand_length(tokens, index)
         elif token in {">&", "<", "<&", "2>&"}:
-            index += 1
+            index += _operand_length(tokens, index)
         elif token == "(" and index > 0 and tokens[index - 1].endswith("$"):
             segments.append([])  # a command substitution: its words are their own command
         elif token not in {"(", ")", "{", "}", "!"}:
@@ -1326,34 +1343,72 @@ def _has_shell_operators(command: str) -> bool:
 _MAX_SUBSTITUTION_DEPTH = 4
 _MAX_SUBSTITUTION_BODIES = 64
 _MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
-_HEREDOC_OPERATOR = re.compile(r"<<(?!<)(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\(\w+)|(\w+))")
+_HEREDOC_OPERATOR = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\(\w+)|(\w+))")
 
 
 def _heredoc_spans(text: str) -> list[tuple[int, int, bool]]:
     """``(start, end, quoted)`` of every here document body, in order.
 
     A body is data, not commands, so it is cut out before the command is split
-    into parts. Only a quoted delimiter (``<<'EOF'``) also stops substitutions
-    from running inside the body; an unquoted body still expands them.
+    into parts. Cutting text out must never hide a write, so a body is only cut
+    when it is certainly one: a ``<<`` or ``<<-`` operator outside quotes,
+    comments, arithmetic and backticks, that is not a here string (``<<<``),
+    with its delimiter read and its closing line found. On any doubt the text
+    is kept and read as commands. Only a quoted delimiter (``<<'EOF'``) also
+    stops substitutions from running inside the body.
     """
     spans: list[tuple[int, int, bool]] = []
+    quote = ""
+    escaped = False
     position = 0
-    while True:
-        match = _HEREDOC_OPERATOR.search(text, position)
-        if match is None:
-            return spans
-        dash, single, double, escaped, bare = match.groups()
-        delimiter = next(d for d in (single, double, escaped, bare) if d is not None)
-        quoted = bare is None
-        line_end = text.find("\n", match.end())
-        if line_end == -1:
-            return spans
-        terminator = re.compile(
-            r"^" + (r"[ \t]*" if dash else "") + re.escape(delimiter) + r"[ \t]*$", re.M
-        ).search(text, line_end + 1)
-        end = terminator.end() if terminator else len(text)
-        spans.append((line_end + 1, end, quoted))
-        position = end
+    while position < len(text):
+        char = text[position]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "$" and text.startswith("$((", position):
+            position = _end_of_paren(text, position + 2)  # arithmetic: << is a shift
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "`":
+            position = _end_of_backtick(text, position + 1)
+        elif char == "#" and (position == 0 or text[position - 1] in " \t\n;&|("):
+            newline = text.find("\n", position)
+            position = len(text) if newline == -1 else newline
+        elif char == "(" and text.startswith("((", position):
+            position = _end_of_paren(text, position + 1)  # (( ... )) arithmetic command
+        elif char == "<" and text.startswith("<<<", position):
+            position += 2  # a here string, not a here document
+        elif char == "<" and text.startswith("<<", position):
+            match = _HEREDOC_OPERATOR.match(text, position)
+            if match is not None:
+                dash, single, double, escaped_delimiter, bare = match.groups()
+                delimiter = next(
+                    d for d in (single, double, escaped_delimiter, bare) if d is not None
+                )
+                line_end = text.find("\n", match.end())
+                terminator = None
+                if line_end != -1 and delimiter:
+                    terminator = re.compile(
+                        r"^" + (r"[ \t]*" if dash else "") + re.escape(delimiter) + r"[ \t]*$",
+                        re.M,
+                    ).search(text, line_end + 1)
+                if terminator is not None:
+                    spans.append((line_end + 1, terminator.end(), bare is None))
+                    position = terminator.end()
+                    continue
+                position = match.end() - 1
+            else:
+                position += 1
+        position += 1
+    return spans
 
 
 def _without_heredoc_bodies(text: str, spans: list[tuple[int, int, bool]]) -> str:
