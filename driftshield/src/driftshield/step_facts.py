@@ -1390,8 +1390,9 @@ def _substitution_bodies(text: str) -> list[str]:
     Substitutions run inside double quotes too, so they are read there. They do
     not run inside single quotes, so those are skipped. Comment text and here
     document bodies are read like any other text: a substitution in them may
-    not run, but reading it can only make a step look more like a write. A nested substitution is returned inside its parent and
-    found again when the parent is read.
+    not run, but reading it can only make a step look more like a write. A
+    nested substitution is returned inside its parent and is found again when
+    the parent is read.
     """
     bodies: list[str] = []
     quote = ""
