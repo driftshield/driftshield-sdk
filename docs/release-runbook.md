@@ -31,10 +31,14 @@ green `release-build` run is the signal that the tag is safe to push.
 
 A standing step before every tag. The tests use fixtures; this step uses the
 kind of sessions people actually have. Everything runs locally and nothing is
-uploaded.
+uploaded. Do it while the release PR is open, before it is marked ready, so
+the counts can go in the PR body.
 
-- Install the release candidate (the wheel from the `release-build` run) in a
-  clean virtual environment.
+- Build the release candidate from the release PR head: check out the PR head
+  and run `uv build` in `driftshield/`, or `pip install` the checkout, in a
+  clean virtual environment. The `release-build` workflow in step 2 runs on
+  `main` after the merge, so it is not available yet; it rebuilds the same code
+  later. If the PR head changes after the check, run the check again.
 - Collect a corpus of real recent local sessions from the agents the SDK reads
   (a couple of weeks of them, from more than one agent). Keep the files where
   they are or in a scratch folder; do not copy them anywhere shared.
