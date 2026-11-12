@@ -1,8 +1,8 @@
 # Choosing which local sessions may be sent
 
 `driftshield capture` decides which agent sessions on your machine may ever be
-sent to your DriftShield workspace. Today it covers the settings, the checks and
-a dry run. The upload and the background watch arrive in a later release.
+sent to your DriftShield workspace, checks that with a dry run, and then sends
+the finished ones in the background.
 
 Nothing is read until you list a folder, and nothing is sent until you switch
 capture on.
@@ -13,7 +13,13 @@ capture on.
 driftshield capture init        # writes ~/.driftshield/capture.toml, capture off
 driftshield capture status      # shows what the file says
 driftshield capture dry-run --days 14 --report capture-dry-run.md
+# read the report, set enabled = true, then:
+driftshield capture submit --path <one finished session>.jsonl   # try one
+driftshield capture install > capture.plist   # or --systemd; prints, edits nothing
 ```
+
+The API key comes from `DRIFTSHIELD_API_KEY` (or `API_KEY`), else the telemetry
+config's `remote_api_key`. Submissions go to the workspace lane.
 
 `DRIFTSHIELD_HOME` moves the folder; `DRIFTSHIELD_CAPTURE_CONFIG` points at
 another settings file.
@@ -95,3 +101,48 @@ writes nothing and sends nothing. The report lists:
   opening them.
 
 Read it before setting `enabled = true`.
+
+## Sending
+
+`driftshield capture watch` is one tick, meant to run every minute from the
+launchd agent or systemd timer that `install` prints. Each tick:
+
+- starts its window the first time it runs, so switching capture on never sends
+  older sessions. `watch --since <ISO time>` sends older ones on purpose,
+- waits until a file has been quiet: `main_idle_minutes` for whole sessions,
+  two minutes for subagents and Codex rollouts,
+- sends a session only when its last record is a finished turn, and each
+  version of a session once (by content hash). A session that grows is sent
+  again as a new revision,
+- analyses it locally with `analyse_run`, scrubs the blocked terms from the
+  redacted copy and submits that copy with `agent_id` `<agent_id_prefix>:<agent>`
+  and the folder's git project (or `project`),
+- holds a session over `hold_over` hits and never retries it for that content,
+- holds a session whatever the limit when a blocked term is in anything sent
+  beside the transcript: the project, the workflow reference, the model name,
+  the file name or the session ids. These are not rewritten, because a changed
+  identifier would point at the wrong thing. Only the file name is sent, never
+  its folder,
+- records a session it cannot read, or one whose analysis fails, as failed and
+  goes on with the next one,
+- retries failures after 1, 2, 4 ... minutes, up to an hour.
+
+State lives in `$DRIFTSHIELD_HOME/capture/`: `ledger.json` (what was sent, held
+or failing) and `status.jsonl` (one line per decision, ids and counts only).
+`capture status` lists held and failing sessions. An unreadable ledger stops all
+sending until it is fixed.
+
+## Extensions
+
+Another package can register an object under the `driftshield.capture.extensions`
+entry point group:
+
+- `scope_rule(settings, cwd)` is asked for each working folder after the denied
+  folders and before the allowed ones. It returns a decision or `None`. A denied
+  folder is refused before any extension is asked, and an extension that raises
+  refuses the folder.
+- `after_submit(record)` runs after each accepted submission with the session
+  id, source, path, working folders, submission id and project. Its failures
+  never fail the capture.
+
+The SDK ships with none. `capture status` lists the loaded ones.
