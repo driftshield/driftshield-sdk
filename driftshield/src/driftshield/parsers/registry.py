@@ -20,6 +20,7 @@ from driftshield.parsers.crewai import CrewAIParser
 from driftshield.parsers.langchain import LangChainParser
 from driftshield.parsers.openclaw import OpenClawParser
 from driftshield.parsers.openclaw_trajectory import OpenClawTrajectoryParser
+from driftshield.step_facts import is_one_of
 from driftshield.parsers.protocol import TranscriptParser
 
 PARSERS: dict[str, type[TranscriptParser]] = {
@@ -118,7 +119,7 @@ def _detect_single_document(whole: Any) -> str | None:
     if isinstance(events, list) and events:
         first = next((e for e in events if isinstance(e, dict)), None)
         if first is not None and (
-            first.get("type") in _TRAJECTORY_EVENT_TYPES
+            is_one_of(first.get("type"), _TRAJECTORY_EVENT_TYPES)
             or _OPENCLAW_TRAJECTORY_KEYS.issubset(first.keys())
         ):
             return "openclaw_trajectory"
@@ -150,7 +151,7 @@ def _detect_records(objects: list[dict[str, Any]]) -> str | None:
     """Detect the line-delimited formats from their leading records."""
     if not objects:
         return None
-    types = {obj.get("type") for obj in objects}
+    types = {kind for obj in objects if isinstance(kind := obj.get("type"), str)}
 
     if any(_OPENCLAW_TRAJECTORY_KEYS.issubset(obj.keys()) for obj in objects) or (
         types & _TRAJECTORY_EVENT_TYPES
@@ -161,7 +162,7 @@ def _detect_records(objects: list[dict[str, Any]]) -> str | None:
     # distinctive line types. Checked before the bare-type probes because
     # Claude Code also emits ``user``/``assistant`` types.
     if types & {"file-history-snapshot", "progress", "summary"} or any(
-        obj.get("type") in {"assistant", "user"}
+        is_one_of(obj.get("type"), {"assistant", "user"})
         and "sessionId" in obj
         and ("parentUuid" in obj or "message" in obj)
         for obj in objects
@@ -173,7 +174,7 @@ def _detect_records(objects: list[dict[str, Any]]) -> str | None:
     if (
         "session_meta" in types
         or any(is_rollout_record(obj) for obj in objects)
-        or any("session_id" in obj and obj.get("type") in {"session_meta", "message"} for obj in objects)
+        or any("session_id" in obj and is_one_of(obj.get("type"), {"session_meta", "message"}) for obj in objects)
     ):
         return "codex_cli"
 
