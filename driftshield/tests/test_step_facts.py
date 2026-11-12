@@ -10,6 +10,7 @@ import pytest
 from driftshield import analyse_run
 from driftshield.recursive_redactor import redact
 from driftshield.step_facts import (
+    _has_shell_operators,
     COMMAND_KINDS,
     EXIT_STATUSES,
     TARGET_KINDS,
@@ -25,7 +26,8 @@ CLASSIFICATION_TABLE = [
     # read_only
     ("ls", "read_only", "own_checkout"),
     ("ls -la src", "read_only", "own_checkout"),
-    ("cat README.md | head -20", "read_only", "own_checkout"),
+    ("cat README.md", "read_only", "own_checkout"),
+    ("head -20 README.md", "read_only", "own_checkout"),
     ("git status", "read_only", "own_checkout"),
     ("git diff --stat", "read_only", "own_checkout"),
     ("git log --oneline -5", "read_only", "own_checkout"),
@@ -35,8 +37,8 @@ CLASSIFICATION_TABLE = [
     ("gh api repos/o/r/pulls", "read_only", "outside_service"),
     ("curl https://example.com/health", "read_only", "outside_service"),
     ("date", "read_only", "own_checkout"),
-    ("cd app && ls", "read_only", "own_checkout"),
-    ("grep -rn todo src 2>/dev/null", "read_only", "own_checkout"),
+    ("grep -rn todo src", "read_only", "own_checkout"),
+    ("sed -n 1,20p README.md", "read_only", "own_checkout"),
     ("cat /etc/hosts", "read_only", "unknown"),
     # test
     ("pytest -q", "test", "own_checkout"),
@@ -47,7 +49,6 @@ CLASSIFICATION_TABLE = [
     ("make test", "test", "own_checkout"),
     ("mypy src", "test", "own_checkout"),
     ("go test ./...", "test", "own_checkout"),
-    ("cd app && pytest", "test", "own_checkout"),
     # build
     ("npm run build", "build", "own_checkout"),
     ("make", "build", "own_checkout"),
@@ -143,6 +144,45 @@ CLASSIFICATION_TABLE = [
     ("curl -o /dev/null https://example.com/health", "read_only", "outside_service"),
     ("wget https://example.com/f", "unknown", "unknown"),
     ("wget -qO- https://example.com/f", "read_only", "outside_service"),
+    # a glued bracket does not hide the write part
+    ("ls;(git push origin main)", "git_push", "main_branch"),
+    ("ls&&(git push origin main)", "git_push", "main_branch"),
+    ("(npm test);git push origin main", "git_push", "main_branch"),
+    ("(git push origin main);ls", "git_push", "main_branch"),
+    ("cat <(curl -X DELETE https://example.com/u)", "delete", "outside_service"),
+    ("ls >(curl -X POST https://example.com/u -d a=b)", "outside_write", "outside_service"),
+    ("ls;(rm -rf build)", "delete", "own_checkout"),
+    ("x=$(git push origin main)", "git_push", "main_branch"),
+    ("ls || git push origin main", "git_push", "main_branch"),
+    # a formatter or a fixer rewrites files, so it is not a check
+    ("ruff format .", "unknown", "unknown"),
+    ("ruff format --check .", "test", "own_checkout"),
+    ("ruff check --fix .", "unknown", "unknown"),
+    ("ruff check .", "test", "own_checkout"),
+    ("eslint --fix src", "unknown", "unknown"),
+    ("eslint src", "test", "own_checkout"),
+    ("gofmt -l -w .", "unknown", "unknown"),
+    ("gofmt -l .", "test", "own_checkout"),
+    ("prettier --write .", "unknown", "unknown"),
+    ("black .", "unknown", "unknown"),
+    ("npm run lint:fix", "unknown", "unknown"),
+    ("npm run format", "unknown", "unknown"),
+    ("make format", "unknown", "unknown"),
+    ("make frobnicate", "unknown", "unknown"),
+    ("jest -u", "unknown", "unknown"),
+    ("cargo clippy --fix", "unknown", "unknown"),
+    # more commands that write files or the cluster
+    ("find . -fprintf out.txt %p", "unknown", "unknown"),
+    ("find . -fprint0 out.bin", "unknown", "unknown"),
+    ("find . -fls out.txt", "unknown", "unknown"),
+    ("find . -name x", "read_only", "own_checkout"),
+    ("kubectl auth reconcile -f rbac.yaml", "unknown", "unknown"),
+    ("kubectl auth can-i get pods", "read_only", "outside_service"),
+    ("npm audit fix", "unknown", "unknown"),
+    ("sed -i s/a/b/ f", "unknown", "unknown"),
+    ("sed -n '1w out.txt' f", "unknown", "unknown"),
+    ("git fetch origin", "unknown", "unknown"),
+    ("fd -x rm", "unknown", "unknown"),
     # unknown
     ("", "unknown", "unknown"),
     ("   ", "unknown", "unknown"),
@@ -176,8 +216,27 @@ def test_a_non_command_or_oversized_command_is_unknown(value: object):
 def test_the_most_serious_part_of_a_compound_command_wins():
     assert classify_command("pytest && git push origin main") == ("git_push", "main_branch")
     assert classify_command("ls; rm -rf build") == ("delete", "own_checkout")
-    assert classify_command("ls && git commit -m x") == ("unknown", "unknown")
-    assert classify_command("pytest && npm run build") == ("build", "own_checkout")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd app && ls",
+        "cd app && pytest",
+        "ls && git commit -m x",
+        "pytest && npm run build",
+        "cat README.md | head -20",
+        "grep -rn todo src 2>/dev/null",
+        "ls 2>&1",
+        "ls & ",
+        "ls\npwd",
+        "ls # note",
+        "cd app",
+        "export A=1",
+    ],
+)
+def test_a_command_with_any_shell_operator_is_never_a_check(command: str):
+    assert classify_command(command)[0] == "unknown"
 
 
 def test_a_substitution_cannot_be_read_only_but_keeps_a_serious_kind():
@@ -644,4 +703,107 @@ def test_a_command_that_writes_does_not_count_as_a_check(builder, fmt, tool, wri
     first, second = redacted_facts(
         builder, fmt, tool, [(writer, "c1", False), ("git push origin x", "c2", False)]
     )
+    assert second["checked_before"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Fail closed: read_only, test and build are the labels that can excuse a later
+# step, so no shell syntax added to an allowlisted check may keep them.
+# --------------------------------------------------------------------------- #
+
+CHECK_KINDS = {"read_only", "test", "build"}
+ALLOWLISTED_CHECKS = [
+    command
+    for command, kind, _ in CLASSIFICATION_TABLE
+    if kind in CHECK_KINDS and not _has_shell_operators(command)
+]
+OPERATOR_SUFFIXES = [
+    "; git push origin main",
+    " && rm -rf /x",
+    " || git push origin main",
+    " | tee f",
+    " |& tee f",
+    " > f",
+    " >> f",
+    " 2>&1",
+    " < f",
+    " & ",
+    ";",
+    "\ngit push origin main",
+    " $(curl -X POST https://example.com/u)",
+    " `curl -X POST https://example.com/u`",
+    ";(git push origin main)",
+    "&&(rm -rf x)",
+    ");ls",
+    " <(curl -X DELETE https://example.com/u)",
+    " >(tee f)",
+    " # note",
+]
+
+
+def test_there_are_allowlisted_checks_of_every_check_kind_to_extend():
+    assert {classify_command(command)[0] for command in ALLOWLISTED_CHECKS} == CHECK_KINDS
+    assert len(ALLOWLISTED_CHECKS) > 40
+
+
+@pytest.mark.parametrize("suffix", OPERATOR_SUFFIXES)
+def test_shell_syntax_added_to_a_check_never_leaves_it_a_check(suffix: str):
+    for command in ALLOWLISTED_CHECKS:
+        kind, _ = classify_command(command + suffix)
+        assert kind not in CHECK_KINDS, command + suffix
+
+
+def test_shell_syntax_before_a_check_never_leaves_it_a_check():
+    for command in ALLOWLISTED_CHECKS:
+        for prefix in ("true; ", "cd x && ", "( ", "echo $(ls) ", "git push origin main; "):
+            assert classify_command(prefix + command)[0] not in CHECK_KINDS, prefix + command
+
+
+def _claude_pair(first: str, second: str) -> dict[str, Any]:
+    def block(call_id: str, command: str) -> dict[str, Any]:
+        return {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": call_id,
+                        "name": "Bash",
+                        "input": {"command": command},
+                    }
+                ]
+            },
+        }
+
+    return {"events": [block("a", first), block("b", second)]}
+
+
+def test_a_check_with_shell_syntax_never_sets_checked_before_for_the_next_step():
+    for command in ALLOWLISTED_CHECKS:
+        for suffix in OPERATOR_SUFFIXES:
+            blocks = redact(_claude_pair(command + suffix, "git push origin x")).payload["events"]
+            facts = blocks[1]["message"]["content"][0]["step_facts"]
+            assert facts["checked_before"] is False, command + suffix
+
+
+@pytest.mark.parametrize(("builder", "fmt", "tool"), ADAPTERS)
+@pytest.mark.parametrize(
+    "tricky",
+    [
+        "ls;(git push origin main)",
+        "find . -fprintf out.txt %p",
+        "kubectl auth reconcile -f rbac.yaml",
+        "ruff format .",
+        "ruff check --fix .",
+        "eslint --fix src",
+        "gofmt -l -w .",
+        "npm run lint:fix",
+        "pytest && git push origin x",
+    ],
+)
+def test_the_round_two_and_three_cases_do_not_excuse_a_later_push(builder, fmt, tool, tricky):
+    first, second = redacted_facts(
+        builder, fmt, tool, [(tricky, "c1", False), ("git push origin x", "c2", False)]
+    )
+    assert first["command_kind"] not in CHECK_KINDS
     assert second["checked_before"] is False

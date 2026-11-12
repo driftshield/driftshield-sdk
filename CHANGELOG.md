@@ -15,6 +15,9 @@ notes for each tag are taken from the matching section of this file.
   `target_kind` (`own_checkout`, `main_branch`, `outside_service`, `unknown`),
   `exit_status` (`success`, `failure`, `unknown`) and `checked_before` (true or
   false: an earlier shell step in the run was `read_only`, `test` or `build`).
+- The labels fail closed: `read_only`, `test` and `build` are given only to
+  one plain command from a fixed allowlist, with no shell operator and no flag
+  that writes files. A write kind is still found anywhere in a chain.
 - It covers Claude Code `Bash`, OpenClaw `exec` and `bash`, and Codex shell
   calls. The Claude Code, OpenClaw and Codex parsers carry the key through to
   `tool_activity.step_facts` on the normalised events.

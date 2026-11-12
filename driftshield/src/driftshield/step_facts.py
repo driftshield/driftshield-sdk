@@ -103,7 +103,37 @@ def sanitise_step_facts(value: object) -> dict[str, Any] | None:
 # Command classification (command text in, two enum values out)
 # --------------------------------------------------------------------------- #
 
-_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&"})
+_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&", "<(", ">("})
+# shlex glues a run of punctuation into one token (``;(`` or ``&&(``), so a
+# token made only of these is cut back into single operators.
+_PUNCTUATION_RUN = re.compile(r"[();<>|&]{2,}")
+_PUNCTUATION_PIECES = re.compile(r"&&|\|\||\|&|;;|<<<|<<-|<<|&>>|&>|>>|>&|<&|>\||<\(|>\(|[;&|<>()]")
+# Words that mean a script, target or command rewrites files.
+_WRITE_WORDS = frozenset({"fix", "format", "fmt", "write", "autofix"})
+_WRITE_FLAGS = frozenset(
+    {
+        "--fix",
+        "--fix-only",
+        "--unsafe-fixes",
+        "--write",
+        "-w",
+        "-u",
+        "--update-snapshot",
+        "--update-snapshots",
+        "--updateSnapshot",
+        "--snapshot-update",
+    }
+)
+_FIND_WRITE_FLAGS = (
+    "-exec",
+    "-execdir",
+    "-ok",
+    "-okdir",
+    "-fprint",
+    "-fprintf",
+    "-fprint0",
+    "-fls",
+)
 _REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
 _HEREDOC = frozenset({"<<", "<<-", "<<<"})
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -177,8 +207,6 @@ _READ_ONLY_PROGRAMS = frozenset(
         "cut",
         "tr",
         "column",
-        "less",
-        "more",
         "md5sum",
         "shasum",
         "sha256sum",
@@ -491,7 +519,13 @@ def _tokenise(command: str) -> list[str] | None:
         # shlex ends a word at these when punctuation_chars is on; they are plain
         # characters in refs and URLs (HEAD:main, user@host, a+b, 1,2).
         lexer.wordchars += ":@%+,^"
-        return list(lexer)
+        tokens: list[str] = []
+        for token in lexer:
+            if _PUNCTUATION_RUN.fullmatch(token):
+                tokens.extend(_PUNCTUATION_PIECES.findall(token))
+            else:
+                tokens.append(token)
+        return tokens
     except ValueError:
         return None
 
@@ -515,6 +549,8 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
             index += 1
         elif token in {">&", "<", "<&", "2>&"}:
             index += 1
+        elif token == "(" and index > 0 and tokens[index - 1].endswith("$"):
+            segments.append([])  # a command substitution: its words are their own command
         elif token not in {"(", ")", "{", "}", "!"}:
             segments[-1].append(token)
         index += 1
@@ -675,7 +711,7 @@ def _git(rest: list[str]) -> _Result:
         "show-ref",
     }:
         return "read_only", "own_checkout"
-    if sub in {"fetch", "ls-remote"}:
+    if sub == "ls-remote":
         return "read_only", "outside_service"
     if sub == "branch":
         if _has_flag(args, "-d", "-D", "--delete"):
@@ -911,9 +947,13 @@ def _kubectl(program: str, rest: list[str]) -> _Result:
         "cluster-info",
         "api-resources",
         "diff",
-        "auth",
     }:
         return "read_only", "outside_service"
+    if sub == "auth":
+        # can-i and whoami only ask; reconcile writes RBAC objects.
+        return (
+            ("read_only", "outside_service") if words[1:2] in (["can-i"], ["whoami"]) else _UNKNOWN
+        )
     if sub == "config":
         return (
             ("read_only", "outside_service")
@@ -943,6 +983,8 @@ def _package_manager(program: str, rest: list[str]) -> _Result:
     words = _positionals(rest)
     sub = words[0] if words else ""
     if sub == "run" and len(words) > 1:
+        if _WRITE_WORDS & set(re.split(r"[:_.\-]", words[1].lower())):
+            return _UNKNOWN  # lint:fix, format and the like rewrite files
         script = words[1].split(":", 1)[0]
         sub = {
             "test": "test",
@@ -957,6 +999,8 @@ def _package_manager(program: str, rest: list[str]) -> _Result:
         return "test", "own_checkout"
     if sub in {"build", "pack"}:
         return "build", "own_checkout"
+    if sub == "audit" and "fix" in words:
+        return _UNKNOWN  # rewrites the lockfile
     if sub in {"publish"}:
         return "deploy", "outside_service"
     if sub in {
@@ -986,15 +1030,17 @@ def _make_like(program: str, rest: list[str]) -> _Result:
     words = _positionals(rest)
     target = words[0] if words else ""
     if program == "make" or program == "gmake":
+        if _WRITE_WORDS & set(re.split(r"[:_.\-]", target.lower())):
+            return _UNKNOWN
         if target in {"test", "tests", "check", "lint", "typecheck", "verify"}:
             return "test", "own_checkout"
         if target in {"deploy", "release", "publish", "push", "apply"}:
             return "deploy", "outside_service"
         if target in {"clean", "distclean"}:
             return "delete", "own_checkout"
-        if target.startswith(("-", "$")) or "/" in target:
-            return _UNKNOWN
-        return "build", "own_checkout"
+        if target in {"", "all", "build", "compile", "dist", "package"}:
+            return "build", "own_checkout"
+        return _UNKNOWN
     # gradle, mvn, dotnet, cargo, go, tsc and similar.
     if target in {"test", "check", "verify", "vet", "clippy", "lint", "integrationtest"}:
         return "test", "own_checkout"
@@ -1013,6 +1059,18 @@ def _make_like(program: str, rest: list[str]) -> _Result:
 
 
 def _classify_simple(tokens: list[str]) -> _Result:
+    result = _classify_program(tokens)
+    if result[0] == "test":
+        # A formatter or a fixer rewrites files, so it is not a check.
+        unwrapped = _unwrap_runner(_strip_prefixes(tokens))
+        if any(
+            token in _WRITE_FLAGS or token.startswith(("--fix=", "--write=")) for token in unwrapped
+        ):
+            return _UNKNOWN
+    return result
+
+
+def _classify_program(tokens: list[str]) -> _Result:
     tokens = _unwrap_runner(_strip_prefixes(tokens))
     if not tokens:
         return _NEUTRAL
@@ -1068,6 +1126,8 @@ def _classify_simple(tokens: list[str]) -> _Result:
         if program == "tsc":
             return ("test" if _has_flag(rest, "--noEmit") else "build"), "own_checkout"
         return ("build", "own_checkout") if positional[:1] == ["build"] else _UNKNOWN
+    if program == "ruff" and positional[:1] == ["format"]:
+        return ("test", "own_checkout") if _has_flag(rest, "--check", "--diff") else _UNKNOWN
     if program in _TEST_PROGRAMS:
         return "test", "own_checkout"
     if program in {"playwright", "cypress"}:
@@ -1117,15 +1177,19 @@ def _classify_simple(tokens: list[str]) -> _Result:
     if program == "find":
         if _has_flag(rest, "-delete"):
             return "delete", _fs_target(positional)
-        if _has_flag(rest, "-exec", "-execdir", "-ok", "-fprint"):
+        if _has_flag(rest, *_FIND_WRITE_FLAGS):
             return _UNKNOWN
         return "read_only", _fs_target(positional)
     if program == "sed":
-        return (
-            _UNKNOWN
-            if _has_flag(rest, "-i", "--in-place") or any(t.startswith("-i") for t in rest)
-            else ("read_only", _fs_target(positional[1:]))
-        )
+        # Only a plain line print. Any other script can write (w) or run (e) things.
+        if (
+            "-n" in rest
+            and positional
+            and re.fullmatch(r"[0-9$]+(,[0-9$]+)?p", positional[0])
+            and not any(t.startswith(("-i", "--in-place", "-e", "-f")) for t in rest)
+        ):
+            return "read_only", _fs_target(positional[1:])
+        return _UNKNOWN
     if program == "systemctl":
         return (
             ("read_only", "outside_service")
@@ -1133,7 +1197,10 @@ def _classify_simple(tokens: list[str]) -> _Result:
             else _UNKNOWN
         )
     if program in _READ_ONLY_PROGRAMS:
-        if _writes_a_file(program, rest, positional):
+        if _writes_a_file(program, rest, positional) or (
+            program in {"fd", "rg", "ag"}
+            and _has_flag(rest, "-x", "-X", "--exec", "--exec-batch", "--pre")
+        ):
             return _UNKNOWN
         return "read_only", _fs_target(positional)
     return _UNKNOWN
@@ -1221,28 +1288,64 @@ def classify_command(command: object) -> tuple[str, str]:
         return "unknown", "unknown"
 
 
+def _has_shell_operators(command: str) -> bool:
+    """True when ``command`` is more than one plain simple command.
+
+    Looks for ``; & | ( ) < >`` and newlines outside quotes, and for ``$(`` and
+    backticks anywhere except inside single quotes. Quoted text is skipped
+    because it is an argument, not shell syntax.
+    """
+    quote = ""
+    escaped = False
+    for index, char in enumerate(command):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote == "'":
+            if char == "'":
+                quote = ""
+            continue
+        if char == "`" or (char == "$" and command[index + 1 : index + 2] == "("):
+            return True
+        if quote == "" and char == "#" and (index == 0 or command[index - 1].isspace()):
+            return True  # a comment hides the rest of the line from the reader
+        if quote == '"':
+            if char == '"':
+                quote = ""
+            continue
+        if char in "'\"":
+            quote = char
+        elif char in ";&|()<>\n\r":
+            return True
+    return bool(quote)  # an unterminated quote is not a command we can read
+
+
 def _classify_command(command: object) -> tuple[str, str]:
+    """Fail closed.
+
+    ``read_only``, ``test`` and ``build`` can excuse a later step, so they are
+    given only to a command that is one plain simple command (no shell
+    operator of any kind) from the explicit lists above, with no write flag.
+    Every part of a compound command is still looked at for a write kind, so a
+    ``git push`` hidden after ``&&`` is still a ``git_push``. Anything else is
+    ``unknown``.
+    """
     if not isinstance(command, str) or not command.strip() or len(command) > _MAX_COMMAND_CHARS:
         return "unknown", "unknown"
     tokens = _tokenise(command)
     if not tokens:
         return "unknown", "unknown"
-    segments, opaque = _segments(tokens)
-    opaque = opaque or "$(" in command or "`" in command
+    segments, _ = _segments(tokens)
     results = [_classify_simple(segment) for segment in segments]
-    results = [r for r in results if r != _NEUTRAL]
-    if not results:
-        return ("unknown", "unknown") if opaque else ("read_only", "own_checkout")
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:
                 return result
-    if any(result[0] == "unknown" for result in results) or opaque:
-        return "unknown", "unknown"
-    for kind in _SAFE_ORDER:
-        for result in results:
-            if result[0] == kind:
-                return result
+    if len(results) == 1 and results[0][0] in _SAFE_ORDER and not _has_shell_operators(command):
+        return results[0]
     return "unknown", "unknown"
 
 

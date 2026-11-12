@@ -295,11 +295,14 @@ or to lower it.
 
 `command_kind` and `target_kind` are decided on your machine by reading the
 command, then only the label leaves. A command that does not match a known shape
-is `unknown`. A command that runs other commands inside it (`$(...)`, backticks)
-or writes a file through a redirect or a flag such as `-o`, `-i` or `--output`
-is never `read_only`, `test` or `build`. A download that saves a file is
-`unknown`. For a
-chain such as `pytest && git push`, the most serious part decides.
+is `unknown`. The rule is fail closed: `read_only`, `test` and `build` are only
+given to a step that is one plain command from a fixed allowlist with no shell
+operator (`;`, `&&`, `||`, `|`, brackets, `$(...)`, backticks, redirects, `&`,
+a comment or a newline) and no flag that writes files, so a formatter, a
+`--fix` or `-w` run, or a download that saves a file is never a check. A write
+kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
+in any part of a chain, so `pytest && git push origin main` is a `git_push` on
+`main_branch`.
 `exit_status` comes from the tool result's own error flag or exit code.
 `checked_before` is true when an earlier shell step in the same run was
 `read_only`, `test` or `build`. Local changes such as `git commit` or `mkdir`
