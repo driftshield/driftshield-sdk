@@ -30,7 +30,14 @@ from typing import Any, Protocol
 
 from driftshield.capture.config import CaptureSettings
 from driftshield.capture.dry_run import project_for
-from driftshield.capture.ledger import Ledger, content_hash, iso, parse_iso, utc_now
+from driftshield.capture.ledger import (
+    Ledger,
+    LedgerUnreadable,
+    content_hash,
+    iso,
+    parse_iso,
+    utc_now,
+)
 from driftshield.capture.scope import Decision, ScopeGate
 from driftshield.capture.sessions import AGENT_FOR_SOURCE, SOURCE_CODEX, SessionFacts, read_session
 
@@ -46,6 +53,7 @@ EMPTY = "empty"
 SKIPPED_SUBAGENT = "skipped_codex_subagent"
 NO_KEY = "api_key_missing"
 LEDGER_UNREADABLE = "ledger_unreadable"
+UNREADABLE = "transcript_unreadable"
 BACKFILL_AFTER_HOURS = 24
 # Stable per revision: the same content always analyses to the same run id.
 RUN_ID_NAMESPACE = uuid.UUID("0b6f1c62-9a3e-5d47-8e2b-3c4d5e6f7a81")
@@ -119,15 +127,27 @@ class SdkSender:
 
         try:
             run = analyse_run(
-                request.path.read_bytes(), source=str(request.path), run_id=request.run_id
+                request.path.read_bytes(), source=request.path.name, run_id=request.run_id
             )
         except (NoParseableEventsError, UnsupportedFormatError) as exc:
             raise SendFailed("shape", _scrub_secret(str(exc), key)) from exc
         except OSError as exc:
             raise SendFailed("unreadable", type(exc).__name__) from exc
         cleaned, hits = settings.blocked.scrub(run.redacted_transcript)
-        if settings.blocked.held(hits) or settings.blocked.count(cleaned):
-            raise Held(hits)
+        # Identifiers sent beside the transcript are not rewritten: a hit
+        # in any of them holds the session whatever the limit.
+        fields = [
+            request.project_reference,
+            request.workflow_reference,
+            request.model_name,
+            request.path.name,
+            request.source_session_id,
+            request.source_report_id,
+            request.agent_id,
+        ]
+        field_hits = settings.blocked.count([f for f in fields if f])
+        if field_hits or settings.blocked.held(hits) or settings.blocked.count(cleaned):
+            raise Held(hits + field_hits)
         if hits:
             run = dataclasses.replace(run, redacted_transcript=cleaned)
         try:
@@ -181,12 +201,15 @@ class CaptureService:
         self.settings = settings
         self.ledger = ledger
         self.sender = sender or SdkSender()
-        self.gate = gate or ScopeGate(settings)
-        if after_submit is None:
-            from driftshield.capture.extensions import load_extensions
+        from driftshield.capture.extensions import NONE, load_extensions
 
-            after_submit = load_extensions().after_submit_hooks()
+        extensions = load_extensions() if gate is None or after_submit is None else NONE
+        self.gate = gate or ScopeGate(settings, extensions.scope_rules())
+        if after_submit is None:
+            after_submit = extensions.after_submit_hooks()
         self.after_submit = tuple(after_submit)
+        # Part of the watch tick's settle fingerprint: a change decides again.
+        self.extension_names: tuple[str, ...] = extensions.names
         self.key = key
         self.now = now
         self.project = project
@@ -197,13 +220,26 @@ class CaptureService:
         decision, session_id = self.gate.check_path(source, path)
         if not decision.allowed:
             return self._refused(source, session_id, path, decision, trigger)
-        facts = read_session(source, path)
+        try:
+            facts = read_session(source, path)
+        except OSError as exc:
+            return self._unreadable(source, session_id, exc, trigger)
         decision = self.gate.check_facts(facts)
         if not decision.allowed:
             return self._refused(source, facts.session_id, path, decision, trigger)
         return self._capture(facts, trigger, force)
 
     # -- internals -------------------------------------------------------------------------
+
+    def _unreadable(self, source: str, session_id: str, exc: OSError, trigger: str) -> Outcome:
+        self.ledger.log(
+            source=source,
+            session_id=session_id,
+            outcome=UNREADABLE,
+            detail=type(exc).__name__,
+            trigger=trigger,
+        )
+        return Outcome(UNREADABLE, f"transcript unreadable: {type(exc).__name__}")
 
     def _refused(
         self, source: str, session_id: str, path: Path, decision: Decision, trigger: str
@@ -233,24 +269,27 @@ class CaptureService:
 
     def _capture(self, facts: SessionFacts, trigger: str, force: bool) -> Outcome:
         if facts.source == SOURCE_CODEX and facts.is_subagent:
-            return Outcome(SKIPPED_SUBAGENT, "Codex subagent threads are not sent")
+            return self._note(
+                facts, SKIPPED_SUBAGENT, "Codex subagent threads are not sent", trigger
+            )
         if facts.record_count == 0:
-            return Outcome(EMPTY, "no parseable records")
+            return self._note(facts, EMPTY, "no parseable records", trigger)
         if not facts.turn_complete:
-            return Outcome(NOT_FINISHED, "last record is not a finished turn")
-        digest = content_hash(facts.path)
+            return self._note(facts, NOT_FINISHED, "last record is not a finished turn", trigger)
+        try:
+            digest = content_hash(facts.path)
+        except OSError as exc:
+            return self._unreadable(facts.source, facts.session_id, exc, trigger)
         now = self.now()
+        key: str | None = None
         try:
             with self.ledger.transaction() as ledger:
                 item = ledger.entry(facts.source, facts.session_id, facts.path)
                 last = item.get("last_decision")
                 decision: dict[str, Any] = last if isinstance(last, dict) else {}
                 if decision.get("content_hash") == digest and decision.get("status") == HELD:
-                    return Outcome(
-                        HELD,
-                        f"held: {decision.get('hits')} blocked term hits",
-                        hits=decision.get("hits"),
-                    )
+                    hits = decision.get("hits")
+                    return Outcome(HELD, f"held: {hits} blocked term hits", hits=hits)
                 if ledger.has_revision(item, digest):
                     return Outcome(UNCHANGED, "this content was already sent")
                 if ledger.in_flight(item, digest, now):
@@ -261,18 +300,15 @@ class CaptureService:
                     if retry is not None and now < retry:
                         return Outcome(RETRY_WAIT, f"next retry at {failure.get('next_retry_at')}")
                 key = self.key()
-                if not key:
+                if key:
+                    item["in_flight"] = {"content_hash": digest, "started_at": iso(now)}
+                else:
                     ledger.record_failure(item, digest, NO_KEY, "no API key", now)
-                    return Outcome(
-                        NO_KEY, "set DRIFTSHIELD_API_KEY or the telemetry remote_api_key"
-                    )
-                item["in_flight"] = {"content_hash": digest, "started_at": iso(now)}
-        except Exception as exc:
-            from driftshield.capture.ledger import LedgerUnreadable
-
-            if isinstance(exc, LedgerUnreadable):
-                return Outcome(LEDGER_UNREADABLE, f"ledger unreadable ({exc}); nothing sent")
-            raise
+        except LedgerUnreadable as exc:
+            return Outcome(LEDGER_UNREADABLE, f"ledger unreadable ({exc}); nothing sent")
+        if not key:
+            detail = "set DRIFTSHIELD_API_KEY or the telemetry remote_api_key"
+            return self._note(facts, NO_KEY, detail, trigger)
         request = self._request(facts, digest, now)
         try:
             submission_id, status = self.sender.send(request, self.settings, key)
@@ -282,23 +318,12 @@ class CaptureService:
                 item["in_flight"] = None
                 item["failure"] = None
                 item["last_decision"] = {"content_hash": digest, "status": HELD, "hits": held.hits}
-            return self._note(
-                facts, HELD, f"held: {held.hits} blocked term hits", trigger, hits=held.hits
-            )
+            detail = f"held: {held.hits} blocked term hits"
+            return self._note(facts, HELD, detail, trigger, hits=held.hits)
         except SendFailed as failed:
-            with self.ledger.transaction() as ledger:
-                item = ledger.entry(facts.source, facts.session_id, facts.path)
-                item["in_flight"] = None
-                record = ledger.record_failure(item, digest, failed.kind, str(failed), self.now())
-            return self._note(
-                facts,
-                FAILED,
-                f"{failed.kind}: {failed}",
-                trigger,
-                kind=failed.kind,
-                attempts=record["attempts"],
-                next_retry_at=record["next_retry_at"],
-            )
+            return self._failed(facts, digest, failed.kind, str(failed), trigger)
+        except Exception as exc:  # noqa: BLE001 - one bad session must never end the tick
+            return self._failed(facts, digest, "unexpected", type(exc).__name__, trigger)
         with self.ledger.transaction() as ledger:
             item = ledger.entry(facts.source, facts.session_id, facts.path)
             ledger.record_success(
@@ -334,6 +359,23 @@ class CaptureService:
                     detail=type(exc).__name__,
                 )
         return outcome
+
+    def _failed(
+        self, facts: SessionFacts, digest: str, kind: str, error: str, trigger: str
+    ) -> Outcome:
+        with self.ledger.transaction() as ledger:
+            item = ledger.entry(facts.source, facts.session_id, facts.path)
+            item["in_flight"] = None
+            record = ledger.record_failure(item, digest, kind, error, self.now())
+        return self._note(
+            facts,
+            FAILED,
+            f"{kind}: {error}",
+            trigger,
+            kind=kind,
+            attempts=record["attempts"],
+            next_retry_at=record["next_retry_at"],
+        )
 
     def _request(self, facts: SessionFacts, digest: str, now: datetime) -> SendRequest:
         agent = AGENT_FOR_SOURCE[facts.source]

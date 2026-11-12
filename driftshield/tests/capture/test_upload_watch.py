@@ -346,3 +346,100 @@ def runner_invoke(args: list[str]) -> str:
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.stdout
     return result.stdout
+
+
+# --- review round 1 -------------------------------------------------------------------------
+
+
+def test_unexpected_error_fails_one_session_and_the_tick_goes_on(tmp_path: Path) -> None:
+    class Flaky(FakeSender):
+        def send(
+            self, request: SendRequest, settings: CaptureSettings, key: str
+        ) -> tuple[str, str | None]:
+            self.requests.append(request)
+            if request.source_session_id == "bad":
+                raise ValueError("parser blew up")
+            return "sub_ok", "accepted"
+
+    service, sender, ledger = build(tmp_path, sender=Flaky(), main_idle_seconds=60)
+    ledger.home.mkdir(parents=True)
+    start = (NOW - timedelta(seconds=3600)).isoformat()
+    ledger.path.write_text(
+        json.dumps({"meta": {k: start for k in WINDOW_KEYS.values()}, "runs": []})
+    )
+    for name in ("bad", "good"):
+        _age(session(tmp_path, name), 600)
+    summary = tick(service)
+    assert summary.outcomes == {"failed": 1, "submitted": 1}
+    item = Ledger(ledger.home).runs["claude_code:bad"]
+    assert item["in_flight"] is None and item["failure"]["kind"] == "unexpected"
+    assert "parser blew up" not in json.dumps(item)
+
+
+def test_transcript_that_cannot_be_read_is_reported_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, sender, _ = build(tmp_path)
+    path = session(tmp_path)
+
+    def gone(_source: str, _path: Path) -> Any:
+        raise FileNotFoundError("removed")
+
+    monkeypatch.setattr(svc, "read_session", gone)
+    assert service.capture_path("claude_code", path).status == "transcript_unreadable"
+    assert sender.requests == []
+
+
+def test_blocked_term_in_a_sent_identifier_holds_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import driftshield.public as public
+
+    @dataclasses.dataclass(frozen=True)
+    class FakeRun:
+        redacted_transcript: dict[str, Any]
+
+    sent: list[Any] = []
+    monkeypatch.setattr(public, "analyse_run", lambda *a, **k: FakeRun({"t": "clean"}))
+    monkeypatch.setattr(public, "submit", lambda run, **k: sent.append(run))
+    settings = settings_for(tmp_path, blocked=BlockedTerms(terms=("acme",), hold_over=5))
+    path = _write(tmp_path / "s.jsonl", "x")
+    request = SendRequest(
+        path,
+        svc.RUN_ID_NAMESPACE,
+        "s",
+        "s@1",
+        "capture/claude-code/acme-app",
+        "acme/app",
+        "a:b",
+        None,
+        False,
+    )
+    with pytest.raises(Held) as held:
+        svc.SdkSender().send(request, settings, "key-123456")
+    assert held.value.hits == 2 and sent == []
+
+
+def test_new_extension_re_decides_settled_files(tmp_path: Path) -> None:
+    from driftshield.capture import watch
+
+    service, _, _ = build(tmp_path)
+    before = watch._fingerprint(service)
+    service.extension_names = ("helper",)
+    assert watch._fingerprint(service) != before
+
+
+def test_unfinished_and_keyless_outcomes_are_logged_once(tmp_path: Path) -> None:
+    service, _, ledger = build(tmp_path, key=None, main_idle_seconds=60)
+    ledger.home.mkdir(parents=True)
+    start = (NOW - timedelta(seconds=3600)).isoformat()
+    ledger.path.write_text(
+        json.dumps({"meta": {k: start for k in WINDOW_KEYS.values()}, "runs": []})
+    )
+    _age(session(tmp_path, "busy", finished=False), 600)
+    _age(session(tmp_path, "done"), 600)
+    tick(service)
+    tick(service)
+    logged = [r["outcome"] for r in ledger.read_status(50) if r.get("outcome") != "tick"]
+    assert logged.count("not_finished") == 1
+    assert "api_key_missing" in logged

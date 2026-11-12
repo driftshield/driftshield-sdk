@@ -27,7 +27,16 @@ from typing import Any
 
 from driftshield.capture.ledger import LedgerUnreadable, iso, parse_iso
 from driftshield.capture.scope import EXTENSION_FAILED, PARENT_UNKNOWN
-from driftshield.capture.service import EMPTY, HELD, REFUSED, SENT, UNCHANGED, CaptureService
+from driftshield.capture.service import (
+    EMPTY,
+    HELD,
+    NOT_FINISHED,
+    REFUSED,
+    SENT,
+    SKIPPED_SUBAGENT,
+    UNCHANGED,
+    CaptureService,
+)
 from driftshield.capture.sessions import MAIN_GLOB, SOURCE_CLAUDE_CODE, SOURCE_CODEX, SUBAGENT_GLOB
 
 DEFAULT_IDLE_SECONDS = 120
@@ -37,7 +46,9 @@ WINDOW_KEYS = {
     "subagent": "worker_watch_started_at",
     "codex": "codex_watch_started_at",
 }
-FINAL = frozenset({SENT, UNCHANGED, HELD, EMPTY, REFUSED})
+# Decisions that hold until the file, the settings or the extensions change.
+# An unfinished turn can only finish by writing to the file.
+FINAL = frozenset({SENT, UNCHANGED, HELD, EMPTY, REFUSED, NOT_FINISHED, SKIPPED_SUBAGENT})
 # Refusals that can change while the file and the settings stay the same.
 UNSETTLED_REASONS = frozenset({PARENT_UNKNOWN, EXTENSION_FAILED})
 
@@ -86,7 +97,9 @@ def _files(service: CaptureService) -> Iterator[tuple[str, str, Path]]:
 
 
 def _fingerprint(service: CaptureService) -> str:
-    text = json.dumps(service.settings.to_dict(), sort_keys=True)
+    """Changes with the settings or the loaded extensions, so either re-decides."""
+    payload = {"settings": service.settings.to_dict(), "extensions": list(service.extension_names)}
+    text = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 

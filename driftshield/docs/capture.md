@@ -118,6 +118,13 @@ launchd agent or systemd timer that `install` prints. Each tick:
   redacted copy and submits that copy with `agent_id` `<agent_id_prefix>:<agent>`
   and the folder's git project (or `project`),
 - holds a session over `hold_over` hits and never retries it for that content,
+- holds a session whatever the limit when a blocked term is in anything sent
+  beside the transcript: the project, the workflow reference, the model name,
+  the file name or the session ids. These are not rewritten, because a changed
+  identifier would point at the wrong thing. Only the file name is sent, never
+  its folder,
+- records a session it cannot read, or one whose analysis fails, as failed and
+  goes on with the next one,
 - retries failures after 1, 2, 4 ... minutes, up to an hour.
 
 State lives in `$DRIFTSHIELD_HOME/capture/`: `ledger.json` (what was sent, held
