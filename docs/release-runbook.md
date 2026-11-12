@@ -34,9 +34,10 @@ kind of sessions people actually have. Everything runs locally and nothing is
 uploaded. Do it while the release PR is open, before it is marked ready, so
 the counts can go in the PR body.
 
-- Build the release candidate from the release PR head: check out the PR head
-  and run `uv build` in `driftshield/`, or `pip install` the checkout, in a
-  clean virtual environment. The `release-build` workflow in step 2 runs on
+- Build the release candidate from the release PR head: check out the PR head,
+  run `uv build` in `driftshield/`, and install the wheel from
+  `driftshield/dist/` into a clean virtual environment (installing the checkout
+  itself with `pip install` also works). The `release-build` workflow in step 2 runs on
   `main` after the merge, so it is not available yet; it rebuilds the same code
   later. If the PR head changes after the check, run the check again.
 - Collect a corpus of real recent local sessions from the agents the SDK reads
@@ -75,9 +76,11 @@ Then set up trusted publishing so the next release is automatic:
 - On PyPI, open the `driftshield-sdk` project, Publishing, and add a GitHub
   publisher: owner `driftshield`, repository `driftshield-sdk`, workflow
   `release-publish.yml`, environment `pypi`.
-- On GitHub, create the `pypi` environment (Settings, Environments) and add
-  the account holder as a required reviewer. The publish job pauses there
-  until approved.
+- On GitHub, create the `pypi` environment (Settings, Environments). It
+  currently has no required reviewer, so nothing pauses the publish job: it
+  runs as soon as the build job passes, and pushing the tag is the decision to
+  publish. To add a human gate, add the account holder as a required reviewer
+  on the environment; the publish job then waits for approval.
 
 Alternatively, add a pending publisher on PyPI before the first release with
 the same settings. Then the first release can use the automated path too and
@@ -91,8 +94,9 @@ this section is skipped.
   1. `build`: builds, checks and smoke tests the artefact and asserts the tag
      matches `pyproject.toml`.
   2. `publish`: uploads to PyPI via trusted publishing (OIDC, no stored
-     token). Runs in the `pypi` environment, so it waits for reviewer
-     approval.
+     token). Runs in the `pypi` environment. That environment has no required
+     reviewer today, so the job starts as soon as `build` passes and does not
+     wait for approval (it would if a required reviewer were added).
   3. `github-release`: creates the GitHub release with the CHANGELOG section
      as the body and the sdist and wheel attached.
 - For the first release, where PyPI was uploaded by hand in step 3, the
@@ -107,5 +111,5 @@ this section is skipped.
 
 ## Subsequent releases
 
-Steps 1, 4 and 5 only. Step 2 is optional (the publish workflow repeats it)
-and step 3 never repeats.
+Steps 1, 2a, 4 and 5 only. Step 2a applies to every release. Step 2 is
+optional (the publish workflow repeats it) and step 3 never repeats.
