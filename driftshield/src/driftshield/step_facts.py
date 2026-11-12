@@ -1323,6 +1323,48 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
+def _substitution_bodies(command: str) -> list[str]:
+    """The text inside every backtick pair and ``$(...)``, wherever it appears.
+
+    Substitutions run inside double quotes too, so they are read there. Only
+    single quotes hide them. A nested ``$(...)`` is returned inside its parent
+    and is found again when the parent is classified.
+    """
+    bodies: list[str] = []
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "`":
+            end = index + 1
+            while end < len(command) and command[end] != "`":
+                end += 2 if command[end] == "\\" else 1
+            bodies.append(command[index + 1 : end])
+            index = end
+        elif char == "$" and command[index + 1 : index + 2] == "(":
+            depth, end = 1, index + 2
+            while end < len(command) and depth:
+                depth += {"(": 1, ")": -1}.get(command[end], 0)
+                end += 1
+            bodies.append(command[index + 2 : end - 1 if depth == 0 else end])
+            index = end - 1
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        index += 1
+    return bodies
+
+
 def _classify_command(command: object) -> tuple[str, str]:
     """Fail closed.
 
@@ -1340,6 +1382,11 @@ def _classify_command(command: object) -> tuple[str, str]:
         return "unknown", "unknown"
     segments, _ = _segments(tokens)
     results = [_classify_simple(segment) for segment in segments]
+    # A substitution runs whatever is inside it, so its write kind counts too.
+    for body in _substitution_bodies(command):
+        inner = _classify_command(body)
+        if inner[0] in _RISK_ORDER:
+            results.append(inner)
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:

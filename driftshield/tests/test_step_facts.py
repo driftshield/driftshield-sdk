@@ -154,6 +154,17 @@ CLASSIFICATION_TABLE = [
     ("ls;(rm -rf build)", "delete", "own_checkout"),
     ("x=$(git push origin main)", "git_push", "main_branch"),
     ("ls || git push origin main", "git_push", "main_branch"),
+    # a substitution runs what is inside it, also inside double quotes
+    ("echo `git push origin main`", "git_push", "main_branch"),
+    ('echo "`git push origin main`"', "git_push", "main_branch"),
+    ('echo "$(git push origin main)"', "git_push", "main_branch"),
+    ('git commit -m "$(rm -rf build)"', "delete", "own_checkout"),
+    ('echo "$(echo $(rm -rf build))"', "delete", "own_checkout"),
+    ("ls `curl -X POST https://example.com/u -d a=b`", "outside_write", "outside_service"),
+    ("echo `date`", "unknown", "unknown"),
+    ('echo "$(ls)"', "unknown", "unknown"),
+    ("echo 'git push origin main'", "read_only", "own_checkout"),
+    ("echo '$(git push origin main)'", "read_only", "unknown"),
     # a formatter or a fixer rewrites files, so it is not a check
     ("ruff format .", "unknown", "unknown"),
     ("ruff format --check .", "test", "own_checkout"),
