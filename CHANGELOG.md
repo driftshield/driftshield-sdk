@@ -33,13 +33,20 @@ notes for each tag are taken from the matching section of this file.
 - New `driftshield capture` commands: `init` writes a starting
   `~/.driftshield/capture.toml` with capture switched off, `status` shows the
   settings and `dry-run` lists which recent Claude Code and Codex sessions would
-  be sent and why every other one is skipped. Nothing is sent yet; the upload
-  and watch commands follow in a later change.
+  be sent and why every other one is skipped.
 - A session passes only when every working folder it recorded sits inside an
   allowed folder and outside every denied folder. Denied wins over allowed.
 - Blocked terms are scrubbed from the redacted copy before it would be sent, and
   a session with more hits than `hold_over` is held. The dry run counts hits per
   session and never prints them. See `driftshield/docs/capture.md`.
+- `driftshield capture watch` sends finished, allowed sessions to the workspace
+  lane: quiet and finished only, once per version, scrubbed just before
+  `submit`, held over the limit, retried with backoff. Its window starts at the
+  first tick, so nothing older is sent unless `--since` asks. `capture submit`
+  sends one session, `capture install` prints a launchd agent or systemd timer,
+  and `capture status` lists held and failing sessions.
+- Capture extensions: the `driftshield.capture.extensions` entry point group adds
+  a scope rule (after the denied folders) and an after submit hook.
 
 ### ChatGPT conversation exports
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 from driftshield.capture.config import CaptureSettings
 from driftshield.capture.sessions import (
@@ -44,6 +44,7 @@ NOT_ABSOLUTE = "working_folder_not_absolute"
 OUTSIDE_PROFILES = "outside_claude_profiles"
 PARENT_REFUSED = "parent_refused"
 PARENT_UNKNOWN = "parent_unknown"
+EXTENSION_FAILED = "extension_failed"
 MAX_PARENT_DEPTH = 3
 
 
@@ -95,20 +96,32 @@ def _off(settings: CaptureSettings) -> Decision | None:
     return None
 
 
-def decide_folder(settings: CaptureSettings, cwd: str) -> Decision:
+ScopeRule = Callable[[CaptureSettings, str], "Decision | None"]
+
+
+def decide_folder(settings: CaptureSettings, cwd: str, rules: Sequence[ScopeRule] = ()) -> Decision:
     text = cwd.strip()
     if "\x00" in text or not os.path.isabs(text):
         return Decision(False, NOT_ABSOLUTE, "working folder is not an absolute path")
     for folder in settings.deny_folders:
         if _denied_by(text, folder):
             return Decision(False, DENIED, f"working folder is under the denied folder {folder}")
+    for rule in rules:
+        try:
+            verdict = rule(settings, text)
+        except Exception:  # noqa: BLE001 - a failing extension refuses, never allows
+            return Decision(False, EXTENSION_FAILED, "a capture extension failed on this folder")
+        if verdict is not None:
+            return verdict
     for folder in settings.allow_folders:
         if _allowed_by(text, folder):
             return Decision(True, IN_ALLOWED_FOLDER, f"working folder is under {folder}")
     return Decision(False, NOT_ALLOWED, "working folder is outside every allowed folder")
 
 
-def decide_folders(settings: CaptureSettings, cwds: Sequence[str | None]) -> Decision:
+def decide_folders(
+    settings: CaptureSettings, cwds: Sequence[str | None], rules: Sequence[ScopeRule] = ()
+) -> Decision:
     """Allowed only when there is a working folder and every one passes."""
     off = _off(settings)
     if off is not None:
@@ -120,7 +133,7 @@ def decide_folders(settings: CaptureSettings, cwds: Sequence[str | None]) -> Dec
         )
     first: Decision | None = None
     for index, cwd in enumerate(unique, start=1):
-        verdict = decide_folder(settings, cwd)
+        verdict = decide_folder(settings, cwd, rules)
         if not verdict.allowed:
             if len(unique) > 1:
                 return Decision(
@@ -135,8 +148,13 @@ def decide_folders(settings: CaptureSettings, cwds: Sequence[str | None]) -> Dec
 
 
 class ScopeGate:
-    def __init__(self, settings: CaptureSettings) -> None:
+    def __init__(self, settings: CaptureSettings, rules: Sequence[Any] | None = None) -> None:
         self.settings = settings
+        if rules is None:
+            from driftshield.capture.extensions import load_extensions
+
+            rules = load_extensions().scope_rules()
+        self.rules: tuple[Any, ...] = tuple(rules)
 
     def path_refusal(self, source: str, path: Path) -> Decision | None:
         off = _off(self.settings)
@@ -173,14 +191,14 @@ class ScopeGate:
             parent = self._parent(source, probe.parent_session_id, probe.parent_path, _depth)
             if not parent.allowed:
                 return parent, probe.session_id
-        return decide_folders(self.settings, probe.cwds), probe.session_id
+        return decide_folders(self.settings, probe.cwds, self.rules), probe.session_id
 
     def check_facts(self, facts: SessionFacts) -> Decision:
         """Decide on a fully read session: every working folder it recorded."""
         refusal = self.path_refusal(facts.source, facts.path)
         if refusal is not None:
             return refusal
-        return decide_folders(self.settings, facts.cwds)
+        return decide_folders(self.settings, facts.cwds, self.rules)
 
     def _parent(
         self, source: str, parent_id: str, parent_path: Path | None, depth: int
@@ -197,6 +215,8 @@ class ScopeGate:
 
 __all__ = [
     "DENIED",
+    "EXTENSION_FAILED",
+    "ScopeRule",
     "Decision",
     "INVALID",
     "IN_ALLOWED_FOLDER",
