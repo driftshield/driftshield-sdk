@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
 from driftshield.parsers.protocol import NoSkipCountMixin
+from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 
 class OpenClawParser(NoSkipCountMixin):
@@ -166,6 +167,15 @@ class OpenClawParser(NoSkipCountMixin):
             except json.JSONDecodeError:
                 arguments = {"raw": arguments}
 
+        metadata = {
+            "tool_call_id": item.get("id"),
+            "semantic_action_category": self.TOOL_CATEGORY_MAP.get(action_key, "other"),
+            "raw_action": action,
+        }
+        facts = sanitise_step_facts(item.get(STEP_FACTS_KEY))
+        if facts is not None:
+            metadata[STEP_FACTS_KEY] = facts
+
         return CanonicalEvent(
             id=uuid4(),
             session_id=session_id,
@@ -176,11 +186,7 @@ class OpenClawParser(NoSkipCountMixin):
             parent_event_id=parent_id,
             inputs=arguments if isinstance(arguments, dict) else {"raw": arguments},
             outputs={},
-            metadata={
-                "tool_call_id": item.get("id"),
-                "semantic_action_category": self.TOOL_CATEGORY_MAP.get(action_key, "other"),
-                "raw_action": action,
-            },
+            metadata=metadata,
         )
 
     def _create_text_event(

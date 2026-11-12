@@ -36,16 +36,18 @@ on the redacted payload. See :func:`_redact_content_blocks`.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from hashlib import sha256
 import re
 from typing import Any
 
 from driftshield.intake_contract import REQUIRED_REDACTION_FIELDS
+from driftshield.step_facts import STEP_FACTS_KEY, compute_step_facts
 
 
-REDACTOR_VERSION = "recursive-redactor.v3.0.0"
-REDACTION_RULESET_VERSION = "ruleset.v3"
+REDACTOR_VERSION = "recursive-redactor.v3.1.0"
+REDACTION_RULESET_VERSION = "ruleset.v4"
 
 _TOOL_IO_KEYS: frozenset[str] = frozenset(
     {
@@ -63,6 +65,13 @@ _TOOL_IO_KEYS: frozenset[str] = frozenset(
 )
 
 _PROMPT_RESPONSE_KEYS: frozenset[str] = frozenset({"content", "text"})
+
+# ruleset.v4: fixed list step facts for shell steps, computed from the raw
+# transcript by :func:`driftshield.step_facts.compute_step_facts` before any
+# redaction and keyed by ``id()`` of the raw tool call block. Only values from
+# closed lists are ever written (see ``driftshield.step_facts``). A
+# ``step_facts`` key already present in the input is never copied through.
+_STEP_FACTS: ContextVar[dict[int, dict[str, Any]]] = ContextVar("_STEP_FACTS", default={})
 
 # Failure / diagnostic body keys.
 #
@@ -321,6 +330,9 @@ def _redact_tool_use_block(
     for key in ("type", "id", "name"):
         if key in item:
             result[key] = item[key]
+    facts = _STEP_FACTS.get().get(id(item))
+    if facts is not None:
+        result[STEP_FACTS_KEY] = dict(facts)
     if "input" in item:
         child_path = f"{path}.input"
         serialised = repr(item["input"])
@@ -414,8 +426,11 @@ def _is_chatgpt_conversation(record: dict[str, Any]) -> bool:
 def _redact_value(value: Any, path: str, entries: list[RedactionEntry]) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
+        facts = _STEP_FACTS.get().get(id(value))
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
+            if key == STEP_FACTS_KEY:
+                continue
             if key in _DROPPED_KEYS or (
                 key == "title" and isinstance(item, str) and _is_chatgpt_conversation(value)
             ):
@@ -457,6 +472,8 @@ def _redact_value(value: Any, path: str, entries: list[RedactionEntry]) -> Any:
                 result[key] = _placeholder("tool_io", serialised)
                 continue
             result[key] = _redact_value(item, child_path, entries)
+        if facts is not None:
+            result[STEP_FACTS_KEY] = dict(facts)
         return result
     if isinstance(value, list):
         return [
@@ -477,5 +494,9 @@ def redact(payload: dict[str, Any]) -> RedactionResult:
     audit-trail consumers.
     """
     entries: list[RedactionEntry] = []
-    redacted_payload = _redact_value(payload, "", entries)
+    token = _STEP_FACTS.set(compute_step_facts(payload, skip_keys=_DROPPED_KEYS))
+    try:
+        redacted_payload = _redact_value(payload, "", entries)
+    finally:
+        _STEP_FACTS.reset(token)
     return RedactionResult(payload=redacted_payload, entries=entries)

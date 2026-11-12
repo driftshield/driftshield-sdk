@@ -32,6 +32,16 @@ with `<REDACTED:tool_io:<hash>>` rather than dropped entirely.
 | `file_content` | Raw file contents that should never reach the intake. |
 | `tool_input`, `function_args` | Tool-call inputs across frameworks. |
 
+### Shell step facts (ruleset.v4)
+
+A shell tool call keeps one extra key, `step_facts`, with four values taken
+from fixed lists: `command_kind`, `target_kind`, `exit_status` and
+`checked_before`. They are computed from the raw command before it is
+replaced, and no command text, path, argument or hash of them is kept. The key
+is written by the redactor only; a `step_facts` key in the input is never
+copied through. See the README section "What is sent for each shell step" for
+the allowed values.
+
 ### Regex-detected secrets (replaced inline in any string)
 
 The following high-confidence patterns are detected in any string value at

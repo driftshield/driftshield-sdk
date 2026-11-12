@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
+from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 
 class ClaudeCodeParser:
@@ -203,6 +204,17 @@ class ClaudeCodeParser:
         semantic_category = self._semantic_category_for_action(raw_action)
         event_type = EventType.HANDOFF if raw_action.lower() in self.HANDOFF_TOOLS else EventType.TOOL_CALL
 
+        metadata = {
+            "tool_use_id": item.get("id"),
+            "cwd": entry.get("cwd"),
+            "git_branch": entry.get("gitBranch"),
+            "raw_action": raw_action,
+            "semantic_action_category": semantic_category,
+        }
+        facts = sanitise_step_facts(item.get(STEP_FACTS_KEY))
+        if facts is not None:
+            metadata[STEP_FACTS_KEY] = facts
+
         return CanonicalEvent(
             id=uuid4(),
             session_id=session_id,
@@ -213,13 +225,7 @@ class ClaudeCodeParser:
             parent_event_id=parent_id,
             inputs=item.get("input", {}),
             outputs={},
-            metadata={
-                "tool_use_id": item.get("id"),
-                "cwd": entry.get("cwd"),
-                "git_branch": entry.get("gitBranch"),
-                "raw_action": raw_action,
-                "semantic_action_category": semantic_category,
-            },
+            metadata=metadata,
         )
 
     def _create_narrative_event(
