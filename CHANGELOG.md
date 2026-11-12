@@ -5,6 +5,19 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
+### Choose which local sessions may be sent: `driftshield capture`
+
+- New `driftshield capture` commands: `init` writes a starting
+  `~/.driftshield/capture.toml` with capture switched off, `status` shows the
+  settings and `dry-run` lists which recent Claude Code and Codex sessions would
+  be sent and why every other one is skipped. Nothing is sent yet; the upload
+  and watch commands follow in a later change.
+- A session passes only when every working folder it recorded sits inside an
+  allowed folder and outside every denied folder. Denied wins over allowed.
+- Blocked terms are scrubbed from the redacted copy before it would be sent, and
+  a session with more hits than `hold_over` is held. The dry run counts hits per
+  session and never prints them. See `driftshield/docs/capture.md`.
+
 ### ChatGPT conversation exports
 
 - New source `chatgpt_export`: a ChatGPT export holding a single conversation is
