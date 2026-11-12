@@ -18,9 +18,10 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Sequence
 
 from driftshield.capture.config import CaptureSettings
+from driftshield.capture.ledger import content_hash
 from driftshield.capture.scope import ScopeGate
 from driftshield.capture.sessions import (
     AGENT_FOR_SOURCE,
@@ -55,6 +56,7 @@ class Row:
     agent_id: str | None = None
     hits: int | None = None
     hits_after: int | None = None
+    model_name: str | None = None
 
     @property
     def sends(self) -> bool:
@@ -118,13 +120,19 @@ def denied_profile_count(settings: CaptureSettings, cutoff: datetime) -> int:
     return count
 
 
-def evaluate(settings: CaptureSettings, *, days: int, now: datetime | None = None) -> list[Row]:
+def evaluate(
+    settings: CaptureSettings,
+    *,
+    days: int,
+    now: datetime | None = None,
+    rules: Sequence[Any] | None = None,
+) -> list[Row]:
     """Judge as if capture were on: the report is read before switching it on."""
     if settings.invalid is None:
         settings = dataclasses.replace(settings, enabled=True)
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
-    gate = ScopeGate(settings)
+    gate = ScopeGate(settings, rules)
     rows: list[Row] = []
     for source, kind, path in candidates(settings):
         modified = _modified(path)
@@ -196,9 +204,31 @@ def evaluate(settings: CaptureSettings, *, days: int, now: datetime | None = Non
                 facts.cwd,
                 project_for(facts.cwd, settings.project),
                 settings.agent_id(AGENT_FOR_SOURCE[source]),
+                model_name=facts.model_name,
             )
         )
     return rows
+
+
+def workflow_reference(agent: str, project: str | None) -> str:
+    slug = project.replace("/", "-").lower() if project else "no-project"
+    return f"capture/{agent}/{slug}"
+
+
+def sent_identifiers(
+    *,
+    project: str | None,
+    workflow: str,
+    model_name: str | None,
+    file_name: str,
+    session_id: str,
+    report_id: str,
+    agent_id: str,
+) -> list[str]:
+    """Everything a submission sends beside the transcript. The capture holds a
+    session with a blocked term in any of these; the dry run applies the same rule."""
+    values = [project, workflow, model_name, file_name, session_id, report_id, agent_id]
+    return [value for value in values if value]
 
 
 def check_blocked_terms(rows: list[Row], settings: CaptureSettings) -> list[Row]:
@@ -222,8 +252,20 @@ def check_blocked_terms(rows: list[Row], settings: CaptureSettings) -> list[Row]
             )
             continue
         cleaned, hits = settings.blocked.scrub(run.redacted_transcript)
+        agent = AGENT_FOR_SOURCE[row.source]
+        identifiers = sent_identifiers(
+            project=row.project,
+            workflow=workflow_reference(agent, row.project),
+            model_name=row.model_name,
+            file_name=row.path.name,
+            session_id=row.session_id,
+            report_id=f"{row.session_id}@{content_hash(row.path)[:16]}",
+            agent_id=row.agent_id or settings.agent_id(agent),
+        )
+        field_hits = settings.blocked.count(identifiers)
+        hits += field_hits
         after = settings.blocked.count(cleaned)
-        verdict = HELD if settings.blocked.held(hits) or after else row.verdict
+        verdict = HELD if field_hits or settings.blocked.held(hits) or after else row.verdict
         out.append(dataclasses.replace(row, verdict=verdict, hits=hits, hits_after=after))
     return out
 
