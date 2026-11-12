@@ -37,7 +37,8 @@ with `<REDACTED:tool_io:<hash>>` rather than dropped entirely.
 A step is labelled `read_only`, `test` or `build` only when it is one plain
 command from a fixed allowlist with no shell operator and no flag that writes
 files; anything else is a write kind found in any part of the command, or
-`unknown`.
+`unknown`. Comment and here document text is scanned like any other text and
+can only make a step look more like a write, never less.
 
 A shell tool call keeps one extra key, `step_facts`, with four values taken
 from fixed lists: `command_kind`, `target_kind`, `exit_status` and
