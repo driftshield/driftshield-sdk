@@ -27,6 +27,31 @@ every release after that is a tag push.
 The same build and smoke test run again inside the tag push workflow, so a
 green `release-build` run is the signal that the tag is safe to push.
 
+## 2a. Check the release candidate on real sessions
+
+A standing step before every tag. The tests use fixtures; this step uses the
+kind of sessions people actually have. Everything runs locally and nothing is
+uploaded.
+
+- Install the release candidate (the wheel from the `release-build` run) in a
+  clean virtual environment.
+- Collect a corpus of real recent local sessions from the agents the SDK reads
+  (a couple of weeks of them, from more than one agent). Keep the files where
+  they are or in a scratch folder; do not copy them anywhere shared.
+- Run `analyse_run` over every session with the candidate, without submitting.
+  Require **0 crashes**. A session the parser cannot read at all
+  (`NoParseableEventsError`) is counted separately and is not a crash, but any
+  other exception is a blocker. Run the previous release over the same corpus
+  and compare: nothing that analysed before may stop analysing.
+- Run `driftshield capture dry-run` with the candidate and with the previous
+  release, using the same capture settings. Require the same sessions to be
+  uploaded and the same sessions to be held. A difference needs an explanation
+  before the tag.
+- Record the counts only (sessions analysed, crashes, unreadable, uploads, holds,
+  for the candidate and the previous release) in the release PR body. Do not
+  record file names, paths, session text or any other detail of the corpus in
+  the repository or the PR.
+
 ## 3. First release only: manual PyPI upload
 
 Done by the PyPI account holder, once, because trusted publishing can only be

@@ -3,7 +3,7 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.0 - 2026-11-12
 
 ### Shell steps now carry four fixed list facts
 
@@ -14,16 +14,27 @@ notes for each tag are taken from the matching section of this file.
   `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `unknown`),
   `target_kind` (`own_checkout`, `main_branch`, `outside_service`, `unknown`),
   `exit_status` (`success`, `failure`, `unknown`) and `checked_before` (true or
-  false: an earlier shell step in the run was `read_only`, `test` or `build`).
+  false: an earlier shell step in the run was `read_only`, `test` or `build`). (#272)
 - The labels fail closed: `read_only`, `test` and `build` are given only to
   one plain command from a fixed allowlist, with no shell operator and no flag
-  that writes files. A write kind is still found anywhere in a chain.
+  that writes files, so a formatter or a `--fix` run is never a check. A write
+  kind is still found anywhere in a chain.
+- A write hidden inside a command substitution is found too: `$(...)` and
+  backticks are read, also inside double quotes, with a fixed limit on depth
+  and size so a hostile command cannot slow analysis. Comment text and here
+  document text is scanned like any other text, so it can only make a step look
+  more like a write, never less. (#275)
 - It covers Claude Code `Bash`, OpenClaw `exec` and `bash`, and Codex shell
   calls. The Claude Code, OpenClaw and Codex parsers carry the key through to
   `tool_activity.step_facts` on the normalised events.
 - Never sent: command text, paths, arguments, prompts, code, or any hash of
   them. There is no setting to switch this off or to lower it. The README says
   exactly what is sent.
+- Step facts never stop an analysis. A transcript with unusual JSON in its tool
+  definitions or tool inputs, such as a schema with `"type": ["string", "null"]`,
+  is analysed as before. If computing the facts ever fails, the redacted copy is
+  made without them and one warning logs that facts were dropped and the error
+  type, never any session content. (#277, #278)
 - The redactor version is now `recursive-redactor.v3.1.0` and the ruleset
   `ruleset.v4`. Redacted output for transcripts with shell steps changes, so
   expect different hashes for the same input.
@@ -33,7 +44,7 @@ notes for each tag are taken from the matching section of this file.
 - New `driftshield capture` commands: `init` writes a starting
   `~/.driftshield/capture.toml` with capture switched off, `status` shows the
   settings and `dry-run` lists which recent Claude Code and Codex sessions would
-  be sent and why every other one is skipped.
+  be sent and why every other one is skipped. (#273)
 - A session passes only when every working folder it recorded sits inside an
   allowed folder and outside every denied folder. Denied wins over allowed.
 - Blocked terms are scrubbed from the redacted copy before it would be sent, and
@@ -44,7 +55,7 @@ notes for each tag are taken from the matching section of this file.
   `submit`, held over the limit, retried with backoff. Its window starts at the
   first tick, so nothing older is sent unless `--since` asks. `capture submit`
   sends one session, `capture install` prints a launchd agent or systemd timer,
-  and `capture status` lists held and failing sessions.
+  and `capture status` lists held and failing sessions. (#274)
 - Capture extensions: the `driftshield.capture.extensions` entry point group adds
   a scope rule (after the denied folders) and an after submit hook.
 
