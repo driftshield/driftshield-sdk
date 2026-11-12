@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -68,6 +69,47 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 ORIGINAL_STATES = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}
 ONLY_RE = re.compile(r"^([A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100})#(\d+)$")
+
+
+GH_TRIES = 3
+GH_BACKOFF = 2.0
+RATE_WAIT_CAP = 120  # seconds; a longer rate limit wait is not worth holding a run for
+
+
+def split_response(text: str | None):
+    """`gh api -i` prints the status line and headers, a blank line, then the body. Plain JSON (no headers) is
+    returned as the body with no headers."""
+    text = text or ""
+    if not text.startswith("HTTP/"):
+        return {}, text
+    head, _, body = re.split(r"(\r?\n\r?\n)", text, maxsplit=1) if re.search(r"\r?\n\r?\n", text) else (text, "", "")
+    headers = {}
+    for line in head.splitlines()[1:]:
+        name, _, value = line.partition(":")
+        if value:
+            headers[name.strip().lower()] = value.strip()
+    return headers, body
+
+
+def is_rate_limit(status: int, headers: dict, body: str) -> bool:
+    if status == 429:
+        return True
+    if status != 403:
+        return False
+    return bool(re.search(r"rate limit|abuse detection", body or "", re.I) or "retry-after" in headers
+                or headers.get("x-ratelimit-remaining") == "0")
+
+
+def rate_limit_wait(headers: dict) -> float | None:
+    """Seconds GitHub asks us to wait: Retry-After first, then x-ratelimit-reset (an epoch). None if it says nothing."""
+    try:
+        if "retry-after" in headers:
+            return max(0.0, float(headers["retry-after"]))
+        if "x-ratelimit-reset" in headers:
+            return max(0.0, float(headers["x-ratelimit-reset"]) - time.time())
+    except ValueError:
+        pass
+    return None
 
 
 class GitHubError(Exception):
@@ -156,26 +198,44 @@ class GhCli:
         return min(self.timeout, left)
 
     def get(self, path: str):
-        why, status = "no attempt", None
-        for attempt in range(2):
+        """Three tries. A 5xx, a timeout, a connection error or an unreadable answer waits 2 s, then 4 s (plus up to
+        a second of jitter) before the next try. A 429, or a 403 that says it is a rate limit, waits as long as
+        Retry-After or x-ratelimit-reset asks, if that is at most RATE_WAIT_CAP seconds and still fits inside the
+        deadline; otherwise it fails at once. Any other 4xx is final: asking again cannot change the answer."""
+        why, status, hint = "no attempt", None, None
+        for attempt in range(GH_TRIES):
             if attempt:
-                time.sleep(float(os.environ.get("DS_RETRY_WAIT", "2")))
+                if hint is not None and hint > RATE_WAIT_CAP:
+                    break  # checked on the hint itself, so the test mode below cannot hide it
+                if os.environ.get("DS_RETRY_WAIT") == "0":
+                    delay = 0.0
+                elif hint is not None:
+                    delay = hint + random.uniform(0, 1)
+                else:
+                    delay = GH_BACKOFF * 2 ** (attempt - 1) + random.uniform(0, 1)
+                if self.deadline is not None and time.time() + delay >= self.deadline:
+                    break
+                time.sleep(delay)
+            status, hint = None, None
             try:
-                proc = subprocess.run([self.gh, "api", path], capture_output=True, text=True, timeout=self.call_timeout())
+                proc = subprocess.run([self.gh, "api", path, "-i"], capture_output=True, text=True, timeout=self.call_timeout())
             except (OSError, subprocess.TimeoutExpired) as exc:
                 why = type(exc).__name__
                 continue
+            headers, body = split_response(proc.stdout)
             if proc.returncode == 0:
                 try:
-                    return json.loads(proc.stdout)
+                    return json.loads(body)
                 except ValueError:
                     why = "not JSON"
                     continue
             found = re.search(r"HTTP (\d{3})", proc.stderr or "")
             status = int(found.group(1)) if found else None
             why = f"gh exit {proc.returncode}" + (f", http {status}" if status else "")
-            if status in (403, 404, 410):
-                break
+            if status is not None and status < 500:
+                if not is_rate_limit(status, headers, body):
+                    break
+                hint = rate_limit_wait(headers)
         raise GitHubError(f"GET {path}: {why}", status)
 
     def pages(self, path: str, key: str | None = None, max_pages: int = 50):
