@@ -13,8 +13,9 @@ from typing import Any
 import pytest
 
 from driftshield import analyse_run
+from driftshield.core.json_values import is_one_of
 from driftshield.recursive_redactor import redact
-from driftshield.step_facts import compute_step_facts, is_one_of
+from driftshield.step_facts import compute_step_facts
 
 ODD_TYPES: list[Any] = [
     ["a", "b"],
@@ -35,7 +36,7 @@ ODD_TYPES: list[Any] = [
 def test_a_non_string_type_is_never_a_block_type(odd: Any):
     payload = {"events": [{"type": odd, "name": "Bash", "input": {"command": "ls"}}]}
     assert compute_step_facts(payload) == {}
-    assert redact(payload).payload["events"][0]["type"] == odd or odd == {}
+    assert redact(payload).payload["events"][0]["type"] == odd
 
 
 @pytest.mark.parametrize("odd", ODD_TYPES, ids=lambda v: json.dumps(v))
@@ -267,13 +268,22 @@ def test_analyse_run_never_raises_on_odd_json_shapes(build, fmt, odd: Any):
         analyse_run(json.dumps(run.redacted_transcript), format=forced)
 
 
-def test_a_failure_while_computing_facts_never_stops_the_analysis(monkeypatch: pytest.MonkeyPatch):
+def test_a_failure_while_computing_facts_never_stops_the_analysis(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
     import driftshield.recursive_redactor as redactor
 
     def boom(*args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("unexpected shape")
+        raise RuntimeError("SECRET-SESSION-TEXT")
 
     monkeypatch.setattr(redactor, "compute_step_facts", boom)
-    run = analyse_run(claude_code(["a"]), format="claude_code")
+    with caplog.at_level("WARNING", logger="driftshield.recursive_redactor"):
+        run = analyse_run(claude_code(["a"]), format="claude_code")
     assert run.events
     assert "step_facts" not in json.dumps(run.redacted_transcript)
+    # The fallback is visible, and says only that facts were dropped and why.
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "step facts dropped" in warnings[0].getMessage()
+    assert "RuntimeError" in warnings[0].getMessage()
+    assert "SECRET-SESSION-TEXT" not in caplog.text
