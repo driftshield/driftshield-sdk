@@ -495,7 +495,11 @@ def redact(payload: dict[str, Any]) -> RedactionResult:
     audit-trail consumers.
     """
     entries: list[RedactionEntry] = []
-    token = _STEP_FACTS.set(compute_step_facts(payload, skip_keys=_DROPPED_KEYS))
+    try:
+        facts = compute_step_facts(payload, skip_keys=_DROPPED_KEYS)
+    except Exception:  # noqa: BLE001 - step facts are extra: a shape they cannot read must never stop analysis
+        facts = {}
+    token = _STEP_FACTS.set(facts)
     try:
         redacted_payload = _redact_value(payload, "", entries)
     finally:

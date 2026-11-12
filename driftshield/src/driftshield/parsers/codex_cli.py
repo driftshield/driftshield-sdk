@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.parsers.local_chat import LocalChatTranscriptParser
-from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
+from driftshield.step_facts import STEP_FACTS_KEY, is_one_of, sanitise_step_facts
 
 ROLLOUT_RECORD_TYPES = frozenset(
     {"session_meta", "turn_context", "event_msg", "response_item", "realtime_item", "world_state"}
@@ -168,7 +168,7 @@ def is_rollout_record(entry: Any) -> bool:
     """True for a Codex rollout envelope record."""
     return (
         isinstance(entry, dict)
-        and entry.get("type") in ROLLOUT_RECORD_TYPES
+        and is_one_of(entry.get("type"), ROLLOUT_RECORD_TYPES)
         and isinstance(entry.get("payload"), dict)
     )
 
@@ -342,7 +342,7 @@ class CodexCliParser(LocalChatTranscriptParser):
                 )
             ]
 
-        if item_type in _TOOL_CALL_TYPES:
+        if is_one_of(item_type, _TOOL_CALL_TYPES):
             action = str(payload.get("name") or "tool_call")
             call_id = payload.get("call_id")
             category = self.TOOL_CATEGORY_MAP.get(action.lower(), "other")
@@ -373,7 +373,7 @@ class CodexCliParser(LocalChatTranscriptParser):
                 call_event_ids[str(call_id)] = event.id
             return [event]
 
-        if item_type in _TOOL_OUTPUT_TYPES:
+        if is_one_of(item_type, _TOOL_OUTPUT_TYPES):
             call_id = payload.get("call_id")
             event_id = call_event_ids.get(str(call_id)) if call_id else None
             if event_id is not None:
@@ -472,7 +472,7 @@ class CodexCliParser(LocalChatTranscriptParser):
                 texts.append(item.strip())
             elif (
                 isinstance(item, dict)
-                and item.get("type") in {"text", "input_text", "output_text"}
+                and is_one_of(item.get("type"), {"text", "input_text", "output_text"})
                 and isinstance(item.get("text"), str)
                 and item["text"].strip()
             ):

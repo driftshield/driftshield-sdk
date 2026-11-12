@@ -1420,6 +1420,27 @@ def _openclaw_exit_status(message: Mapping[str, Any]) -> str:
     return "success"
 
 
+def is_one_of(value: object, choices: Collection[str]) -> bool:
+    """``value in choices`` that never raises: only a string can be a member.
+
+    A set lookup on a list or a dict (a JSON schema ``"type": ["string",
+    "null"]``, say) raises ``TypeError``, so every check of a value taken from a
+    transcript against a set of names goes through here.
+    """
+    return isinstance(value, str) and value in choices
+
+
+def _block_type(node: Mapping[str, Any]) -> str | None:
+    """The ``type`` of a block, only when it is a string.
+
+    ``type`` in a transcript can be anything: JSON schemas inside tool
+    definitions use lists (``["string", "null"]``) and objects, and a set or
+    dict lookup on an unhashable value raises. Only a string is a block type.
+    """
+    kind = node.get("type")
+    return kind if isinstance(kind, str) else None
+
+
 def _carriers(
     node: object, skip_keys: Collection[str], depth: int = 0
 ) -> list[tuple[str, dict[str, Any]]]:
@@ -1428,7 +1449,7 @@ def _carriers(
     if depth > _MAX_DEPTH:
         return found
     if isinstance(node, dict):
-        kind = node.get("type")
+        kind = _block_type(node)
         if kind in _CALL_BLOCK_TYPES and isinstance(node.get("name"), str):
             found.append(("call", node))
         elif kind in _CODEX_CALL_TYPES and isinstance(node.get("name"), str):
@@ -1458,7 +1479,7 @@ def _call_id(node: Mapping[str, Any]) -> str | None:
 
 
 def _result_id_and_status(node: Mapping[str, Any]) -> tuple[str | None, str]:
-    kind = node.get("type")
+    kind = _block_type(node)
     if kind == "tool_result":
         call_id = node.get("tool_use_id")
         return (call_id if isinstance(call_id, str) else None), (
