@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from driftshield.core.json_values import is_one_of
 from driftshield.parsers.chatgpt_export import ChatGPTExportParser
 from driftshield.parsers.claude_code import ClaudeCodeParser
 from driftshield.parsers.claude_desktop import ClaudeDesktopParser
@@ -20,7 +21,6 @@ from driftshield.parsers.crewai import CrewAIParser
 from driftshield.parsers.langchain import LangChainParser
 from driftshield.parsers.openclaw import OpenClawParser
 from driftshield.parsers.openclaw_trajectory import OpenClawTrajectoryParser
-from driftshield.step_facts import is_one_of
 from driftshield.parsers.protocol import TranscriptParser
 
 PARSERS: dict[str, type[TranscriptParser]] = {
@@ -174,7 +174,10 @@ def _detect_records(objects: list[dict[str, Any]]) -> str | None:
     if (
         "session_meta" in types
         or any(is_rollout_record(obj) for obj in objects)
-        or any("session_id" in obj and is_one_of(obj.get("type"), {"session_meta", "message"}) for obj in objects)
+        or any(
+            "session_id" in obj and is_one_of(obj.get("type"), {"session_meta", "message"})
+            for obj in objects
+        )
     ):
         return "codex_cli"
 

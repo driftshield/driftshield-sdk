@@ -19,9 +19,10 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from driftshield.core.json_values import is_one_of
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.parsers.local_chat import LocalChatTranscriptParser
-from driftshield.step_facts import STEP_FACTS_KEY, is_one_of, sanitise_step_facts
+from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 ROLLOUT_RECORD_TYPES = frozenset(
     {"session_meta", "turn_context", "event_msg", "response_item", "realtime_item", "world_state"}

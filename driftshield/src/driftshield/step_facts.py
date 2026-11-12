@@ -1420,16 +1420,6 @@ def _openclaw_exit_status(message: Mapping[str, Any]) -> str:
     return "success"
 
 
-def is_one_of(value: object, choices: Collection[str]) -> bool:
-    """``value in choices`` that never raises: only a string can be a member.
-
-    A set lookup on a list or a dict (a JSON schema ``"type": ["string",
-    "null"]``, say) raises ``TypeError``, so every check of a value taken from a
-    transcript against a set of names goes through here.
-    """
-    return isinstance(value, str) and value in choices
-
-
 def _block_type(node: Mapping[str, Any]) -> str | None:
     """The ``type`` of a block, only when it is a string.
 
