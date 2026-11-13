@@ -3,6 +3,22 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Uploads say which analyser made them
+
+- Every upload now carries `metadata.analyser` in the shared copy of the run, with four
+  fixed strings: `schema_version` (`analyser.v1`), `sdk_version` (the package version),
+  `matching_rules_version` and `step_facts_version`. Before this, a verdict made by 0.3.1
+  could not be told from one made by 0.3.0, because none of the versions sent changed.
+  The README says exactly what is sent.
+- The matching rules version is now `phase-3g-deterministic-rules-v2`. It had stayed at v1
+  although 0.3.1 rewrote the verification failure rules. It now has to change whenever a
+  rule's firing behaviour changes, and a test pins the behaviour of every bundled fixture
+  per version so a change without a new version fails the build.
+- New step facts version, `step-facts.v2` for the 0.3.1 classification (v1 was 0.3.0), with
+  the same rule and the same kind of pin.
+
 ## 0.3.1 - 2026-11-13
 
 ### Step facts: fewer false writes, and chains of checks count

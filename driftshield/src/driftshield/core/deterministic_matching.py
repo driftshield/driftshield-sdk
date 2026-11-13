@@ -8,7 +8,14 @@ from typing import Any
 from driftshield.core.analysis.session import AnalysisResult
 
 MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
-RULESET_VERSION = "phase-3g-deterministic-rules-v1"
+# RULESET_VERSION must change whenever the firing behaviour of any rule changes:
+# a rule starts or stops firing on some run, or a candidate is added, removed or
+# re-keyed. The version is sent with every upload (``analyser.matching_rules_version``)
+# so a stored verdict can be told apart from one made by older rules. A test pins the
+# behaviour of every bundled fixture per version (tests/test_analyser_versions.py), so
+# a behaviour change with no new version fails the build.
+# v2: the verification failure rules fire only on a skipped safeguard (0.3.1).
+RULESET_VERSION = "phase-3g-deterministic-rules-v2"
 
 
 @dataclass(frozen=True)

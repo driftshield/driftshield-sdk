@@ -37,6 +37,15 @@ from typing import Any
 
 STEP_FACTS_KEY = "step_facts"
 
+# STEP_FACTS_VERSION must change whenever the classification changes: any command
+# that would now get a different command kind, target kind, exit status or
+# checked_before value. It is sent with every upload (``analyser.step_facts_version``)
+# so stored step facts can be told apart by the rules that made them. A test pins the
+# classification of a frozen set of commands per version (tests/test_analyser_versions.py).
+# v1: 0.3.0. v2: 0.3.1 (chains of checks, environment assignments, local merge,
+# pull request create and invoke are no longer counted as checks or writes).
+STEP_FACTS_VERSION = "step-facts.v2"
+
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
     "test",

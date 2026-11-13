@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -58,6 +59,7 @@ from driftshield.parsers.registry import (
     load_json_document,
 )
 from driftshield.recursive_redactor import REDACTION_RULESET_VERSION, REDACTOR_VERSION, redact
+from driftshield.step_facts import STEP_FACTS_VERSION
 from driftshield.remote_submission import (
     OssRemoteSubmissionConfig,
     RemoteSubmissionError,
@@ -94,6 +96,13 @@ _LINE_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw", "openclaw_tra
 _WARNING_DETAIL_LIMIT = 10
 
 _ENVIRONMENT_KEY = "environment"
+
+# The analyser block rides the shareable copy's ``metadata``, next to the declared
+# environment. That is the one place an existing intake already reads per
+# submission and accepts without a contract change. Fixed strings only.
+_ANALYSER_KEY = "analyser"
+ANALYSER_SCHEMA_VERSION = "analyser.v1"
+_SDK_VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[.+-][0-9A-Za-z.+-]{0,24})?")
 
 SubmitError = RemoteSubmissionError
 
@@ -203,6 +212,25 @@ class SubmitReceipt:
     visibility: str
     server_contract_version: str | None
     deprecation_warning: str | None
+
+
+def analyser_block() -> dict[str, str]:
+    """Which analyser made this verdict, as fixed strings.
+
+    ``sdk_version`` is the package version, ``matching_rules_version`` the version of the
+    deterministic matching rules and ``step_facts_version`` the version of the shell step
+    classification. Nothing from the transcript or the machine goes in. An SDK version
+    that does not look like a version number is sent as ``unknown``.
+    """
+    import driftshield
+
+    version = str(driftshield.__version__)
+    return {
+        "schema_version": ANALYSER_SCHEMA_VERSION,
+        "sdk_version": version if _SDK_VERSION_PATTERN.fullmatch(version) else "unknown",
+        "matching_rules_version": RULESET_VERSION,
+        "step_facts_version": STEP_FACTS_VERSION,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -585,6 +613,8 @@ def submit(
         metadata[_ENVIRONMENT_KEY] = environment
     else:
         metadata.setdefault(_ENVIRONMENT_KEY, EnvironmentClass.PRODUCTION.value)
+    # Always ours: a value already in the transcript's metadata is replaced.
+    metadata[_ANALYSER_KEY] = analyser_block()
     payload["metadata"] = metadata
 
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
