@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 from driftshield.core.json_values import is_one_of
 from driftshield.core.models import CanonicalEvent, EventType
+from driftshield.parsers.confirmation_tools import is_confirmation_tool
 from driftshield.parsers.local_chat import LocalChatTranscriptParser
 from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
@@ -347,11 +348,17 @@ class CodexCliParser(LocalChatTranscriptParser):
             action = str(payload.get("name") or "tool_call")
             call_id = payload.get("call_id")
             category = self.TOOL_CATEGORY_MAP.get(action.lower(), "other")
+            if is_confirmation_tool(action):
+                call_type = EventType.CONSTRAINT_CHECK
+            elif action.lower() in _HANDOFF_TOOLS:
+                call_type = EventType.HANDOFF
+            else:
+                call_type = EventType.TOOL_CALL
             event = CanonicalEvent(
                 id=uuid4(),
                 session_id=session_id,
                 timestamp=timestamp,
-                event_type=EventType.HANDOFF if action.lower() in _HANDOFF_TOOLS else EventType.TOOL_CALL,
+                event_type=call_type,
                 agent_id=agent_id,
                 action=action,
                 parent_event_id=parent_id,
