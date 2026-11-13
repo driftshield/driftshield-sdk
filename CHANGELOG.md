@@ -3,7 +3,7 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.1 - 2026-11-13
 
 ### Step facts: fewer false writes, and chains of checks count
 
@@ -17,11 +17,18 @@ notes for each tag are taken from the matching section of this file.
   are skipped in a chain; `export`, `PATH` changes, `hash`, `alias`, `source`,
   `.` and environment assignments can change what a later part runs, so they
   make the step `unknown`. A `cd` out of the checkout makes the target `unknown`.
+- An environment assignment before a check, such as `CI=1 npm test` or
+  `PYTHONPATH=src pytest`, now makes the step `unknown` instead of a check,
+  because an assignment such as `PATH` or `LD_PRELOAD` can change what the
+  command runs. This is stricter than 0.3.0, so runs that used these forms will
+  show fewer checked steps. A write kind is still found: `FOO=1 git push origin
+  main` is still a `git_push`.
 - A local `git merge` is no longer labelled `merge`. `merge` means a pull
   request merge: `gh pr merge`, or `gh api` with a merge endpoint and a write
   verb.
 - `gh pr create` and every `aws ... invoke` (such as `aws lambda invoke`) are
-  `unknown` and no longer `outside_write`.
+  `unknown` and no longer `outside_write`. Opening a pull request for review and
+  invoking a function or model are not writes to count.
 
 ### Verification failure fires only on a skipped safeguard
 
@@ -33,7 +40,10 @@ notes for each tag are taken from the matching section of this file.
   own checkout), a `deploy`, a `delete` on an outside service or an
   `outside_write`, judged from the step facts. Reads, tests, builds, unknown
   steps, local file writes and edits never fire. A run with no step facts
-  (older uploads, raw local transcripts) never fires.
+  (older uploads, raw local transcripts) never fires. Because step facts only
+  exist on redacted uploads, local analysis (`driftshield analyze` on a raw
+  transcript) no longer reports a verification failure at all; the check applies
+  to a run that has been redacted for upload.
 - A confirmation counts when it comes before the outside step, or when the step
   facts say `checked_before` is true.
 - The Claude Code parser records an `AskUserQuestion` call, and the Codex parser a
