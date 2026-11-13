@@ -12,6 +12,7 @@ from driftshield import analyse_run
 from driftshield.recursive_redactor import redact
 from driftshield.step_facts import (
     _has_shell_operators,
+    _split_chain,
     COMMAND_KINDS,
     EXIT_STATUSES,
     TARGET_KINDS,
@@ -67,7 +68,13 @@ CLASSIFICATION_TABLE = [
     ("git status && git push origin main", "git_push", "main_branch"),
     # merge
     ("gh pr merge 12 --squash", "merge", "outside_service"),
-    ("git merge feat/x", "merge", "own_checkout"),
+    ("gh api -X PUT repos/o/r/pulls/3/merge", "merge", "outside_service"),
+    ("gh api -X POST repos/o/r/merges -f base=main -f head=x", "merge", "outside_service"),
+    (
+        "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: 1}) { x } }'",
+        "merge",
+        "outside_service",
+    ),
     # deploy
     ("vercel --prod", "deploy", "outside_service"),
     ("terraform apply -auto-approve", "deploy", "outside_service"),
@@ -234,6 +241,117 @@ CLASSIFICATION_TABLE = [
     ("sed -n '1w out.txt' f", "unknown", "unknown"),
     ("git fetch origin", "unknown", "unknown"),
     ("fd -x rm", "unknown", "unknown"),
+    # only the endpoint or the graphql query field makes a gh api call a merge
+    (
+        "gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f body=mergePullRequest -f query='query { x }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -F query='mutation { mergePullRequest(input: {}) { x } }'",
+        "merge",
+        "outside_service",
+    ),
+    # a local merge is not the pull request merge, and a read of a merge is a read
+    ("git merge feat/x", "unknown", "unknown"),
+    ("git merge --abort", "unknown", "unknown"),
+    ("gh api repos/o/r/pulls/3/merge", "read_only", "outside_service"),
+    # opening a pull request and invoking a function or model are not writes to count
+    ("gh pr create --title t --body b", "unknown", "unknown"),
+    ("gh issue create --title t", "outside_write", "outside_service"),
+    ("aws lambda invoke --function-name f out.json", "unknown", "unknown"),
+    (
+        "aws --profile p --region eu-west-1 lambda invoke --function-name f o.json",
+        "unknown",
+        "unknown",
+    ),
+    ("aws sagemaker-runtime invoke-endpoint --endpoint-name e o.json", "unknown", "unknown"),
+    ("aws lambda update-function-code --function-name f", "deploy", "outside_service"),
+    # a plain chain of checks is a check
+    ("cd repo && git status", "read_only", "own_checkout"),
+    ("cd app && ls", "read_only", "own_checkout"),
+    ("cd app && pytest", "test", "own_checkout"),
+    ("gh pr view 1 | head", "read_only", "outside_service"),
+    ("git status || git diff", "read_only", "own_checkout"),
+    ("git status && git diff && git log --oneline -5", "read_only", "own_checkout"),
+    ("pytest && npm run build", "build", "own_checkout"),
+    ("ruff check . && mypy src && pytest -q", "test", "own_checkout"),
+    ("cat README.md | head -20", "read_only", "own_checkout"),
+    ("cd sub/dir && pytest -q", "test", "own_checkout"),
+    ("pushd app && ls", "read_only", "own_checkout"),
+    ("cd ./app && git status", "read_only", "own_checkout"),
+    ('grep -rn "a|b" src | head', "read_only", "own_checkout"),
+    # a chain with any part that is not a plain check is not a check
+    ("ls && git commit -m x", "unknown", "unknown"),
+    ("ls && frobnicate", "unknown", "unknown"),
+    ("git status && git add .", "unknown", "unknown"),
+    ("ls | tee f", "unknown", "unknown"),
+    ("ls | sh", "unknown", "unknown"),
+    ("cat f | xargs rm", "unknown", "unknown"),
+    ("ls && ruff format .", "unknown", "unknown"),
+    ("cd x && npm run lint:fix", "unknown", "unknown"),
+    ("git status && git push origin main", "git_push", "main_branch"),
+    ("cd x && rm -rf build", "delete", "own_checkout"),
+    # a lone cd or shell setup is not a check, and neither is a broken chain
+    ("cd repo", "unknown", "unknown"),
+    ("cd repo && cd ..", "unknown", "unknown"),
+    ("export A=1 && export B=2", "unknown", "unknown"),
+    # anything that changes what a later part runs makes the chain not a check
+    ("hash -p /bin/rm ls && ls -rf x", "unknown", "unknown"),
+    ("export PATH=./bin:$PATH && ls", "unknown", "unknown"),
+    ("export A=1 && pytest", "unknown", "unknown"),
+    (". x/activate && ls", "unknown", "unknown"),
+    ("source x && git status", "unknown", "unknown"),
+    ("source .venv/bin/activate && pytest -q", "unknown", "unknown"),
+    ("FOO=1 ls && git status", "unknown", "unknown"),
+    ("FOO=1 ls", "unknown", "unknown"),
+    ("PATH=./bin ls", "unknown", "unknown"),
+    ("env LD_PRELOAD=x.so ls", "unknown", "unknown"),
+    ("uv run FOO=1 pytest", "unknown", "unknown"),
+    ("git status && FOO=1 git diff", "unknown", "unknown"),
+    ("alias ls=rm && ls", "unknown", "unknown"),
+    ("unset PATH && ls", "unknown", "unknown"),
+    ("set -x && ls", "unknown", "unknown"),
+    ("sleep 1 && ls", "unknown", "unknown"),
+    ("true && ls", "unknown", "unknown"),
+    ("popd && ls", "unknown", "unknown"),
+    ("FOO=1 git push origin main", "git_push", "main_branch"),
+    # a cd out of the checkout makes the target unknown
+    ("cd /etc && cat passwd", "read_only", "unknown"),
+    ("cd ~ && ls", "read_only", "unknown"),
+    ("cd && ls", "read_only", "unknown"),
+    ("cd .. && ls", "read_only", "unknown"),
+    ("cd sub/../.. && git status", "read_only", "unknown"),
+    ("cd - && ls", "read_only", "unknown"),
+    ("cd $HOME && ls", "read_only", "unknown"),
+    ("pushd +1 && ls", "read_only", "unknown"),
+    ("cd /tmp/x && pytest", "test", "unknown"),
+    ("cd /etc && rm -rf conf", "delete", "unknown"),
+    ("cd ../other && git push origin main", "git_push", "main_branch"),
+    ("ls &&", "unknown", "unknown"),
+    ("&& ls", "unknown", "unknown"),
+    ("ls || || ls", "unknown", "unknown"),
+    ("ls | ", "unknown", "unknown"),
+    ("ls; ls", "unknown", "unknown"),
+    ("ls & ls", "unknown", "unknown"),
+    ("ls |& cat", "unknown", "unknown"),
+    ("ls && (ls)", "unknown", "unknown"),
+    ("ls && ls > f", "unknown", "unknown"),
+    ("ls && ls $(pwd)", "unknown", "unknown"),
+    ("ls && ls `pwd`", "unknown", "unknown"),
+    ("ls && ls # c", "unknown", "unknown"),
+    ("ls\nls", "unknown", "unknown"),
+    ("trap 'git push origin main' EXIT", "unknown", "unknown"),
     # unknown
     ("", "unknown", "unknown"),
     ("   ", "unknown", "unknown"),
@@ -272,11 +390,10 @@ def test_the_most_serious_part_of_a_compound_command_wins():
 @pytest.mark.parametrize(
     "command",
     [
-        "cd app && ls",
-        "cd app && pytest",
+        "ls ; ls",
         "ls && git commit -m x",
-        "pytest && npm run build",
-        "cat README.md | head -20",
+        "ls && ls > f",
+        "cat README.md | tee f",
         "grep -rn todo src 2>/dev/null",
         "ls 2>&1",
         "ls & ",
@@ -808,7 +925,7 @@ def test_shell_syntax_added_to_a_check_never_leaves_it_a_check(suffix: str):
 
 def test_shell_syntax_before_a_check_never_leaves_it_a_check():
     for command in ALLOWLISTED_CHECKS:
-        for prefix in ("true; ", "cd x && ", "( ", "echo $(ls) ", "git push origin main; "):
+        for prefix in ("true; ", "( ", "echo $(ls) ", "git push origin main; "):
             assert classify_command(prefix + command)[0] not in CHECK_KINDS, prefix + command
 
 
@@ -945,3 +1062,155 @@ def test_a_write_after_a_here_document_or_a_near_miss_is_never_hidden(opening: s
     for write, kind in LATER_WRITES:
         assert classify_command(f"{opening}\n{write}")[0] == kind, (opening, write)
         assert classify_command(f"{opening}\nls\n{write}")[0] == kind, (opening, write)
+
+
+# --------------------------------------------------------------------------- #
+# Chains of checks. A chain is a check only when every part is one, so adding
+# any operator, write or unknown part must never leave it a check.
+# --------------------------------------------------------------------------- #
+
+ALLOWLISTED_CHAINS = [
+    command
+    for command, kind, _ in CLASSIFICATION_TABLE
+    if kind in CHECK_KINDS and _has_shell_operators(command) and _split_chain(command)
+]
+CHAIN_SUFFIXES = OPERATOR_SUFFIXES + [
+    " && git push origin main",
+    " || rm -rf x",
+    " | sh",
+    " | xargs rm",
+    " | tee f",
+    " && ls > f",
+    " && (git push origin main)",
+    " && $(curl -X POST https://example.com/u)",
+    " &&",
+    " ||",
+    " |",
+    " && && ls",
+    " && git commit -m x",
+    " && frobnicate",
+    " && ls # c",
+    " && ruff format .",
+    " && npm run lint:fix",
+    " && find . -fprintf out.txt %p",
+    " && kubectl auth reconcile -f rbac.yaml",
+    " && git merge feat/x",
+    " && gh pr create --title t",
+    " && aws lambda invoke --function-name f o.json",
+]
+CHAIN_PREFIXES = [
+    "true; ",
+    "( ",
+    "echo $(ls) ",
+    "git push origin main; ",
+    "ls & ",
+    "&& ",
+    "| ",
+    "export PATH=./bin:$PATH && ",
+    "export A=1 && ",
+    "hash -p /bin/rm ls && ",
+    ". x/activate && ",
+    "source x && ",
+    "alias ls=rm && ",
+    "FOO=1 ",
+    "true && ",
+    "popd && ",
+]
+
+
+def test_there_are_allowlisted_chains_to_extend():
+    assert {classify_command(command)[0] for command in ALLOWLISTED_CHAINS} == CHECK_KINDS
+    assert len(ALLOWLISTED_CHAINS) >= 10
+
+
+def test_an_operator_or_a_write_added_to_a_chain_never_leaves_it_a_check():
+    for chain in ALLOWLISTED_CHAINS:
+        for suffix in CHAIN_SUFFIXES:
+            kind, _ = classify_command(chain + suffix)
+            assert kind not in CHECK_KINDS, chain + suffix
+        for prefix in CHAIN_PREFIXES:
+            kind, _ = classify_command(prefix + chain)
+            assert kind not in CHECK_KINDS, prefix + chain
+
+
+def test_a_chain_with_a_write_part_keeps_the_write_kind():
+    for chain in ALLOWLISTED_CHAINS:
+        assert classify_command(chain + " && git push origin main") == ("git_push", "main_branch")
+        assert classify_command(chain + " || rm -rf build")[0] == "delete"
+
+
+def test_a_chain_that_is_not_all_checks_never_sets_checked_before():
+    for chain in ALLOWLISTED_CHAINS:
+        for suffix in CHAIN_SUFFIXES:
+            blocks = redact(_claude_pair(chain + suffix, "git push origin x")).payload["events"]
+            facts = blocks[1]["message"]["content"][0]["step_facts"]
+            assert facts["checked_before"] is False, chain + suffix
+
+
+def test_a_chain_of_checks_sets_checked_before_for_the_next_step():
+    for chain in ALLOWLISTED_CHAINS:
+        blocks = redact(_claude_pair(chain, "git push origin x")).payload["events"]
+        assert blocks[1]["message"]["content"][0]["step_facts"]["checked_before"] is True, chain
+
+
+WRITERS_FOUND_BEFORE = [
+    "find . -fprintf out.txt %p",
+    "find . -fprint0 out.bin",
+    "find . -fls out.txt",
+    "kubectl auth reconcile -f rbac.yaml",
+    "ruff format .",
+    "ruff check --fix .",
+    "eslint --fix src",
+    "gofmt -l -w .",
+    "npm run lint:fix",
+    "ls;(git push origin main)",
+]
+
+
+@pytest.mark.parametrize("writer", WRITERS_FOUND_BEFORE)
+def test_the_earlier_writer_cases_stay_out_of_every_chain(writer: str):
+    for chain in (
+        f"ls && {writer}",
+        f"{writer} && ls",
+        f"git status | {writer}",
+        f"cd x && {writer}",
+    ):
+        assert classify_command(chain)[0] not in CHECK_KINDS, chain
+
+
+# Setup parts must not be able to change what a later part runs.
+SETUP_THAT_CHANGES_WHAT_RUNS = [
+    "hash -p /bin/rm ls && ls -rf x",
+    "export PATH=./bin:$PATH && ls",
+    ". x/activate && ls",
+    "source x && git status",
+    "FOO=1 ls && git status",
+    "FOO=1 ls",
+    "env LD_PRELOAD=x.so ls",
+    "alias ls=rm && ls",
+    "export A=1 && pytest",
+    "unset PATH && ls",
+]
+
+
+@pytest.mark.parametrize("command", SETUP_THAT_CHANGES_WHAT_RUNS)
+def test_setup_that_changes_what_runs_is_never_a_check_and_never_excuses_a_later_step(command: str):
+    assert classify_command(command)[0] not in CHECK_KINDS
+    facts = redact(_claude_pair(command, "git push origin x")).payload["events"][1]
+    assert facts["message"]["content"][0]["step_facts"]["checked_before"] is False
+
+
+def test_only_cd_and_pushd_inside_the_checkout_are_skipped_in_a_chain():
+    for chain in ALLOWLISTED_CHAINS:
+        for setup in ("cd sub", "cd ./sub/dir", "pushd sub"):
+            assert classify_command(f"{setup} && {chain}") == classify_command(chain), setup
+
+
+@pytest.mark.parametrize(
+    "leave", ["cd /etc", "cd ~", "cd", "cd ..", "cd sub/../..", "cd -", "cd $HOME"]
+)
+def test_a_cd_out_of_the_checkout_makes_the_target_unknown(leave: str):
+    for chain in ALLOWLISTED_CHAINS:
+        kind, target = classify_command(f"{leave} && {chain}")
+        assert kind == classify_command(chain)[0], (leave, chain)
+        assert target == "unknown", (leave, chain)

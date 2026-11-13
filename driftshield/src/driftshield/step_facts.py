@@ -66,7 +66,11 @@ _MAX_COMMAND_CHARS = 16_384
 _MAIN_BRANCHES = frozenset({"main", "master", "trunk"})
 
 _Result = tuple[str, str]  # (command_kind, target_kind)
+# A directory change inside the checkout writes nothing and moves nothing the
+# next part reads, so it is skipped. One that leaves the checkout is skipped too
+# but makes the target of the whole step unknown.
 _NEUTRAL: _Result = ("neutral", "own_checkout")
+_NEUTRAL_OUTSIDE: _Result = ("neutral", "unknown")
 _UNKNOWN: _Result = ("unknown", "unknown")
 
 
@@ -138,31 +142,6 @@ _REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
 _HEREDOC = frozenset({"<<", "<<-", "<<<"})
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = frozenset({"sudo", "time", "nohup", "env", "command", "nice", "builtin", "stdbuf"})
-_NEUTRAL_PROGRAMS = frozenset(
-    {
-        "cd",
-        "pushd",
-        "popd",
-        "export",
-        "set",
-        "unset",
-        "alias",
-        "sleep",
-        "true",
-        "false",
-        ":",
-        "clear",
-        "umask",
-        "wait",
-        "hash",
-        "ulimit",
-        "shopt",
-        "trap",
-        "local",
-        "declare",
-        "readonly",
-    }
-)
 _READ_ONLY_PROGRAMS = frozenset(
     {
         "ls",
@@ -296,7 +275,6 @@ _AWS_WRITE_PREFIXES = (
     "put",
     "create",
     "update",
-    "invoke",
     "send",
     "publish",
     "start",
@@ -563,11 +541,13 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
     return [segment for segment in segments if segment], opaque
 
 
-def _strip_prefixes(tokens: list[str]) -> list[str]:
+def _strip_prefixes(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
     tokens = list(tokens)
     while tokens:
         head = tokens[0]
         if _ENV_ASSIGNMENT.match(head):
+            if seen_assignment is not None:
+                seen_assignment[0] = True
             tokens.pop(0)
         elif head in _WRAPPERS:
             tokens.pop(0)
@@ -607,14 +587,16 @@ def _skip_leading_flags(tokens: list[str], value_flags: frozenset[str]) -> list[
     return tokens[index:]
 
 
-def _unwrap_runner(tokens: list[str]) -> list[str]:
+def _unwrap_runner(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
     """``uv run pytest`` and ``npx vitest`` are classified as the program they run."""
     for _ in range(4):
         if not tokens:
             return tokens
         head = tokens[0].lower()
         if head in _RUNNERS_WITH_RUN and len(tokens) > 2 and tokens[1] == "run":
-            tokens = _strip_prefixes(_skip_leading_flags(tokens[2:], _RUNNER_VALUE_FLAGS))
+            tokens = _strip_prefixes(
+                _skip_leading_flags(tokens[2:], _RUNNER_VALUE_FLAGS), seen_assignment
+            )
         elif head in {"npx", "bunx", "pipx"} or (
             head == "pnpm" and tokens[1:2] in (["dlx"], ["exec"])
         ):
@@ -691,7 +673,9 @@ def _git(rest: list[str]) -> _Result:
                 return "git_push", "main_branch"
         return "git_push", "outside_service"
     if sub == "merge":
-        return "merge", "own_checkout"
+        # A local merge is not a pull request merge, and the fixed list has no
+        # local write value, so it is not claimed as a merge.
+        return _UNKNOWN
     if sub in {
         "status",
         "diff",
@@ -777,15 +761,20 @@ def _gh(rest: list[str]) -> _Result:
                 method = token.split("=", 1)[1].upper()
         if method == "DELETE":
             return "delete", "outside_service"
-        if method not in _HTTP_READ_METHODS or _has_flag(
+        writes = method not in _HTTP_READ_METHODS or _has_flag(
             rest, "-f", "-F", "--field", "--raw-field", "--input"
-        ):
+        )
+        if writes and _is_merge_request(rest):
+            return "merge", "outside_service"
+        if writes:
             return "outside_write", "outside_service"
         return "read_only", "outside_service"
     if group == "search" or (group == "auth" and action == "status"):
         return "read_only", "outside_service"
     if group == "pr" and action == "merge":
         return "merge", "outside_service"
+    if group == "pr" and action == "create":
+        return _UNKNOWN  # opening a pull request for review is not a write to count
     if group == "release":
         if action == "delete":
             return "delete", "outside_service"
@@ -854,6 +843,26 @@ def _httpie(rest: list[str]) -> _Result:
     return "read_only", "outside_service"
 
 
+def _is_merge_request(rest: list[str]) -> bool:
+    """A ``gh api`` call that merges a pull request or a branch.
+
+    Only the endpoint (``pulls/<n>/merge``, ``merges``) or the GraphQL ``query``
+    field counts. Text in any other field, such as an issue comment body that
+    mentions a merge, does not.
+    """
+    for token in rest:
+        if token.startswith("-"):
+            continue
+        if token.startswith("query="):
+            if "mergePullRequest" in token:
+                return True
+        elif "=" not in token.split("?", 1)[0] and re.search(
+            r"(^|/)(pulls/\d+/merge|merges)$", token.split("?", 1)[0]
+        ):
+            return True
+    return False
+
+
 def _http_client(program: str, rest: list[str]) -> _Result:
     method = "GET"
     for index, token in enumerate(rest):
@@ -908,6 +917,10 @@ def _aws(rest: list[str]) -> _Result:
             return "delete", "outside_service"
         if operation in {"cp", "mv", "sync", "mb", "presign"}:
             return "outside_write", "outside_service"
+        return _UNKNOWN
+    if operation.startswith("invoke"):
+        # invoke runs a function or a model. It may only read, so it is not
+        # claimed as a write.
         return _UNKNOWN
     if operation in _AWS_DEPLOY_OPS:
         return "deploy", "outside_service"
@@ -1065,7 +1078,12 @@ def _make_like(program: str, rest: list[str]) -> _Result:
 
 
 def _classify_simple(tokens: list[str]) -> _Result:
-    result = _classify_program(tokens)
+    seen_assignment = [False]
+    result = _classify_program(tokens, seen_assignment)
+    if seen_assignment[0] and (result[0] in _SAFE_ORDER or result[0] == "neutral"):
+        # An environment assignment (PATH, LD_PRELOAD, ...) can change what the
+        # command runs, so the step is not a check. A write kind is kept.
+        return _UNKNOWN
     if result[0] == "test":
         # A formatter or a fixer rewrites files, so it is not a check.
         unwrapped = _unwrap_runner(_strip_prefixes(tokens))
@@ -1076,10 +1094,27 @@ def _classify_simple(tokens: list[str]) -> _Result:
     return result
 
 
-def _classify_program(tokens: list[str]) -> _Result:
-    tokens = _unwrap_runner(_strip_prefixes(tokens))
+def _cd_effect(rest: list[str]) -> _Result:
+    """``cd`` or ``pushd`` is skipped, and says whether it stays inside the checkout.
+
+    Only one plain relative path inside the checkout keeps the target. No path
+    (home), ``-``, an absolute path, ``~``, a variable, a stack rotation or
+    anything that goes up (``..``) leaves it, so the target becomes unknown.
+    """
+    words = _positionals(rest)
+    flags = [token for token in rest if token.startswith("-")]
+    if len(words) != 1 or flags:
+        return _NEUTRAL_OUTSIDE
+    path = words[0]
+    if path[0] in "/~$+-" or "\\" in path or ".." in path.split("/"):
+        return _NEUTRAL_OUTSIDE
+    return _NEUTRAL
+
+
+def _classify_program(tokens: list[str], seen_assignment: list[bool]) -> _Result:
+    tokens = _unwrap_runner(_strip_prefixes(tokens, seen_assignment), seen_assignment)
     if not tokens:
-        return _NEUTRAL
+        return _UNKNOWN  # an assignment alone changes the shell, so it is not a check
     head = tokens[0]
     if head.startswith(("./", "../", "~")) or head == "." and len(tokens) > 1:
         return _UNKNOWN
@@ -1087,10 +1122,8 @@ def _classify_program(tokens: list[str]) -> _Result:
     rest = _drop_value_flags(tokens[1:], _VALUE_FLAGS.get(program, _NO_FLAGS))
     positional = _positionals(rest)
 
-    if program == "source" or program == ".":
-        return _NEUTRAL if positional and positional[0].endswith("activate") else _UNKNOWN
-    if program in _NEUTRAL_PROGRAMS:
-        return _NEUTRAL
+    if program in {"cd", "pushd"}:
+        return _cd_effect(rest)
     if program in _OPAQUE_PROGRAMS:
         return _UNKNOWN
     if program == "git" or program == "jj":
@@ -1329,6 +1362,55 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
+def _split_chain(command: str) -> list[str] | None:
+    """The parts of ``command`` when it is a plain chain, otherwise ``None``.
+
+    A plain chain is simple commands joined only by ``&&``, ``||`` or ``|``,
+    with every part present. Anything else makes it ``None``: ``;``, a lone
+    ``&``, ``|&``, brackets, redirects, a comment, a newline, a backtick or
+    ``$(`` outside single quotes, or an unterminated quote. Quoted text is an
+    argument, not syntax.
+    """
+    parts: list[str] = []
+    start = 0
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(command):
+        char = command[index]
+        pair = command[index : index + 2]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "`" or pair == "$(":
+            return None
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif pair in {"&&", "||"}:
+            parts.append(command[start:index])
+            index += 1
+            start = index + 1
+        elif char == "|" and command[index + 1 : index + 2] != "&":
+            parts.append(command[start:index])
+            start = index + 1
+        elif char in ";&|()<>\n\r" or (
+            char == "#" and (index == 0 or command[index - 1].isspace())
+        ):
+            return None
+        index += 1
+    if quote or escaped:
+        return None
+    parts.append(command[start:])
+    return parts if all(part.strip() for part in parts) else None
+
+
 _MAX_SUBSTITUTION_DEPTH = 4
 _MAX_SUBSTITUTION_BODIES = 64
 _MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
@@ -1468,11 +1550,11 @@ def _classify_command(command: object) -> tuple[str, str]:
     """Fail closed.
 
     ``read_only``, ``test`` and ``build`` can excuse a later step, so they are
-    given only to a command that is one plain simple command (no shell
-    operator of any kind) from the explicit lists above, with no write flag.
-    Every part of a compound command is still looked at for a write kind, so a
-    ``git push`` hidden after ``&&`` is still a ``git_push``. Anything else is
-    ``unknown``.
+    given only to a command, or a plain chain of commands joined by ``&&``,
+    ``||`` or ``|``, where every part is from the explicit lists above with no
+    write flag (see :func:`_chain_check_label`). Every part of a compound
+    command is still looked at for a write kind, so a ``git push`` hidden after
+    ``&&`` is still a ``git_push``. Anything else is ``unknown``.
     """
     if not isinstance(command, str) or not command.strip() or len(command) > _MAX_COMMAND_CHARS:
         return "unknown", "unknown"
@@ -1483,13 +1565,45 @@ def _classify_command(command: object) -> tuple[str, str]:
     results = [_classify_simple(segment) for segment in segments]
     # A substitution runs whatever is inside it, so its write kind counts too.
     results.extend(_substitution_write_kinds(command))
+    left_checkout = _NEUTRAL_OUTSIDE in results
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:
+                if left_checkout and result[1] == "own_checkout":
+                    return kind, "unknown"
                 return result
-    if len(results) == 1 and results[0][0] in _SAFE_ORDER and not _has_shell_operators(command):
-        return results[0]
-    return "unknown", "unknown"
+    return _chain_check_label(command)
+
+
+def _chain_check_label(command: str) -> _Result:
+    """The check label of a plain chain of checks, or ``unknown``.
+
+    Every part must be an allowlisted ``read_only``, ``test`` or ``build``
+    command with no write flag. A part that only changes directory or sets up
+    the shell (``cd``, ``export``) writes nothing and is skipped, but a chain of
+    only those is not a check. The label is the strongest kind in the chain
+    (``build``, then ``test``, then ``read_only``), with the target of the first
+    part that has it.
+    """
+    parts = _split_chain(command)
+    if parts is None:
+        return _UNKNOWN
+    results: list[_Result] = []
+    for part in parts:
+        tokens = _tokenise(part)
+        segments = _segments(tokens)[0] if tokens else []
+        if len(segments) != 1:
+            return _UNKNOWN
+        results.append(_classify_simple(segments[0]))
+    checks = [result for result in results if result[0] != "neutral"]
+    if not checks or any(result[0] not in _SAFE_ORDER for result in checks):
+        return _UNKNOWN
+    left_checkout = _NEUTRAL_OUTSIDE in results
+    for kind in _SAFE_ORDER:
+        for result in checks:
+            if result[0] == kind:
+                return (kind, "unknown") if left_checkout else result
+    return _UNKNOWN
 
 
 # --------------------------------------------------------------------------- #

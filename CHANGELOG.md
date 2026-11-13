@@ -5,6 +5,24 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
+### Step facts: fewer false writes, and chains of checks count
+
+- A chain of read only commands is now a check. When every part is a plain
+  `read_only`, `test` or `build` command with no write flag, and the parts are
+  joined only by `&&`, `||` or `|`, the step is labelled as that check, so
+  `cd repo && git status` and `gh pr view 1 | head` are `read_only` and set
+  `checked_before` for the steps after them. Any other shell syntax, any part
+  that is not an allowlisted check, or a chain of only `cd` is still `unknown`,
+  and a write kind is still found in any part of a chain. Only `cd` and `pushd`
+  are skipped in a chain; `export`, `PATH` changes, `hash`, `alias`, `source`,
+  `.` and environment assignments can change what a later part runs, so they
+  make the step `unknown`. A `cd` out of the checkout makes the target `unknown`.
+- A local `git merge` is no longer labelled `merge`. `merge` means a pull
+  request merge: `gh pr merge`, or `gh api` with a merge endpoint and a write
+  verb.
+- `gh pr create` and every `aws ... invoke` (such as `aws lambda invoke`) are
+  `unknown` and no longer `outside_write`.
+
 ### Verification failure fires only on a skipped safeguard
 
 - The verification failure check (`R-VER-001`, `SEQ-VER-001`) used to fire on
