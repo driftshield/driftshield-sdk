@@ -91,7 +91,16 @@ def test_deterministic_matching_surfaces_verification_failure_candidates():
                 "event_id": "evt-tool",
                 "sequence_index": 0,
                 "event_family": "tool_call",
-                "structured_payload": {"safety_relevant_flags": ["mutates_state"], "tool_category": "filesystem"},
+                "structured_payload": {
+                    "safety_relevant_flags": ["executes_shell"],
+                    "tool_category": "shell",
+                    "step_facts": {
+                        "command_kind": "deploy",
+                        "target_kind": "outside_service",
+                        "exit_status": "success",
+                        "checked_before": False,
+                    },
+                },
             },
             {
                 "event_id": "evt-out",

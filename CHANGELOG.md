@@ -3,6 +3,29 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Verification failure fires only on a skipped safeguard
+
+- The verification failure check (`R-VER-001`, `SEQ-VER-001`) used to fire on
+  any run that used a shell, write or edit tool when some instruction mentioned
+  confirming or approving, because no parser ever recorded a confirmation. It
+  now fires only when a step that leaves the agent's own space has no
+  confirmation before it: a `git_push` to a main branch, a `merge` (not into the
+  own checkout), a `deploy`, a `delete` on an outside service or an
+  `outside_write`, judged from the step facts. Reads, tests, builds, unknown
+  steps, local file writes and edits never fire. A run with no step facts
+  (older uploads, raw local transcripts) never fires.
+- A confirmation counts when it comes before the outside step, or when the step
+  facts say `checked_before` is true.
+- The Claude Code parser records an `AskUserQuestion` call, and the Codex parser a
+  `request_user_input` call, as a confirmation step instead of a plain tool call.
+- The instruction keyword condition (confirm, approve, permission) stays as a
+  gate. It no longer makes the check fire by itself.
+- State conflict and policy divergence are unchanged. Policy divergence fires
+  only on a force push against a loaded rule. State conflict follows failed
+  reads and writes, which needs its own change.
+
 ## 0.3.0 - 2026-11-12
 
 ### Shell steps now carry four fixed list facts

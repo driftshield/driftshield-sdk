@@ -30,7 +30,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "transcripts"
 REDACTOR_CORPUS = Path(__file__).parent / "fixtures" / "redactor_corpus"
 _TRAJECTORY = FIXTURES / "sample_openclaw_trajectory.json"
 _CLAUDE_CODE = FIXTURES / "sample_claude_code_session.jsonl"
-_CONSTRAINT_VIOLATION = FIXTURES / "dogfood" / "constraint_violation_session.jsonl"
+_CONSTRAINT_VIOLATION = FIXTURES / "dogfood" / "unconfirmed_outside_step_session.jsonl"
 _CLEAN = FIXTURES / "dogfood" / "clean_session.jsonl"
 _INTAKE_URL = "https://intake.example.test/v1/oss/submissions"
 

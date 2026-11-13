@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from driftshield.core.models import CanonicalEvent, EventType
 from driftshield.core.normalization import normalize_events
+from driftshield.parsers.confirmation_tools import is_confirmation_tool
 from driftshield.step_facts import STEP_FACTS_KEY, sanitise_step_facts
 
 
@@ -203,6 +204,8 @@ class ClaudeCodeParser:
         raw_action = item.get("name", "unknown")
         semantic_category = self._semantic_category_for_action(raw_action)
         event_type = EventType.HANDOFF if raw_action.lower() in self.HANDOFF_TOOLS else EventType.TOOL_CALL
+        if is_confirmation_tool(raw_action):
+            event_type = EventType.CONSTRAINT_CHECK
 
         metadata = {
             "tool_use_id": item.get("id"),
