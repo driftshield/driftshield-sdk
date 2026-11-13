@@ -3,21 +3,25 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.2 - 2026-11-13
 
 ### Uploads say which analyser made them
 
-- Every upload now carries `metadata.analyser` in the shared copy of the run, with four
-  fixed strings: `schema_version` (`analyser.v1`), `sdk_version` (the package version),
-  `matching_rules_version` and `step_facts_version`. Before this, a verdict made by 0.3.1
-  could not be told from one made by 0.3.0, because none of the versions sent changed.
-  The README says exactly what is sent.
-- The matching rules version is now `phase-3g-deterministic-rules-v2`. It had stayed at v1
-  although 0.3.1 rewrote the verification failure rules. It now has to change whenever a
-  rule's firing behaviour changes, and a test pins the behaviour of every bundled fixture
-  per version so a change without a new version fails the build.
-- New step facts version, `step-facts.v2` for the 0.3.1 classification (v1 was 0.3.0), with
-  the same rule and the same kind of pin.
+- Every upload now says which analyser made it, so DriftShield can count open source
+  findings only from uploads checked by the current rules. Before this, a verdict made by
+  0.3.1 could not be told from one made by 0.3.0, because none of the versions sent changed.
+- The shared copy of each run carries `metadata.analyser`, with four fixed strings:
+  `schema_version` (`analyser.v1`), `sdk_version` (the package version),
+  `matching_rules_version` and `step_facts_version`. Nothing from the transcript or the
+  machine goes in it, and there is no setting to leave it out. The README says exactly what
+  is sent.
+- The matching rules version now changes whenever a rule's behaviour changes. It had stayed
+  at `phase-3g-deterministic-rules-v1` although 0.3.1 rewrote the verification failure rules.
+  `phase-3g-deterministic-rules-v2` is the 0.3.1 rule set, and it is what 0.3.2 sends. A test
+  pins the behaviour of every bundled fixture per version, so a change to a rule without a
+  new version fails the build.
+- The step facts version works the same way: `step-facts.v2` is the 0.3.1 classification
+  (`step-facts.v1` was 0.3.0), and it changes whenever the classification changes.
 
 ## 0.3.1 - 2026-11-13
 

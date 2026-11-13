@@ -59,7 +59,6 @@ from driftshield.parsers.registry import (
     load_json_document,
 )
 from driftshield.recursive_redactor import REDACTION_RULESET_VERSION, REDACTOR_VERSION, redact
-from driftshield.step_facts import STEP_FACTS_VERSION
 from driftshield.remote_submission import (
     OssRemoteSubmissionConfig,
     RemoteSubmissionError,
@@ -74,6 +73,7 @@ from driftshield.remote_upload import (
     submit_teams_via_presigned_upload,
 )
 from driftshield.signatures.community import load_builtin_community_pack
+from driftshield.step_facts import STEP_FACTS_VERSION
 from driftshield.telemetry import TelemetryService, effective_oss_intake_url
 
 Visibility = Literal["community", "workspace"]
