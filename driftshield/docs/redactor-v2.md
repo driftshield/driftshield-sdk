@@ -34,10 +34,11 @@ with `<REDACTED:tool_io:<hash>>` rather than dropped entirely.
 
 ### Shell step facts (ruleset.v4)
 
-A step is labelled `read_only`, `test` or `build` only when it is one plain
-command from a fixed allowlist with no shell operator and no flag that writes
-files; anything else is a write kind found in any part of the command, or
-`unknown`. Comment and here document text is scanned like any other text and
+A step is labelled `read_only`, `test` or `build` only when every part is a
+plain command from a fixed allowlist with no flag that writes files, and the
+parts are joined only by `&&`, `||` or `|`; anything else is a write kind found
+in any part of the command, or `unknown`. A local `git merge`, `gh pr create`
+and `aws ... invoke` are `unknown`. Comment and here document text is scanned like any other text and
 can only make a step look more like a write, never less.
 
 A shell tool call keeps one extra key, `step_facts`, with four values taken

@@ -157,7 +157,6 @@ _NEUTRAL_PROGRAMS = frozenset(
         "hash",
         "ulimit",
         "shopt",
-        "trap",
         "local",
         "declare",
         "readonly",
@@ -296,7 +295,6 @@ _AWS_WRITE_PREFIXES = (
     "put",
     "create",
     "update",
-    "invoke",
     "send",
     "publish",
     "start",
@@ -691,7 +689,9 @@ def _git(rest: list[str]) -> _Result:
                 return "git_push", "main_branch"
         return "git_push", "outside_service"
     if sub == "merge":
-        return "merge", "own_checkout"
+        # A local merge is not a pull request merge, and the fixed list has no
+        # local write value, so it is not claimed as a merge.
+        return _UNKNOWN
     if sub in {
         "status",
         "diff",
@@ -777,15 +777,20 @@ def _gh(rest: list[str]) -> _Result:
                 method = token.split("=", 1)[1].upper()
         if method == "DELETE":
             return "delete", "outside_service"
-        if method not in _HTTP_READ_METHODS or _has_flag(
+        writes = method not in _HTTP_READ_METHODS or _has_flag(
             rest, "-f", "-F", "--field", "--raw-field", "--input"
-        ):
+        )
+        if writes and _is_merge_request(rest):
+            return "merge", "outside_service"
+        if writes:
             return "outside_write", "outside_service"
         return "read_only", "outside_service"
     if group == "search" or (group == "auth" and action == "status"):
         return "read_only", "outside_service"
     if group == "pr" and action == "merge":
         return "merge", "outside_service"
+    if group == "pr" and action == "create":
+        return _UNKNOWN  # opening a pull request for review is not a write to count
     if group == "release":
         if action == "delete":
             return "delete", "outside_service"
@@ -854,6 +859,16 @@ def _httpie(rest: list[str]) -> _Result:
     return "read_only", "outside_service"
 
 
+def _is_merge_request(rest: list[str]) -> bool:
+    """A ``gh api`` call that merges a pull request or a branch."""
+    for token in rest:
+        if "mergePullRequest" in token:
+            return True
+        if re.search(r"(^|/)(pulls/\d+/merge|merges)$", token.split("?", 1)[0]):
+            return True
+    return False
+
+
 def _http_client(program: str, rest: list[str]) -> _Result:
     method = "GET"
     for index, token in enumerate(rest):
@@ -908,6 +923,10 @@ def _aws(rest: list[str]) -> _Result:
             return "delete", "outside_service"
         if operation in {"cp", "mv", "sync", "mb", "presign"}:
             return "outside_write", "outside_service"
+        return _UNKNOWN
+    if operation.startswith("invoke"):
+        # invoke runs a function or a model. It may only read, so it is not
+        # claimed as a write.
         return _UNKNOWN
     if operation in _AWS_DEPLOY_OPS:
         return "deploy", "outside_service"
@@ -1329,6 +1348,55 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
+def _split_chain(command: str) -> list[str] | None:
+    """The parts of ``command`` when it is a plain chain, otherwise ``None``.
+
+    A plain chain is simple commands joined only by ``&&``, ``||`` or ``|``,
+    with every part present. Anything else makes it ``None``: ``;``, a lone
+    ``&``, ``|&``, brackets, redirects, a comment, a newline, a backtick or
+    ``$(`` outside single quotes, or an unterminated quote. Quoted text is an
+    argument, not syntax.
+    """
+    parts: list[str] = []
+    start = 0
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(command):
+        char = command[index]
+        pair = command[index : index + 2]
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "`" or pair == "$(":
+            return None
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif pair in {"&&", "||"}:
+            parts.append(command[start:index])
+            index += 1
+            start = index + 1
+        elif char == "|" and command[index + 1 : index + 2] != "&":
+            parts.append(command[start:index])
+            start = index + 1
+        elif char in ";&|()<>\n\r" or (
+            char == "#" and (index == 0 or command[index - 1].isspace())
+        ):
+            return None
+        index += 1
+    if quote or escaped:
+        return None
+    parts.append(command[start:])
+    return parts if all(part.strip() for part in parts) else None
+
+
 _MAX_SUBSTITUTION_DEPTH = 4
 _MAX_SUBSTITUTION_BODIES = 64
 _MAX_SUBSTITUTION_WORK = 100_000  # characters read across all levels
@@ -1468,11 +1536,11 @@ def _classify_command(command: object) -> tuple[str, str]:
     """Fail closed.
 
     ``read_only``, ``test`` and ``build`` can excuse a later step, so they are
-    given only to a command that is one plain simple command (no shell
-    operator of any kind) from the explicit lists above, with no write flag.
-    Every part of a compound command is still looked at for a write kind, so a
-    ``git push`` hidden after ``&&`` is still a ``git_push``. Anything else is
-    ``unknown``.
+    given only to a command, or a plain chain of commands joined by ``&&``,
+    ``||`` or ``|``, where every part is from the explicit lists above with no
+    write flag (see :func:`_chain_check_label`). Every part of a compound
+    command is still looked at for a write kind, so a ``git push`` hidden after
+    ``&&`` is still a ``git_push``. Anything else is ``unknown``.
     """
     if not isinstance(command, str) or not command.strip() or len(command) > _MAX_COMMAND_CHARS:
         return "unknown", "unknown"
@@ -1487,9 +1555,37 @@ def _classify_command(command: object) -> tuple[str, str]:
         for result in results:
             if result[0] == kind:
                 return result
-    if len(results) == 1 and results[0][0] in _SAFE_ORDER and not _has_shell_operators(command):
-        return results[0]
-    return "unknown", "unknown"
+    return _chain_check_label(command)
+
+
+def _chain_check_label(command: str) -> _Result:
+    """The check label of a plain chain of checks, or ``unknown``.
+
+    Every part must be an allowlisted ``read_only``, ``test`` or ``build``
+    command with no write flag. A part that only changes directory or sets up
+    the shell (``cd``, ``export``) writes nothing and is skipped, but a chain of
+    only those is not a check. The label is the strongest kind in the chain
+    (``build``, then ``test``, then ``read_only``), with the target of the first
+    part that has it.
+    """
+    parts = _split_chain(command)
+    if parts is None:
+        return _UNKNOWN
+    results: list[_Result] = []
+    for part in parts:
+        tokens = _tokenise(part)
+        segments = _segments(tokens)[0] if tokens else []
+        if len(segments) != 1:
+            return _UNKNOWN
+        results.append(_classify_simple(segments[0]))
+    checks = [result for result in results if result != _NEUTRAL]
+    if not checks or any(result[0] not in _SAFE_ORDER for result in checks):
+        return _UNKNOWN
+    for kind in _SAFE_ORDER:
+        for result in checks:
+            if result[0] == kind:
+                return result
+    return _UNKNOWN
 
 
 # --------------------------------------------------------------------------- #

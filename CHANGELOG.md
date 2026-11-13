@@ -3,6 +3,23 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Step facts: fewer false writes, and chains of checks count
+
+- A chain of read only commands is now a check. When every part is a plain
+  `read_only`, `test` or `build` command with no write flag, and the parts are
+  joined only by `&&`, `||` or `|`, the step is labelled as that check, so
+  `cd repo && git status` and `gh pr view 1 | head` are `read_only` and set
+  `checked_before` for the steps after them. Any other shell syntax, any part
+  that is not an allowlisted check, or a chain of only `cd` and shell setup is
+  still `unknown`, and a write kind is still found in any part of a chain.
+- A local `git merge` is no longer labelled `merge`. `merge` means a pull
+  request merge: `gh pr merge`, or `gh api` with a merge endpoint and a write
+  verb.
+- `gh pr create` and every `aws ... invoke` (such as `aws lambda invoke`) are
+  `unknown` and no longer `outside_write`.
+
 ## 0.3.0 - 2026-11-12
 
 ### Shell steps now carry four fixed list facts
