@@ -66,7 +66,11 @@ _MAX_COMMAND_CHARS = 16_384
 _MAIN_BRANCHES = frozenset({"main", "master", "trunk"})
 
 _Result = tuple[str, str]  # (command_kind, target_kind)
+# A directory change inside the checkout writes nothing and moves nothing the
+# next part reads, so it is skipped. One that leaves the checkout is skipped too
+# but makes the target of the whole step unknown.
 _NEUTRAL: _Result = ("neutral", "own_checkout")
+_NEUTRAL_OUTSIDE: _Result = ("neutral", "unknown")
 _UNKNOWN: _Result = ("unknown", "unknown")
 
 
@@ -138,30 +142,6 @@ _REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
 _HEREDOC = frozenset({"<<", "<<-", "<<<"})
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = frozenset({"sudo", "time", "nohup", "env", "command", "nice", "builtin", "stdbuf"})
-_NEUTRAL_PROGRAMS = frozenset(
-    {
-        "cd",
-        "pushd",
-        "popd",
-        "export",
-        "set",
-        "unset",
-        "alias",
-        "sleep",
-        "true",
-        "false",
-        ":",
-        "clear",
-        "umask",
-        "wait",
-        "hash",
-        "ulimit",
-        "shopt",
-        "local",
-        "declare",
-        "readonly",
-    }
-)
 _READ_ONLY_PROGRAMS = frozenset(
     {
         "ls",
@@ -561,11 +541,13 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
     return [segment for segment in segments if segment], opaque
 
 
-def _strip_prefixes(tokens: list[str]) -> list[str]:
+def _strip_prefixes(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
     tokens = list(tokens)
     while tokens:
         head = tokens[0]
         if _ENV_ASSIGNMENT.match(head):
+            if seen_assignment is not None:
+                seen_assignment[0] = True
             tokens.pop(0)
         elif head in _WRAPPERS:
             tokens.pop(0)
@@ -605,14 +587,16 @@ def _skip_leading_flags(tokens: list[str], value_flags: frozenset[str]) -> list[
     return tokens[index:]
 
 
-def _unwrap_runner(tokens: list[str]) -> list[str]:
+def _unwrap_runner(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
     """``uv run pytest`` and ``npx vitest`` are classified as the program they run."""
     for _ in range(4):
         if not tokens:
             return tokens
         head = tokens[0].lower()
         if head in _RUNNERS_WITH_RUN and len(tokens) > 2 and tokens[1] == "run":
-            tokens = _strip_prefixes(_skip_leading_flags(tokens[2:], _RUNNER_VALUE_FLAGS))
+            tokens = _strip_prefixes(
+                _skip_leading_flags(tokens[2:], _RUNNER_VALUE_FLAGS), seen_assignment
+            )
         elif head in {"npx", "bunx", "pipx"} or (
             head == "pnpm" and tokens[1:2] in (["dlx"], ["exec"])
         ):
@@ -860,11 +844,21 @@ def _httpie(rest: list[str]) -> _Result:
 
 
 def _is_merge_request(rest: list[str]) -> bool:
-    """A ``gh api`` call that merges a pull request or a branch."""
+    """A ``gh api`` call that merges a pull request or a branch.
+
+    Only the endpoint (``pulls/<n>/merge``, ``merges``) or the GraphQL ``query``
+    field counts. Text in any other field, such as an issue comment body that
+    mentions a merge, does not.
+    """
     for token in rest:
-        if "mergePullRequest" in token:
-            return True
-        if re.search(r"(^|/)(pulls/\d+/merge|merges)$", token.split("?", 1)[0]):
+        if token.startswith("-"):
+            continue
+        if token.startswith("query="):
+            if "mergePullRequest" in token:
+                return True
+        elif "=" not in token.split("?", 1)[0] and re.search(
+            r"(^|/)(pulls/\d+/merge|merges)$", token.split("?", 1)[0]
+        ):
             return True
     return False
 
@@ -1084,7 +1078,12 @@ def _make_like(program: str, rest: list[str]) -> _Result:
 
 
 def _classify_simple(tokens: list[str]) -> _Result:
-    result = _classify_program(tokens)
+    seen_assignment = [False]
+    result = _classify_program(tokens, seen_assignment)
+    if seen_assignment[0] and (result[0] in _SAFE_ORDER or result[0] == "neutral"):
+        # An environment assignment (PATH, LD_PRELOAD, ...) can change what the
+        # command runs, so the step is not a check. A write kind is kept.
+        return _UNKNOWN
     if result[0] == "test":
         # A formatter or a fixer rewrites files, so it is not a check.
         unwrapped = _unwrap_runner(_strip_prefixes(tokens))
@@ -1095,10 +1094,27 @@ def _classify_simple(tokens: list[str]) -> _Result:
     return result
 
 
-def _classify_program(tokens: list[str]) -> _Result:
-    tokens = _unwrap_runner(_strip_prefixes(tokens))
+def _cd_effect(rest: list[str]) -> _Result:
+    """``cd`` or ``pushd`` is skipped, and says whether it stays inside the checkout.
+
+    Only one plain relative path inside the checkout keeps the target. No path
+    (home), ``-``, an absolute path, ``~``, a variable, a stack rotation or
+    anything that goes up (``..``) leaves it, so the target becomes unknown.
+    """
+    words = _positionals(rest)
+    flags = [token for token in rest if token.startswith("-")]
+    if len(words) != 1 or flags:
+        return _NEUTRAL_OUTSIDE
+    path = words[0]
+    if path[0] in "/~$+-" or "\\" in path or ".." in path.split("/"):
+        return _NEUTRAL_OUTSIDE
+    return _NEUTRAL
+
+
+def _classify_program(tokens: list[str], seen_assignment: list[bool]) -> _Result:
+    tokens = _unwrap_runner(_strip_prefixes(tokens, seen_assignment), seen_assignment)
     if not tokens:
-        return _NEUTRAL
+        return _UNKNOWN  # an assignment alone changes the shell, so it is not a check
     head = tokens[0]
     if head.startswith(("./", "../", "~")) or head == "." and len(tokens) > 1:
         return _UNKNOWN
@@ -1106,10 +1122,8 @@ def _classify_program(tokens: list[str]) -> _Result:
     rest = _drop_value_flags(tokens[1:], _VALUE_FLAGS.get(program, _NO_FLAGS))
     positional = _positionals(rest)
 
-    if program == "source" or program == ".":
-        return _NEUTRAL if positional and positional[0].endswith("activate") else _UNKNOWN
-    if program in _NEUTRAL_PROGRAMS:
-        return _NEUTRAL
+    if program in {"cd", "pushd"}:
+        return _cd_effect(rest)
     if program in _OPAQUE_PROGRAMS:
         return _UNKNOWN
     if program == "git" or program == "jj":
@@ -1551,9 +1565,12 @@ def _classify_command(command: object) -> tuple[str, str]:
     results = [_classify_simple(segment) for segment in segments]
     # A substitution runs whatever is inside it, so its write kind counts too.
     results.extend(_substitution_write_kinds(command))
+    left_checkout = _NEUTRAL_OUTSIDE in results
     for kind in _RISK_ORDER:
         for result in results:
             if result[0] == kind:
+                if left_checkout and result[1] == "own_checkout":
+                    return kind, "unknown"
                 return result
     return _chain_check_label(command)
 
@@ -1578,13 +1595,14 @@ def _chain_check_label(command: str) -> _Result:
         if len(segments) != 1:
             return _UNKNOWN
         results.append(_classify_simple(segments[0]))
-    checks = [result for result in results if result != _NEUTRAL]
+    checks = [result for result in results if result[0] != "neutral"]
     if not checks or any(result[0] not in _SAFE_ORDER for result in checks):
         return _UNKNOWN
+    left_checkout = _NEUTRAL_OUTSIDE in results
     for kind in _SAFE_ORDER:
         for result in checks:
             if result[0] == kind:
-                return result
+                return (kind, "unknown") if left_checkout else result
     return _UNKNOWN
 
 

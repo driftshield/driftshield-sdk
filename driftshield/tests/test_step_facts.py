@@ -241,6 +241,27 @@ CLASSIFICATION_TABLE = [
     ("sed -n '1w out.txt' f", "unknown", "unknown"),
     ("git fetch origin", "unknown", "unknown"),
     ("fd -x rm", "unknown", "unknown"),
+    # only the endpoint or the graphql query field makes a gh api call a merge
+    (
+        "gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f body=mergePullRequest -f query='query { x }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -F query='mutation { mergePullRequest(input: {}) { x } }'",
+        "merge",
+        "outside_service",
+    ),
     # a local merge is not the pull request merge, and a read of a merge is a read
     ("git merge feat/x", "unknown", "unknown"),
     ("git merge --abort", "unknown", "unknown"),
@@ -266,8 +287,9 @@ CLASSIFICATION_TABLE = [
     ("pytest && npm run build", "build", "own_checkout"),
     ("ruff check . && mypy src && pytest -q", "test", "own_checkout"),
     ("cat README.md | head -20", "read_only", "own_checkout"),
-    ("export A=1 && pytest", "test", "own_checkout"),
-    ("source .venv/bin/activate && pytest -q", "test", "own_checkout"),
+    ("cd sub/dir && pytest -q", "test", "own_checkout"),
+    ("pushd app && ls", "read_only", "own_checkout"),
+    ("cd ./app && git status", "read_only", "own_checkout"),
     ('grep -rn "a|b" src | head', "read_only", "own_checkout"),
     # a chain with any part that is not a plain check is not a check
     ("ls && git commit -m x", "unknown", "unknown"),
@@ -284,6 +306,38 @@ CLASSIFICATION_TABLE = [
     ("cd repo", "unknown", "unknown"),
     ("cd repo && cd ..", "unknown", "unknown"),
     ("export A=1 && export B=2", "unknown", "unknown"),
+    # anything that changes what a later part runs makes the chain not a check
+    ("hash -p /bin/rm ls && ls -rf x", "unknown", "unknown"),
+    ("export PATH=./bin:$PATH && ls", "unknown", "unknown"),
+    ("export A=1 && pytest", "unknown", "unknown"),
+    (". x/activate && ls", "unknown", "unknown"),
+    ("source x && git status", "unknown", "unknown"),
+    ("source .venv/bin/activate && pytest -q", "unknown", "unknown"),
+    ("FOO=1 ls && git status", "unknown", "unknown"),
+    ("FOO=1 ls", "unknown", "unknown"),
+    ("PATH=./bin ls", "unknown", "unknown"),
+    ("env LD_PRELOAD=x.so ls", "unknown", "unknown"),
+    ("uv run FOO=1 pytest", "unknown", "unknown"),
+    ("git status && FOO=1 git diff", "unknown", "unknown"),
+    ("alias ls=rm && ls", "unknown", "unknown"),
+    ("unset PATH && ls", "unknown", "unknown"),
+    ("set -x && ls", "unknown", "unknown"),
+    ("sleep 1 && ls", "unknown", "unknown"),
+    ("true && ls", "unknown", "unknown"),
+    ("popd && ls", "unknown", "unknown"),
+    ("FOO=1 git push origin main", "git_push", "main_branch"),
+    # a cd out of the checkout makes the target unknown
+    ("cd /etc && cat passwd", "read_only", "unknown"),
+    ("cd ~ && ls", "read_only", "unknown"),
+    ("cd && ls", "read_only", "unknown"),
+    ("cd .. && ls", "read_only", "unknown"),
+    ("cd sub/../.. && git status", "read_only", "unknown"),
+    ("cd - && ls", "read_only", "unknown"),
+    ("cd $HOME && ls", "read_only", "unknown"),
+    ("pushd +1 && ls", "read_only", "unknown"),
+    ("cd /tmp/x && pytest", "test", "unknown"),
+    ("cd /etc && rm -rf conf", "delete", "unknown"),
+    ("cd ../other && git push origin main", "git_push", "main_branch"),
     ("ls &&", "unknown", "unknown"),
     ("&& ls", "unknown", "unknown"),
     ("ls || || ls", "unknown", "unknown"),
@@ -1044,7 +1098,24 @@ CHAIN_SUFFIXES = OPERATOR_SUFFIXES + [
     " && gh pr create --title t",
     " && aws lambda invoke --function-name f o.json",
 ]
-CHAIN_PREFIXES = ["true; ", "( ", "echo $(ls) ", "git push origin main; ", "ls & ", "&& ", "| "]
+CHAIN_PREFIXES = [
+    "true; ",
+    "( ",
+    "echo $(ls) ",
+    "git push origin main; ",
+    "ls & ",
+    "&& ",
+    "| ",
+    "export PATH=./bin:$PATH && ",
+    "export A=1 && ",
+    "hash -p /bin/rm ls && ",
+    ". x/activate && ",
+    "source x && ",
+    "alias ls=rm && ",
+    "FOO=1 ",
+    "true && ",
+    "popd && ",
+]
 
 
 def test_there_are_allowlisted_chains_to_extend():
@@ -1105,3 +1176,41 @@ def test_the_earlier_writer_cases_stay_out_of_every_chain(writer: str):
         f"cd x && {writer}",
     ):
         assert classify_command(chain)[0] not in CHECK_KINDS, chain
+
+
+# Setup parts must not be able to change what a later part runs.
+SETUP_THAT_CHANGES_WHAT_RUNS = [
+    "hash -p /bin/rm ls && ls -rf x",
+    "export PATH=./bin:$PATH && ls",
+    ". x/activate && ls",
+    "source x && git status",
+    "FOO=1 ls && git status",
+    "FOO=1 ls",
+    "env LD_PRELOAD=x.so ls",
+    "alias ls=rm && ls",
+    "export A=1 && pytest",
+    "unset PATH && ls",
+]
+
+
+@pytest.mark.parametrize("command", SETUP_THAT_CHANGES_WHAT_RUNS)
+def test_setup_that_changes_what_runs_is_never_a_check_and_never_excuses_a_later_step(command: str):
+    assert classify_command(command)[0] not in CHECK_KINDS
+    facts = redact(_claude_pair(command, "git push origin x")).payload["events"][1]
+    assert facts["message"]["content"][0]["step_facts"]["checked_before"] is False
+
+
+def test_only_cd_and_pushd_inside_the_checkout_are_skipped_in_a_chain():
+    for chain in ALLOWLISTED_CHAINS:
+        for setup in ("cd sub", "cd ./sub/dir", "pushd sub"):
+            assert classify_command(f"{setup} && {chain}") == classify_command(chain), setup
+
+
+@pytest.mark.parametrize(
+    "leave", ["cd /etc", "cd ~", "cd", "cd ..", "cd sub/../..", "cd -", "cd $HOME"]
+)
+def test_a_cd_out_of_the_checkout_makes_the_target_unknown(leave: str):
+    for chain in ALLOWLISTED_CHAINS:
+        kind, target = classify_command(f"{leave} && {chain}")
+        assert kind == classify_command(chain)[0], (leave, chain)
+        assert target == "unknown", (leave, chain)

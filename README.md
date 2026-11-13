@@ -300,8 +300,12 @@ given to a step where every part is a plain command from a fixed allowlist with
 no flag that writes files, and the parts are joined only by `&&`, `||` or `|`.
 `cd repo && git status` and `gh pr view 1 | head` are `read_only`. Any other
 shell syntax (`;`, brackets, `$(...)`, backticks, redirects, `&`, a comment or a
-newline), any part that is not an allowlisted check, and a chain of only `cd` or
-shell setup make the step `unknown`. A formatter, a `--fix` or `-w` run, or a
+newline), any part that is not an allowlisted check, and a chain of only `cd`
+make the step `unknown`. The only thing skipped in a chain is `cd` or `pushd`:
+`export`, `PATH` changes, `hash`, `alias`, `source`, `.` and environment
+assignments such as `FOO=1 ls` can change what a later part runs, so they make
+the step `unknown`. A `cd` to an absolute path, `~`, a variable or up out of the
+checkout (`..`) makes the target `unknown`. A formatter, a `--fix` or `-w` run, or a
 download that saves a file is never a check. A local `git merge` is `unknown`
 (`merge` means a pull request merge, as in `gh pr merge`), and so are
 `gh pr create` and every `aws ... invoke`. A write
