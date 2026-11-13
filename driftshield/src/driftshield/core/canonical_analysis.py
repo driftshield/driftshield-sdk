@@ -813,6 +813,9 @@ def _tool_payload(event: CanonicalEvent, *, raw_reference: dict[str, str] | None
         "result_artifact_refs": [dict(item) for item in event.artifact_refs],
         "error_code": (event.outputs or {}).get("error") or (event.failure_context or {}).get("error"),
     }
+    step_facts = tool_activity.get("step_facts")
+    if isinstance(step_facts, dict):
+        payload["step_facts"] = dict(step_facts)
     return payload
 
 
