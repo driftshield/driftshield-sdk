@@ -24,6 +24,7 @@ from driftshield import (
     submit,
 )
 from driftshield.cli.main import app
+from driftshield.public import analyser_block
 from driftshield.recursive_redactor import redact
 
 FIXTURES = Path(__file__).parent / "fixtures" / "transcripts"
@@ -543,7 +544,7 @@ def test_community_submit_sends_only_the_redacted_transcript(home, run, monkeypa
     assert receipt.submission_id == "sub_1"
     envelope = captured["submission"].envelope
     expected = dict(run.redacted_transcript)
-    expected["metadata"] = {"environment": "production"}
+    expected["metadata"] = {"environment": "production", "analyser": analyser_block()}
     assert envelope.payload == expected
     assert envelope.source_session_id == _CLAUDE_CODE.stem
     assert envelope.session_observed_at == run.session_observed_at

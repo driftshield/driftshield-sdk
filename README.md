@@ -277,6 +277,23 @@ Transcript → Parser → Canonical Events → Decision Graph → Risk Heuristic
 4. **Inflection detection** scores points in the session where the agent's trajectory changed
 5. **Reports** present findings as Markdown, JSON, or through the web dashboard
 
+### What says which analyser made an upload
+
+Every upload carries one more small block, `metadata.analyser`, next to the declared
+environment in the shared copy of the run. It has four fixed strings and nothing else:
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `schema_version` | `analyser.v1` | The format of this block |
+| `sdk_version` | for example `0.3.2` | The `driftshield` package version (`driftshield.__version__`). Sent as `unknown` if it is not a plain version number |
+| `matching_rules_version` | for example `phase-3g-deterministic-rules-v2` | The version of the deterministic matching rules. It changes whenever a rule's firing behaviour changes |
+| `step_facts_version` | for example `step-facts.v2` | The version of the shell step classification below. It changes whenever that classification changes |
+
+They let a stored verdict or step fact be told apart from one made by an older SDK. They
+come from the installed package, never from the transcript or the machine: a block already
+present in a transcript is replaced. Nothing private is in them, and there is no setting to
+leave them out.
+
 ### What is sent for each shell step
 
 Redaction replaces every tool input with a placeholder, so by default nothing
