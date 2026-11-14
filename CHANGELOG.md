@@ -15,6 +15,28 @@ notes for each tag are taken from the matching section of this file.
   which version made it (`metadata.analyser.matching_rules_version`), so findings from the
   earlier rules can be told apart from these.
 
+### Checks joined by `;` or a newline, quiet redirects, `sleep`, and help calls
+
+- A check before a merge or deploy is no longer thrown away because of shell punctuation.
+  Parts joined by `;` or a newline are read like parts joined by `&&`: each part is still
+  classified on its own, a write kind in any part still wins (`ls; rm -rf x` is `delete`,
+  `git status; git push origin main` is `git_push` on `main_branch`), and the step is a check
+  only when every part is an allowlisted check. So `cd x; git status` is `read_only`.
+- Redirects that write no file are ignored: `2>&1`, `1>&2`, `>/dev/null`, `2>/dev/null` and
+  `&>/dev/null`. A redirect to a real file still makes the step `unknown`.
+- `sleep N` is skipped in a chain like `cd`. Still refused: `python`, `node`, `awk`, `xargs`,
+  `bash -c`, `sh -c`, `eval`, `tee`, loops, heredocs, `export PATH=`, `$(...)` and backticks.
+- Asking a deploy tool for help is `unknown`, no longer `deploy`: `--help`, `-h`, `-help` or
+  `help` as the first argument, or a help flag right after the subcommand (`terraform apply
+  -help`), for a fixed list of deploy tools. `git` and `gh` are never downgraded, and a help
+  word that is an option value, a remote, a name or a body (`git -C help push origin main`,
+  `gh pr comment 3 --body -h`, `docker push help`) keeps its kind.
+- Opening a pull request through `gh api` (a write to `.../pulls`) is `unknown`, like
+  `gh pr create`.
+- The step facts version is now `step-facts.v4` (it was `v3`). The matching rules version
+  stays `phase-3g-deterministic-rules-v3`: no rule's firing logic changed, only which steps
+  count as checks.
+
 ### jq and yq count as checks only when they are plain filters
 
 - A `jq` stage inside a chain of checks (`gh pr view 1 --json comments | jq

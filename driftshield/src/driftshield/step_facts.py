@@ -46,7 +46,7 @@ STEP_FACTS_KEY = "step_facts"
 # pull request create and invoke are no longer counted as checks or writes).
 # v3: 0.3.3 (jq and yq count as plain filters only: any flag that reads another file, loads
 # modules or writes files makes the call something else).
-STEP_FACTS_VERSION = "step-facts.v3"
+STEP_FACTS_VERSION = "step-facts.v4"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -816,6 +816,8 @@ def _gh(rest: list[str]) -> _Result:
         )
         if writes and _is_merge_request(rest):
             return "merge", "outside_service"
+        if writes and _is_pull_request_create(rest):
+            return _UNKNOWN  # opening a pull request for review, like ``gh pr create``
         if writes:
             return "outside_write", "outside_service"
         return "read_only", "outside_service"
@@ -908,6 +910,21 @@ def _is_merge_request(rest: list[str]) -> bool:
                 return True
         elif "=" not in token.split("?", 1)[0] and re.search(
             r"(^|/)(pulls/\d+/merge|merges)$", token.split("?", 1)[0]
+        ):
+            return True
+    return False
+
+
+def _is_pull_request_create(rest: list[str]) -> bool:
+    """A ``gh api`` call that opens a pull request: the pulls collection, or the mutation."""
+    for token in rest:
+        if token.startswith("-"):
+            continue
+        if token.startswith("query="):
+            if "createPullRequest" in token:
+                return True
+        elif "=" not in token.split("?", 1)[0] and re.search(
+            r"(^|/)pulls$", token.split("?", 1)[0]
         ):
             return True
     return False
@@ -1134,6 +1151,9 @@ def _classify_simple(tokens: list[str]) -> _Result:
         # An environment assignment (PATH, LD_PRELOAD, ...) can change what the
         # command runs, so the step is not a check. A write kind is kept.
         return _UNKNOWN
+    if result[0] in _RISK_ORDER and _is_help_call(tokens):
+        # Asking a deploy tool for help deploys nothing.
+        return _UNKNOWN
     if result[0] == "test":
         # A formatter or a fixer rewrites files, so it is not a check.
         unwrapped = _unwrap_runner(_strip_prefixes(tokens))
@@ -1142,6 +1162,64 @@ def _classify_simple(tokens: list[str]) -> _Result:
         ):
             return _UNKNOWN
     return result
+
+
+_HELP_TOOLS = frozenset(
+    {
+        "vercel",
+        "terraform",
+        "tofu",
+        "kubectl",
+        "helm",
+        "oc",
+        "docker",
+        "podman",
+        "aws",
+        "npm",
+        "yarn",
+        "pnpm",
+        "twine",
+        "poetry",
+        "cargo",
+        "gem",
+        "serverless",
+        "sls",
+        "cdk",
+        "sam",
+        "netlify",
+        "fly",
+        "flyctl",
+        "wrangler",
+        "firebase",
+        "heroku",
+    }
+)
+
+
+_HELP_FLAGS = frozenset({"--help", "-h", "-help"})
+
+
+def _is_help_call(tokens: list[str]) -> bool:
+    """True when a deploy tool is asked for its own help.
+
+    Only the tools in ``_HELP_TOOLS`` (``git`` and ``gh`` are never downgraded). The help
+    token must be the tool's own request: ``--help``, ``-h``, ``-help`` or ``help`` as the
+    first argument, or a help flag directly after the first word (its subcommand), as in
+    ``terraform apply -help``. The word ``help`` after a subcommand is a name (``docker push
+    help`` pushes an image called help), and a token that is the value of an option never
+    counts: values of known options are dropped first, and any other position is not read.
+    """
+    tokens = _unwrap_runner(_strip_prefixes(tokens))
+    if not tokens or posixpath.basename(tokens[0]).lower() not in _HELP_TOOLS:
+        return False
+    args = _drop_value_flags(
+        tokens[1:], _VALUE_FLAGS.get(posixpath.basename(tokens[0]).lower(), _NO_FLAGS)
+    )
+    if not args:
+        return False
+    if args[0] in _HELP_FLAGS or args[0] == "help":
+        return True
+    return len(args) > 1 and not args[0].startswith("-") and args[1] in _HELP_FLAGS
 
 
 def _cd_effect(rest: list[str]) -> _Result:
@@ -1174,6 +1252,10 @@ def _classify_program(tokens: list[str], seen_assignment: list[bool]) -> _Result
 
     if program in {"cd", "pushd"}:
         return _cd_effect(rest)
+    if program == "sleep":
+        # A pause writes nothing and changes nothing the next part reads.
+        plain = len(positional) == 1 and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[smhd]?", positional[0])
+        return _NEUTRAL if plain and len(rest) == 1 else _UNKNOWN
     if program in _OPAQUE_PROGRAMS:
         return _UNKNOWN
     if program == "git" or program == "jj":
@@ -1412,16 +1494,29 @@ def _has_shell_operators(command: str) -> bool:
     return bool(quote)  # an unterminated quote is not a command we can read
 
 
+# Redirects that write no file: standard error to standard output and back, and anything
+# sent to /dev/null. They are removed before a part is read. A redirect to any other
+# target is left in place, and makes the part something else.
+_NO_FILE_REDIRECT = re.compile(
+    r"(?:&>|[0-2]?>)[ \t]*/dev/null(?=[\s;&|]|$)|[0-2]?>&[0-2](?=[\s;&|]|$)"
+)
+_SOFT_SEPARATORS = frozenset({";", "\n", "\r"})
+
+
 def _split_chain(command: str) -> list[str] | None:
     """The parts of ``command`` when it is a plain chain, otherwise ``None``.
 
-    A plain chain is simple commands joined only by ``&&``, ``||`` or ``|``,
-    with every part present. Anything else makes it ``None``: ``;``, a lone
-    ``&``, ``|&``, brackets, redirects, a comment, a newline, a backtick or
-    ``$(`` outside single quotes, or an unterminated quote. Quoted text is an
-    argument, not syntax.
+    A plain chain is simple commands joined by ``&&``, ``||``, ``|``, ``;`` or a
+    newline. ``&&``, ``||`` and ``|`` need a command on both sides; ``;`` and a
+    newline may repeat or trail. Redirects that write no file (``2>&1``,
+    ``>/dev/null``) are dropped from the parts. Anything else makes it ``None``: a
+    lone ``&``, ``|&``, ``;;``, brackets, any other redirect or input, a comment, a
+    backtick or ``$(`` outside single quotes, or an unterminated quote. Quoted
+    text is an argument, not syntax.
     """
     parts: list[str] = []
+    operators: list[str] = []
+    current = ""
     start = 0
     quote = ""
     escaped = False
@@ -1443,22 +1538,47 @@ def _split_chain(command: str) -> list[str] | None:
                 quote = ""
         elif char in "'\"":
             quote = char
-        elif pair in {"&&", "||"}:
-            parts.append(command[start:index])
-            index += 1
-            start = index + 1
-        elif char == "|" and command[index + 1 : index + 2] != "&":
-            parts.append(command[start:index])
-            start = index + 1
-        elif char in ";&|()<>\n\r" or (
-            char == "#" and (index == 0 or command[index - 1].isspace())
+        elif char in "0123456789>&" and (
+            not (index > 0 and command[index - 1].isdigit())
+            and not (char.isdigit() and index > 0 and command[index - 1].isalnum())
+            and (redirect := _NO_FILE_REDIRECT.match(command, index)) is not None
         ):
+            current += command[start:index]
+            index = redirect.end()
+            start = index
+            continue
+        elif pair in {"&&", "||"}:
+            parts.append(current + command[start:index])
+            operators.append(pair)
+            current = ""
+            index += 2
+            start = index
+            continue
+        elif char == "|" and command[index + 1 : index + 2] != "&":
+            parts.append(current + command[start:index])
+            operators.append("|")
+            current = ""
+            start = index + 1
+        elif pair == ";;":
+            return None
+        elif char in _SOFT_SEPARATORS:
+            parts.append(current + command[start:index])
+            operators.append(char)
+            current = ""
+            start = index + 1
+        elif char in "&|()<>" or (char == "#" and (index == 0 or command[index - 1].isspace())):
             return None
         index += 1
     if quote or escaped:
         return None
-    parts.append(command[start:])
-    return parts if all(part.strip() for part in parts) else None
+    parts.append(current + command[start:])
+    for position, operator in enumerate(operators):
+        if operator not in _SOFT_SEPARATORS and not (
+            parts[position].strip() and parts[position + 1].strip()
+        ):
+            return None
+    present = [part for part in parts if part.strip()]
+    return present or None
 
 
 _MAX_SUBSTITUTION_DEPTH = 4
@@ -1601,7 +1721,7 @@ def _classify_command(command: object) -> tuple[str, str]:
 
     ``read_only``, ``test`` and ``build`` can excuse a later step, so they are
     given only to a command, or a plain chain of commands joined by ``&&``,
-    ``||`` or ``|``, where every part is from the explicit lists above with no
+    ``||``, ``|``, ``;`` or a newline, where every part is from the explicit lists above with no
     write flag (see :func:`_chain_check_label`). Every part of a compound
     command is still looked at for a write kind, so a ``git push`` hidden after
     ``&&`` is still a ``git_push``. Anything else is ``unknown``.
