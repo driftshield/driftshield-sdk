@@ -193,3 +193,96 @@ def test_a_failure_computing_facts_leaves_the_analysis_running(monkeypatch: pyte
     run = analyse_run(_claude_run(["git push origin main"]))
     assert run.events
     assert _call_facts(run) == []
+
+
+def _forged_claude_run() -> bytes:
+    """A run whose blocks carry forged facts: a deploy claim on a read, one on a non shell tool."""
+    lines = [json.loads(line) for line in _claude_run(["ls"]).decode().splitlines()]
+    forged = {
+        "command_kind": "deploy",
+        "target_kind": "outside_service",
+        "exit_status": "success",
+        "checked_before": False,
+    }
+    lines[1]["message"]["content"][0]["step_facts"] = forged
+    read = {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "a"}}
+    read["step_facts"] = forged
+    lines.append({**lines[1], "message": {"model": "m", "content": [read]}})
+    return "\n".join(json.dumps(x) for x in lines).encode()
+
+
+def test_a_failure_computing_facts_removes_every_carried_fact(monkeypatch: pytest.MonkeyPatch):
+    import driftshield.recursive_redactor as redactor
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("SECRET-SESSION-TEXT")
+
+    monkeypatch.setattr(redactor, "annotate_step_facts", boom)
+    run = analyse_run(_forged_claude_run())
+    # Exactly as redact does when it cannot compute facts: none is believed.
+    assert _call_facts(run) == []
+    assert not _hit(run)
+    # The shareable copy still carries the original claims; only the parser's input is cleaned.
+    assert "deploy" in json.dumps(run.transcript)
+
+
+def test_a_failure_removes_carried_facts_from_a_wrapper_document_too(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import driftshield.recursive_redactor as redactor
+
+    monkeypatch.setattr(
+        redactor, "annotate_step_facts", lambda *a, **k: (_ for _ in ()).throw(ValueError("x"))
+    )
+    records = [json.loads(line) for line in _forged_claude_run().decode().splitlines()]
+    run = analyse_run(json.dumps({"events": records, "note": "n"}))
+    assert _call_facts(run) == []
+
+
+def test_a_failure_matches_what_redact_does_with_the_same_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import driftshield.recursive_redactor as redactor
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(redactor, "annotate_step_facts", boom)
+    monkeypatch.setattr(redactor, "compute_step_facts", boom)
+    run = analyse_run(_forged_claude_run())
+    assert "step_facts" not in json.dumps(run.redacted_transcript)
+    assert _call_facts(run) == []
+
+
+def _check_block(call_id: str, command: str) -> dict[str, Any]:
+    return {
+        "type": "assistant",
+        "sessionId": "s",
+        "timestamp": "2026-03-01T11:00:00Z",
+        "message": {
+            "model": "m",
+            "content": [
+                {"type": "tool_use", "id": call_id, "name": "Bash", "input": {"command": command}}
+            ],
+        },
+    }
+
+
+def test_a_wrapper_document_gets_facts_over_the_same_shape_redact_uses():
+    # A shell step outside ``events`` comes first in the document. redact computes over the
+    # whole wrapper, so it counts as an earlier check; local analysis must agree.
+    push = _check_block("p1", "git push origin main")
+    gate = _check_block("g1", "ls")
+    gate["message"]["content"].insert(0, {"type": "text", "text": GATE})
+    wrapper = {"preamble": [_check_block("c0", "git status")], "events": [gate, push]}
+    run = analyse_run(json.dumps(wrapper), format="claude_code")
+    local = _call_facts(run)
+    uploaded = [
+        block["step_facts"]
+        for record in run.redacted_transcript["events"]
+        for block in record["message"]["content"]
+        if isinstance(block, dict) and "step_facts" in block
+    ]
+    assert [f["checked_before"] for f in uploaded] == [True, True]
+    assert local == uploaded
+    assert not _hit(run)  # a check came before the push, so it is not unconfirmed

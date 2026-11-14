@@ -15,6 +15,7 @@ See ``docs/public-api.md`` for the integrator-facing contract.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -378,11 +379,13 @@ def _parse_bytes(
     # file is still line records, not a document.
     whole = load_json_document(text)
     parse_input = text
+    wrapper: dict[str, Any] | None = None
     if isinstance(whole, dict) and isinstance(whole.get("events"), list):
         # A wrapper object: the records live under ``events``. Parse them as
         # lines; the wrapper itself is the shareable copy.
         parse_input = "\n".join(json.dumps(record) for record in whole["events"])
         transcript = whole
+        wrapper = whole
     elif isinstance(whole, list):
         transcript = {"events": whole}
     elif isinstance(whole, dict) and detected not in _LINE_FORMATS:
@@ -391,7 +394,7 @@ def _parse_bytes(
         transcript = _line_records(text, warnings)
 
     if detected in _STEP_FACT_FORMATS:
-        parse_input = _with_step_facts(parse_input)
+        parse_input = _with_step_facts(parse_input, wrapper)
 
     try:
         parser = get_parser(detected)
@@ -408,27 +411,32 @@ def _parse_bytes(
 _STEP_FACT_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw"})
 
 
-def _with_step_facts(text: str) -> str:
+def _with_step_facts(text: str, wrapper: dict[str, Any] | None = None) -> str:
     """``text`` with step facts written on its shell tool calls, for the parser only.
 
     Local analysis then sees the same facts an upload of the run carries, so the verdict
-    matches. The shareable copy (``transcript``) is the original text, not this one, so
-    what is uploaded does not change: the redactor computes the same facts itself.
+    matches. Facts are computed over the same shape ``redact`` computes them over: the whole
+    wrapper object when the run came as one (``wrapper``, so tool blocks outside ``events``
+    count too, in document order), otherwise the records as the shareable copy holds them.
+    The shareable copy (``transcript``) is the original, not this one, so what is uploaded
+    does not change: the redactor computes the same facts itself.
     """
+    if wrapper is not None:
+        document = copy.deepcopy(wrapper)
+        add_step_facts(document)
+        return "\n".join(json.dumps(record) for record in document["events"])
     lines = text.split("\n")
-    records: list[dict[str, Any]] = []
+    records: list[Any] = []
     slots: list[int] = []
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
         try:
-            record = json.loads(stripped)
+            records.append(json.loads(stripped))
         except ValueError:
             continue
-        if isinstance(record, dict):
-            records.append(record)
-            slots.append(index)
+        slots.append(index)
     if not records:
         return text
     add_step_facts({"events": records})

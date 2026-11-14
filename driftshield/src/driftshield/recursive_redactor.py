@@ -488,17 +488,33 @@ def _redact_value(value: Any, path: str, entries: list[RedactionEntry]) -> Any:
     return value
 
 
+def _strip_step_facts(payload: Any) -> None:
+    """Remove every ``step_facts`` key, at any depth, from ``payload`` in place."""
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            node.pop(STEP_FACTS_KEY, None)
+            stack.extend(child for child in node.values() if isinstance(child, (dict, list)))
+        elif isinstance(node, list):
+            stack.extend(child for child in node if isinstance(child, (dict, list)))
+
+
 def add_step_facts(payload: Any) -> None:
     """Write step facts on the shell blocks of ``payload`` in place (a copy the caller owns).
 
     The same classifier and the same skipped keys as :func:`redact`, so a locally analysed
     transcript carries exactly the facts an upload of it would. Never raises: a failure
-    leaves the payload without facts, with one warning that names only the exception type.
+    leaves the payload with no facts at all (any it carried are removed, as ``redact`` does),
+    with one warning that names only the exception type.
     """
     try:
         annotate_step_facts(payload, skip_keys=_DROPPED_KEYS)
     except Exception as error:  # noqa: BLE001
         logger.warning("step facts dropped for this transcript: %s", type(error).__name__)
+        # Exactly as redact does when it cannot compute facts: no fact the transcript
+        # carried is believed, so a forged or stale one never reaches the verdict.
+        _strip_step_facts(payload)
 
 
 def redact(payload: dict[str, Any]) -> RedactionResult:
