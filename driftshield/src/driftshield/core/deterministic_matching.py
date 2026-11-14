@@ -15,7 +15,10 @@ MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 # behaviour of every bundled fixture per version (tests/test_analyser_versions.py), so
 # a behaviour change with no new version fails the build.
 # v2: the verification failure rules fire only on a skipped safeguard (0.3.1).
-RULESET_VERSION = "phase-3g-deterministic-rules-v2"
+# v3: the state conflict rules fire only on a write the system rejected after an earlier
+#     read, never on failure wording or a failed read alone; a failed unconfirmed outside
+#     step now counts for verification failure.
+RULESET_VERSION = "phase-3g-deterministic-rules-v3"
 
 
 @dataclass(frozen=True)
@@ -185,19 +188,10 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
         event for event in normalized_events if event.get("event_family") == "model_reasoning_or_decision"
     ]
 
-    destructive_action_events = [
-        event
-        for event in tool_calls + state_writes
-        if _has_safety_flag(event, "mutates_state") or _has_safety_flag(event, "executes_shell")
-    ]
     failed_tool_events = [
         event for event in tool_results if _tool_result_status(event) == "error" or _failure_error(event)
     ]
-    state_conflicts = [
-        event
-        for event in state_writes + tool_results
-        if bool(((event.get("structured_payload") or {}).get("state_transition") or {}).get("state_conflict_flag"))
-    ]
+    state_conflicts = _conflicting_writes(normalized_events)
 
     tool_categories: dict[str, int] = {}
     for event in tool_calls + tool_results:
@@ -214,11 +208,20 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
         and any(token in constraint["constraint"].lower() for token in ("schema", "json", "format", "exactly"))
     ) or "schema_or_contract_mismatch" in delta_types
 
-    outside_action_events = [event for event in tool_calls if _is_outside_step(event)]
+    # A failed call is classed error_or_exception, not tool_call. It still counts: the
+    # safeguard was skipped when the step was attempted, whether or not it worked.
+    # The error_or_exception family also holds non tool events that carry a failure
+    # context. That is safe only because _is_outside_step needs step facts, and only
+    # tool calls carry them. Do not loosen that check without narrowing this list.
+    attempted_calls = [
+        event for event in normalized_events if event.get("event_family") in _ATTEMPTED_CALL_FAMILIES
+    ]
+    outside_action_events = [event for event in attempted_calls if _is_outside_step(event)]
     unconfirmed_outside_events = [
         event for event in outside_action_events if not _outside_step_confirmed(event, confirmations)
     ]
-    confirmation_before_action = _confirmation_before_action(confirmations, destructive_action_events)
+    # Read by _global_contradictions: a confirmation came before the first outside step.
+    confirmation_before_action = _confirmation_before_action(confirmations, outside_action_events)
     safeguard_requirement_present = _safeguard_requirement_present(instruction_context)
     safeguard_present = safeguard_requirement_present or bool(confirmations)
     retrieval_required = "retrieval_failure_or_omission" in delta_types
@@ -249,11 +252,13 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
             event["event_id"] for event in unconfirmed_outside_events if isinstance(event.get("event_id"), str)
         ],
         "outside_action_count": len(outside_action_events),
-        "destructive_action_count": len(destructive_action_events),
         "state_read_count": len(state_reads),
         "state_write_count": len(state_writes),
         "state_conflict_count": len(state_conflicts),
         "state_written_lost_conflicted": bool(state_conflicts),
+        "state_conflict_event_ids": [
+            event["event_id"] for event in state_conflicts if isinstance(event.get("event_id"), str)
+        ],
         "expected_vs_actual_delta_types": delta_types,
         "tool_attempted_failed": bool(failed_tool_events),
         "tool_failed_count": len(failed_tool_events),
@@ -305,7 +310,7 @@ def _match_rules(
         rules.append(_rule("R-RET-001", "retrieval_omission", "retrieval_required_but_absent", supporting_event_ids, ["retrieval_required", "retrieval_present", "retrieval_used_ignored"]))
 
     if extracted_features["state_conflict_count"] > 0:
-        rules.append(_rule("R-STA-001", "state_conflict", "state_conflict_detected", _event_ids_for_state_conflicts(canonical_analysis), ["state_conflict_count", "state_written_lost_conflicted"]))
+        rules.append(_rule("R-STA-001", "state_conflict", "state_conflict_detected", list(extracted_features["state_conflict_event_ids"]), ["state_conflict_count", "state_written_lost_conflicted"]))
 
     if extracted_features["tool_misused"] or "tool_misuse" in delta_types:
         rules.append(_rule("R-TOOL-001", "tool_misuse", "tool_contract_violation", supporting_event_ids, ["tool_misused", "expected_vs_actual_delta_types"]))
@@ -347,8 +352,9 @@ def _match_sequences(canonical_analysis: dict[str, Any], extracted_features: dic
             }
         )
 
-    state_read = _first_event(events, {"state_read"})
-    conflict_event = _first_state_conflict_event(events)
+    conflicts = _conflicting_writes(events)
+    conflict_event = conflicts[0] if conflicts else None
+    state_read = _earlier_state_read(events, conflict_event)
     if state_read is not None and conflict_event is not None and not extracted_features["confirmation_checkpoint_count"]:
         patterns.append(
             {
@@ -551,23 +557,8 @@ def _event_ids_for_family(canonical_analysis: dict[str, Any], families: set[str]
     ]
 
 
-def _event_ids_for_state_conflicts(canonical_analysis: dict[str, Any]) -> list[str]:
-    event_ids: list[str] = []
-    for event in canonical_analysis.get("normalized_events", []):
-        transition = (event.get("structured_payload") or {}).get("state_transition") or {}
-        if transition.get("state_conflict_flag") and isinstance(event.get("event_id"), str):
-            event_ids.append(event["event_id"])
-    return event_ids
-
-
 def _supporting_risk_event_ids(result: AnalysisResult) -> list[str]:
     return [str(event.id) for event in result.events if event.risk_classification and event.risk_classification.assumption_mutation]
-
-
-def _has_safety_flag(event: dict[str, Any], flag: str) -> bool:
-    payload = event.get("structured_payload") or {}
-    flags = payload.get("safety_relevant_flags") or []
-    return flag in flags
 
 
 def _tool_result_status(event: dict[str, Any]) -> str | None:
@@ -586,6 +577,50 @@ def _confirmation_before_action(confirmations: list[dict[str, Any]], actions: li
         return False
     first_action_index = min(int(event.get("sequence_index", 0)) for event in actions)
     return any(int(item.get("sequence_index", 0)) < first_action_index for item in confirmations)
+
+
+_ATTEMPTED_CALL_FAMILIES = frozenset({"tool_call", "error_or_exception"})
+
+
+def _conflicting_writes(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Writes the system rejected after the run had already read some state.
+
+    A conflict needs a read before it and a write that failed outright (the tool
+    marked it an error, or reported an error). Failure wording in text alone is only
+    a warning and never counts, and neither does a failed read.
+
+    Which file a read and a write touched is not known: redaction replaces every tool
+    input, so two targets cannot be compared. A rejected write after any earlier read
+    is the evidence, which is what an edit of a file that changed since it was read
+    looks like. A failed write with no earlier read never fires.
+    """
+    first_read_index: int | None = None
+    conflicts: list[dict[str, Any]] = []
+    for event in events:
+        family = event.get("event_family")
+        index = int(event.get("sequence_index", 0))
+        if family == "state_read" and first_read_index is None:
+            first_read_index = index
+        elif family == "state_write" and _write_rejected(event):
+            if first_read_index is not None and first_read_index < index:
+                conflicts.append(event)
+    return conflicts
+
+
+def _write_rejected(event: dict[str, Any]) -> bool:
+    payload = event.get("structured_payload") or {}
+    failure = payload.get("failure_context") or {}
+    return failure.get("status") == "error" or payload.get("result_status") == "error"
+
+
+def _earlier_state_read(events: list[dict[str, Any]], anchor: dict[str, Any] | None) -> dict[str, Any] | None:
+    if anchor is None:
+        return None
+    anchor_index = int(anchor.get("sequence_index", 0))
+    for event in events:
+        if event.get("event_family") == "state_read" and int(event.get("sequence_index", 0)) < anchor_index:
+            return event
+    return None
 
 
 def _step_facts(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -649,25 +684,9 @@ def _safeguard_requirement_present(instruction_context: dict[str, Any]) -> bool:
     return False
 
 
-def _first_event(
-    events: list[dict[str, Any]],
-    families: set[str],
-    *,
-    require_mutation: bool = False,
-) -> dict[str, Any] | None:
+def _first_event(events: list[dict[str, Any]], families: set[str]) -> dict[str, Any] | None:
     for event in events:
-        if event.get("event_family") not in families:
-            continue
-        if require_mutation and not _has_safety_flag(event, "mutates_state") and not _has_safety_flag(event, "executes_shell"):
-            continue
-        return event
-    return None
-
-
-def _first_state_conflict_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for event in events:
-        transition = ((event.get("structured_payload") or {}).get("state_transition") or {})
-        if transition.get("state_conflict_flag"):
+        if event.get("event_family") in families:
             return event
     return None
 

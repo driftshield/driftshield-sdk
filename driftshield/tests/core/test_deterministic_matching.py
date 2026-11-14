@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import re
-import uuid
-from datetime import datetime, timezone
 
 import pytest
 
-from driftshield.core.analysis.session import AnalysisResult
 from driftshield.core.deterministic_matching import (
     MATCHING_SCHEMA_VERSION,
     RULESET_VERSION,
     build_deterministic_match,
     build_signature_match_summary,
 )
-from driftshield.core.graph.models import LineageGraph
-from driftshield.core.models import CanonicalEvent, EventType, RiskClassification
+from tests.core.helpers import analysis_result
 
 # meta#302 / meta#296 round-2 Nit 2: the public matcher version constants must
 # never carry an internal identifier. Forbidden case-insensitive substrings plus
@@ -63,26 +59,6 @@ def test_matcher_version_constant_has_no_internal_identifier(constant_name):
         )
 
 
-def _analysis_result(*, risk: RiskClassification | None = None) -> AnalysisResult:
-    event = CanonicalEvent(
-        id=uuid.uuid4(),
-        session_id="session-1",
-        timestamp=datetime.now(timezone.utc),
-        event_type=EventType.TOOL_CALL,
-        agent_id="agent-1",
-        action="test",
-        risk_classification=risk,
-    )
-    return AnalysisResult(
-        events=[event],
-        graph=LineageGraph(session_id="session-1"),
-        inflection_node=None,
-        total_events=1,
-        flagged_events=1 if risk and risk.has_any_flag() else 0,
-        inflection_explanation=None,
-    )
-
-
 def test_deterministic_matching_surfaces_verification_failure_candidates():
     canonical_analysis = {
         "analysis_session": {"integrity_status": "complete", "source_provenance": {"source_type": "claude_code"}},
@@ -121,7 +97,7 @@ def test_deterministic_matching_surfaces_verification_failure_candidates():
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
     summary = build_signature_match_summary(payload)
 
     assert payload["status"] == "matched"
@@ -162,7 +138,7 @@ def test_deterministic_matching_does_not_flag_verification_failure_without_requi
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
 
     assert payload["status"] == "unclassified"
     assert payload["matched_rules"] == []
@@ -203,7 +179,7 @@ def test_deterministic_matching_marks_ambiguity_and_degraded_quality():
         },
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
 
     assert payload["status"] == "matched"
     assert payload["unresolved_ambiguity_flag"] is True
@@ -244,7 +220,7 @@ def test_deterministic_matching_surfaces_policy_divergence_candidates():
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
     summary = build_signature_match_summary(payload)
 
     assert payload["status"] == "matched"
@@ -280,7 +256,7 @@ def test_deterministic_matching_surfaces_retrieval_omission_candidates():
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
     summary = build_signature_match_summary(payload)
 
     assert payload["status"] == "matched"
@@ -324,7 +300,7 @@ def test_deterministic_matching_does_not_flag_retrieval_omission_when_retrieval_
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
 
     assert payload["extracted_features"]["retrieval_present"] is True
     assert payload["extracted_features"]["retrieval_used_ignored"] is False
@@ -346,7 +322,8 @@ def test_deterministic_matching_surfaces_state_conflict_candidates():
                 "sequence_index": 1,
                 "event_family": "state_write",
                 "structured_payload": {
-                    "state_transition": {"state_conflict_flag": True, "state_conflict_reason": "stale_read"}
+                    "failure_context": {"status": "error", "error": "file changed since it was read"},
+                    "state_transition": {"state_conflict_flag": True, "state_conflict_reason": "stale_read"},
                 },
             },
         ],
@@ -365,7 +342,7 @@ def test_deterministic_matching_surfaces_state_conflict_candidates():
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
     summary = build_signature_match_summary(payload)
 
     assert payload["status"] == "matched"
@@ -406,7 +383,7 @@ def test_deterministic_matching_records_contradictions_for_tool_misuse():
         "extraction_quality_summary": {"overall_quality_band": "usable", "ordering_confidence": 1.0, "ambiguity_count": 0},
     }
 
-    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis=canonical_analysis, result=analysis_result())
     candidate = payload["candidate_signatures"][0]
 
     assert candidate["signature_key"] == "tool_misuse"
@@ -417,7 +394,7 @@ def test_deterministic_matching_records_contradictions_for_tool_misuse():
 
 
 def test_deterministic_matching_rejects_insufficient_structure():
-    payload = build_deterministic_match(canonical_analysis={"normalized_events": []}, result=_analysis_result())
+    payload = build_deterministic_match(canonical_analysis={"normalized_events": []}, result=analysis_result())
 
     assert payload["status"] == "insufficient_evidence"
     assert "missing_domain:analysis_session" in payload["integrity_flags"]

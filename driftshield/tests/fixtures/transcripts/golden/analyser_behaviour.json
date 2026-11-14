@@ -183,6 +183,157 @@
    ],
    "sample_openclaw_trajectory.json|raw": [],
    "sample_openclaw_trajectory.json|redacted": []
+  },
+  "phase-3g-deterministic-rules-v3": {
+   "dogfood/assumption_mutation_session.jsonl|raw": [
+    [
+     "mechanism:assumption_mutation",
+     "assumption_mutation",
+     "medium",
+     0.56
+    ]
+   ],
+   "dogfood/assumption_mutation_session.jsonl|redacted": [],
+   "dogfood/clean_session.jsonl|raw": [],
+   "dogfood/clean_session.jsonl|redacted": [],
+   "dogfood/constraint_violation_session.jsonl|raw": [],
+   "dogfood/constraint_violation_session.jsonl|redacted": [],
+   "dogfood/multi_flag_session.jsonl|raw": [
+    [
+     "mechanism:coverage_gap",
+     "coverage_gap",
+     "medium",
+     0.56
+    ]
+   ],
+   "dogfood/multi_flag_session.jsonl|redacted": [],
+   "dogfood/policy_divergence_session.jsonl|raw": [
+    [
+     "mechanism:policy_divergence",
+     "policy_divergence",
+     "medium",
+     0.54
+    ]
+   ],
+   "dogfood/policy_divergence_session.jsonl|redacted": [],
+   "dogfood/unconfirmed_outside_step_session.jsonl|raw": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.69
+    ]
+   ],
+   "dogfood/unconfirmed_outside_step_session.jsonl|redacted": [],
+   "sample_chatgpt_export.json|raw": [],
+   "sample_claude_code_session.jsonl|raw": [
+    [
+     "mechanism:assumption_mutation",
+     "assumption_mutation",
+     "medium",
+     0.54
+    ]
+   ],
+   "sample_claude_code_session.jsonl|redacted": [],
+   "sample_claude_code_tool_error_at_end.jsonl|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_claude_code_tool_error_at_end.jsonl|redacted": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_claude_code_tool_error_failed_again.jsonl|raw": [],
+   "sample_claude_code_tool_error_failed_again.jsonl|redacted": [],
+   "sample_claude_code_tool_error_recovered.jsonl|raw": [],
+   "sample_claude_code_tool_error_recovered.jsonl|redacted": [],
+   "sample_claude_code_tool_error_unrelated_read.jsonl|raw": [],
+   "sample_claude_code_tool_error_unrelated_read.jsonl|redacted": [],
+   "sample_claude_code_tool_error_write_recovered.jsonl|raw": [],
+   "sample_claude_code_tool_error_write_recovered.jsonl|redacted": [],
+   "sample_claude_code_tool_success.jsonl|raw": [],
+   "sample_claude_code_tool_success.jsonl|redacted": [],
+   "sample_claude_desktop_session.json|raw": [],
+   "sample_claude_desktop_session.json|redacted": [],
+   "sample_codex_cli_rollout.jsonl|raw": [],
+   "sample_codex_cli_rollout.jsonl|redacted": [],
+   "sample_codex_cli_rollout_apply_patch.jsonl|raw": [],
+   "sample_codex_cli_rollout_apply_patch.jsonl|redacted": [],
+   "sample_codex_cli_rollout_exit_code_at_end.jsonl|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_codex_cli_rollout_exit_code_at_end.jsonl|redacted": [],
+   "sample_codex_cli_rollout_exit_code_json.jsonl|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_codex_cli_rollout_exit_code_json.jsonl|redacted": [],
+   "sample_codex_cli_rollout_json_arguments.jsonl|raw": [],
+   "sample_codex_cli_rollout_json_arguments.jsonl|redacted": [],
+   "sample_codex_cli_rollout_process_exited.jsonl|raw": [],
+   "sample_codex_cli_rollout_process_exited.jsonl|redacted": [],
+   "sample_codex_cli_rollout_process_exited_last_line.jsonl|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_codex_cli_rollout_process_exited_last_line.jsonl|redacted": [],
+   "sample_codex_cli_rollout_process_exited_pytest_rerun.jsonl|raw": [],
+   "sample_codex_cli_rollout_process_exited_pytest_rerun.jsonl|redacted": [],
+   "sample_codex_cli_rollout_pytest_rerun.jsonl|raw": [],
+   "sample_codex_cli_rollout_pytest_rerun.jsonl|redacted": [],
+   "sample_codex_cli_session.jsonl|raw": [],
+   "sample_codex_cli_session.jsonl|redacted": [],
+   "sample_codex_cli_tool_error.jsonl|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_codex_cli_tool_error.jsonl|redacted": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.37
+    ]
+   ],
+   "sample_codex_desktop_session.json|raw": [],
+   "sample_codex_desktop_session.json|redacted": [],
+   "sample_crewai_session.json|raw": [],
+   "sample_crewai_session.json|redacted": [],
+   "sample_langchain_session.json|raw": [
+    [
+     "mechanism:tool_misuse",
+     "tool_misuse",
+     "low",
+     0.39
+    ]
+   ],
+   "sample_openclaw_trajectory.json|raw": [],
+   "sample_openclaw_trajectory.json|redacted": []
   }
  },
  "step_facts": {
