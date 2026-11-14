@@ -1151,7 +1151,7 @@ def _classify_simple(tokens: list[str]) -> _Result:
         # An environment assignment (PATH, LD_PRELOAD, ...) can change what the
         # command runs, so the step is not a check. A write kind is kept.
         return _UNKNOWN
-    if result[0] in {"deploy", "merge", "outside_write", "git_push"} and _is_help_call(tokens):
+    if result[0] in _RISK_ORDER and _is_help_call(tokens):
         # Asking a deploy tool for help deploys nothing.
         return _UNKNOWN
     if result[0] == "test":
@@ -1174,7 +1174,6 @@ _HELP_TOOLS = frozenset(
         "oc",
         "docker",
         "podman",
-        "gh",
         "aws",
         "npm",
         "yarn",
@@ -1183,7 +1182,6 @@ _HELP_TOOLS = frozenset(
         "poetry",
         "cargo",
         "gem",
-        "git",
         "serverless",
         "sls",
         "cdk",
@@ -1194,18 +1192,34 @@ _HELP_TOOLS = frozenset(
         "wrangler",
         "firebase",
         "heroku",
-        "make",
     }
 )
 
 
+_HELP_FLAGS = frozenset({"--help", "-h", "-help"})
+
+
 def _is_help_call(tokens: list[str]) -> bool:
-    """True when a known deploy tool is only asked for help: ``--help``, ``-h`` or ``help``."""
+    """True when a deploy tool is asked for its own help.
+
+    Only the tools in ``_HELP_TOOLS`` (``git`` and ``gh`` are never downgraded). The help
+    token must be the tool's own request: ``--help``, ``-h``, ``-help`` or ``help`` as the
+    first argument, or a help flag directly after the first word (its subcommand), as in
+    ``terraform apply -help``. The word ``help`` after a subcommand is a name (``docker push
+    help`` pushes an image called help), and a token that is the value of an option never
+    counts: values of known options are dropped first, and any other position is not read.
+    """
     tokens = _unwrap_runner(_strip_prefixes(tokens))
     if not tokens or posixpath.basename(tokens[0]).lower() not in _HELP_TOOLS:
         return False
-    rest = tokens[1:]
-    return bool({"--help", "-h", "-help"} & set(rest)) or "help" in _positionals(rest)[:2]
+    args = _drop_value_flags(
+        tokens[1:], _VALUE_FLAGS.get(posixpath.basename(tokens[0]).lower(), _NO_FLAGS)
+    )
+    if not args:
+        return False
+    if args[0] in _HELP_FLAGS or args[0] == "help":
+        return True
+    return len(args) > 1 and not args[0].startswith("-") and args[1] in _HELP_FLAGS
 
 
 def _cd_effect(rest: list[str]) -> _Result:
@@ -1707,7 +1721,7 @@ def _classify_command(command: object) -> tuple[str, str]:
 
     ``read_only``, ``test`` and ``build`` can excuse a later step, so they are
     given only to a command, or a plain chain of commands joined by ``&&``,
-    ``||`` or ``|``, where every part is from the explicit lists above with no
+    ``||``, ``|``, ``;`` or a newline, where every part is from the explicit lists above with no
     write flag (see :func:`_chain_check_label`). Every part of a compound
     command is still looked at for a write kind, so a ``git push`` hidden after
     ``&&`` is still a ``git_push``. Anything else is ``unknown``.

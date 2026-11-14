@@ -2778,6 +2778,10 @@
     "deploy",
     "outside_service"
    ],
+   "aws s3 cp f s3://bucket/help --profile -h": [
+    "outside_write",
+    "outside_service"
+   ],
    "aws s3 cp out.txt s3://bucket/out.txt": [
     "outside_write",
     "outside_service"
@@ -3026,6 +3030,10 @@
     "unknown",
     "unknown"
    ],
+   "docker -H help push img": [
+    "deploy",
+    "outside_service"
+   ],
    "docker -H tcp://host:2375 push img": [
     "deploy",
     "outside_service"
@@ -3034,9 +3042,17 @@
     "build",
     "own_checkout"
    ],
+   "docker help push": [
+    "unknown",
+    "unknown"
+   ],
    "docker push --help": [
     "unknown",
     "unknown"
+   ],
+   "docker push help": [
+    "deploy",
+    "outside_service"
    ],
    "docker push registry/app:1": [
     "deploy",
@@ -3282,6 +3298,10 @@
     "read_only",
     "outside_service"
    ],
+   "gh issue create --title help": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh issue create --title t": [
     "outside_write",
     "outside_service"
@@ -3294,6 +3314,14 @@
     "outside_write",
     "outside_service"
    ],
+   "gh pr comment 3 --body -h": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr comment 3 --body help": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh pr create --title t --body b": [
     "unknown",
     "unknown"
@@ -3303,10 +3331,14 @@
     "outside_service"
    ],
    "gh pr merge --help": [
-    "unknown",
-    "unknown"
+    "merge",
+    "outside_service"
    ],
    "gh pr merge 12 --squash": [
+    "merge",
+    "outside_service"
+   ],
+   "gh pr merge 3 --subject -h": [
     "merge",
     "outside_service"
    ],
@@ -3359,16 +3391,24 @@
     "outside_service"
    ],
    "gh release create --help": [
-    "unknown",
-    "unknown"
+    "deploy",
+    "outside_service"
    ],
    "gh release create v1.0.0": [
     "deploy",
     "outside_service"
    ],
+   "git -C help push origin main": [
+    "git_push",
+    "main_branch"
+   ],
    "git -C sub status": [
     "read_only",
     "own_checkout"
+   ],
+   "git -c help=1 push origin main": [
+    "git_push",
+    "main_branch"
    ],
    "git branch -D old": [
     "delete",
@@ -3415,16 +3455,20 @@
     "main_branch"
    ],
    "git push --help": [
-    "unknown",
-    "unknown"
+    "git_push",
+    "outside_service"
    ],
    "git push -h": [
-    "unknown",
-    "unknown"
+    "git_push",
+    "outside_service"
    ],
    "git push -u origin feat/step-facts": [
     "git_push",
     "outside_service"
+   ],
+   "git push help main": [
+    "git_push",
+    "main_branch"
    ],
    "git push origin --delete old": [
     "delete",
@@ -3646,6 +3690,14 @@
     "deploy",
     "outside_service"
    ],
+   "kubectl --context help apply -f x.yaml": [
+    "deploy",
+    "outside_service"
+   ],
+   "kubectl -n help delete pod x": [
+    "delete",
+    "outside_service"
+   ],
    "kubectl -n prod delete pod web": [
     "delete",
     "outside_service"
@@ -3667,6 +3719,10 @@
     "outside_service"
    ],
    "kubectl auth reconcile -f rbac.yaml": [
+    "unknown",
+    "unknown"
+   ],
+   "kubectl delete -h": [
     "unknown",
     "unknown"
    ],
@@ -3986,6 +4042,10 @@
     "unknown",
     "unknown"
    ],
+   "npm publish --tag help": [
+    "deploy",
+    "outside_service"
+   ],
    "npm run build": [
     "build",
     "own_checkout"
@@ -4182,6 +4242,10 @@
     "unknown",
     "unknown"
    ],
+   "terraform apply -var msg=-h": [
+    "deploy",
+    "outside_service"
+   ],
    "terraform destroy": [
     "delete",
     "outside_service"
@@ -4262,6 +4326,10 @@
     "deploy",
     "outside_service"
    ],
+   "vercel --token help --prod": [
+    "deploy",
+    "outside_service"
+   ],
    "vercel -h": [
     "unknown",
     "unknown"
@@ -4269,6 +4337,18 @@
    "vercel deploy --help": [
     "unknown",
     "unknown"
+   ],
+   "vercel deploy --prod --help": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel deploy --scope -h --prod": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel deploy --token help --prod": [
+    "deploy",
+    "outside_service"
    ],
    "vercel help deploy": [
     "unknown",
