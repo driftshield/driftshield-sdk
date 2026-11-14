@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -78,12 +79,16 @@ RATE_WAIT_CAP = 120  # seconds; a longer rate limit wait is not worth holding a 
 
 def retry_base() -> float:
     """The first wait between tries, in seconds. DS_RETRY_WAIT sets it, as in dslib.py and runstore.py (0 means no
-    wait; a missing or unreadable value means the default of 2 s). Each later wait doubles it."""
+    wait). A missing value, text, a negative number, inf or nan is unreadable and means the default of 2 s, so a
+    bad value can never reach time.sleep. Each later wait doubles it."""
     raw = os.environ.get("DS_RETRY_WAIT")
+    if raw in (None, ""):
+        return GH_BACKOFF
     try:
-        return max(0.0, float(raw)) if raw not in (None, "") else GH_BACKOFF
+        value = float(raw)
     except ValueError:
         return GH_BACKOFF
+    return value if math.isfinite(value) and value >= 0 else GH_BACKOFF
 
 
 def split_response(text: str | None):
@@ -114,12 +119,16 @@ def rate_limit_wait(headers: dict) -> float | None:
     """Seconds GitHub asks us to wait: Retry-After first, then x-ratelimit-reset (an epoch). None if it says nothing."""
     try:
         if "retry-after" in headers:
-            return max(0.0, float(headers["retry-after"]))
-        if "x-ratelimit-reset" in headers:
-            return max(0.0, float(headers["x-ratelimit-reset"]) - time.time())
+            wait = float(headers["retry-after"])
+        elif "x-ratelimit-reset" in headers:
+            wait = float(headers["x-ratelimit-reset"]) - time.time()
+        else:
+            return None
     except ValueError:
-        pass
-    return None
+        return None
+    if wait == math.inf:
+        return wait  # over the cap, so get() fails at once and the value never reaches time.sleep
+    return max(0.0, wait) if math.isfinite(wait) else None  # nan or -inf: no usable hint
 
 
 class GitHubError(Exception):
