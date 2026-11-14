@@ -10,6 +10,23 @@ the matching rules version from `phase-3g-deterministic-rules-v2` to
 `phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
 from the release stop counting.
 
+### jq filters and `gh --jq` reads count as checks
+
+- A `jq` stage now counts inside a chain of checks, so `gh pr view 1 --json comments | jq
+  '.comments[].body'` and `cat f.json | jq .x` are `read_only` and set `checked_before` for
+  the steps after them. `jq` only counts as a plain filter: any flag that reads another file
+  (`--rawfile`, `--slurpfile`, `--argfile`, `-f`, `--from-file`), loads modules (`-L`,
+  `--library-path`, an `import` or `include` in the program) makes the step `unknown`. Before,
+  those forms were wrongly counted as checks. `yq -s`, `--split-exp` and `-f` are `unknown`
+  too, because they write or read other files. A pipe into any other interpreter (`python`,
+  `node`, `ruby`, `perl`, `sh`, `awk`) is still never a check.
+- Single `gh` reads that carry their own filter are checks: `gh pr view N --json comments -q
+  '...'`, `--jq '...'`, and `gh api <path> --jq '...'` (a GET, with no `-X` write verb and no
+  `-f` or `-F` fields).
+- The step facts version is now `step-facts.v3` (it was `v2`). The matching rules version
+  stays `phase-3g-deterministic-rules-v3`: no rule's firing logic changed, only which steps
+  count as checks.
+
 ### Local analysis computes step facts like an upload
 
 - Local analysis (`analyse_run`, `driftshield analyze` on a raw Claude Code, OpenClaw or
