@@ -10,6 +10,24 @@ the matching rules version from `phase-3g-deterministic-rules-v2` to
 `phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
 from the release stop counting.
 
+### Checks joined by `;` or a newline, quiet redirects, `sleep`, and help calls
+
+- A check before a merge or deploy is no longer thrown away because of shell punctuation.
+  Parts joined by `;` or a newline are read like parts joined by `&&`: each part is still
+  classified on its own, a write kind in any part still wins (`ls; rm -rf x` is `delete`,
+  `git status; git push origin main` is `git_push` on `main_branch`), and the step is a check
+  only when every part is an allowlisted check. So `cd x; git status` is `read_only`.
+- Redirects that write no file are ignored: `2>&1`, `1>&2`, `>/dev/null`, `2>/dev/null` and
+  `&>/dev/null`. A redirect to a real file still makes the step `unknown`.
+- `sleep N` is skipped in a chain like `cd`. Still refused: `python`, `node`, `awk`, `xargs`,
+  `bash -c`, `sh -c`, `eval`, `tee`, loops, heredocs, `export PATH=`, `$(...)` and backticks.
+- Asking a deploy tool for help (`--help`, `-h`, `help`) is `unknown`, no longer `deploy`.
+  Opening a pull request through `gh api` (a write to `.../pulls`) is `unknown`, like
+  `gh pr create`.
+- The step facts version is now `step-facts.v4` (it was `v3`). The matching rules version
+  stays `phase-3g-deterministic-rules-v3`: no rule's firing logic changed, only which steps
+  count as checks.
+
 ### jq filters and `gh --jq` reads count as checks
 
 - A `jq` stage now counts inside a chain of checks, so `gh pr view 1 --json comments | jq

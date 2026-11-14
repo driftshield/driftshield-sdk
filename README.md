@@ -314,11 +314,12 @@ or to lower it.
 command, then only the label leaves. A command that does not match a known shape
 is `unknown`. The rule is fail closed: `read_only`, `test` and `build` are only
 given to a step where every part is a plain command from a fixed allowlist with
-no flag that writes files, and the parts are joined only by `&&`, `||` or `|`.
+no flag that writes files, and the parts are joined only by `&&`, `||`, `|`, `;` or a newline.
 `cd repo && git status` and `gh pr view 1 | head` are `read_only`. A `jq` stage is a plain filter and counts too (`gh pr view 1 --json comments | jq ...`), unless it reads another file or loads modules (`--rawfile`, `-f`, `-L`, `import`). Any other
-shell syntax (`;`, brackets, `$(...)`, backticks, redirects, `&`, a comment or a
-newline), any part that is not an allowlisted check, and a chain of only `cd`
-make the step `unknown`. The only thing skipped in a chain is `cd` or `pushd`:
+shell syntax (brackets, `$(...)`, backticks, `&`, a comment, a heredoc, a loop), a
+redirect to a file, any part that is not an allowlisted check, and a chain of only `cd`
+make the step `unknown`. Redirects that write no file (`2>&1`, `>/dev/null`) are ignored.
+The only things skipped in a chain are `cd`, `pushd` and `sleep N`:
 `export`, `PATH` changes, `hash`, `alias`, `source`, `.` and environment
 assignments such as `FOO=1 ls` can change what a later part runs, so they make
 the step `unknown`. A `cd` to an absolute path, `~`, a variable or up out of the
