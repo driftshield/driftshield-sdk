@@ -16,6 +16,31 @@ notes for each tag are taken from the matching section of this file.
   before. A `step_facts` key already present in a transcript is never believed for a command
   that can be read.
 
+**Do not release until intel accepts `phase-3g-deterministic-rules-v3`.** This change moves
+the matching rules version from `phase-3g-deterministic-rules-v2` to
+`phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
+from the release stop counting.
+
+### State conflict fires only on a rejected write
+
+- The state conflict check used to fire on any failed read or write, including a failure
+  that was only wording in the text (a "failed" or "error" word in a result that
+  succeeded). A file that did not exist yet, read and then created, was reported as a
+  state conflict. It now fires only on a write the tool reported as an error, after the
+  run had already read something. A failed read alone, a write that succeeds and failure
+  wording alone never fire.
+- Redaction replaces every tool input, so the check cannot tell whether the read and the
+  write touched the same file. A rejected write after any earlier read is the evidence.
+
+### Verification failure counts a failed outside step
+
+- A deploy, merge or push to main that was tried without a confirmation first now fires
+  even when the command failed. The safeguard was skipped when the step was attempted.
+  Before, a failed call was classed as an error and never checked.
+- The unused `destructive_action_count` feature is gone. `confirmation_before_action`
+  stays (a contradiction check reads it) and now means a confirmation came before the first
+  outside step, not before the first tool call.
+
 ## 0.3.2 - 2026-11-13
 
 ### Uploads say which analyser made them

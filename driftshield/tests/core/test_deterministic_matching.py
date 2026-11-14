@@ -346,7 +346,8 @@ def test_deterministic_matching_surfaces_state_conflict_candidates():
                 "sequence_index": 1,
                 "event_family": "state_write",
                 "structured_payload": {
-                    "state_transition": {"state_conflict_flag": True, "state_conflict_reason": "stale_read"}
+                    "failure_context": {"status": "error", "error": "file changed since it was read"},
+                    "state_transition": {"state_conflict_flag": True, "state_conflict_reason": "stale_read"},
                 },
             },
         ],
