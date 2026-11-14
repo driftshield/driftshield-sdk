@@ -10,6 +10,17 @@ the matching rules version from `phase-3g-deterministic-rules-v2` to
 `phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
 from the release stop counting.
 
+### Local analysis computes step facts like an upload
+
+- Local analysis (`analyse_run`, `driftshield analyze` on a raw Claude Code, OpenClaw or
+  Codex transcript) now computes step facts with the same fixed list classifier as an upload,
+  so the verification failure check gives the same answer locally as it would for the upload.
+  Before this, step facts were only computed while redacting, so a local analysis never
+  reported a verification failure (0.3.1 and 0.3.2).
+- What is uploaded does not change: the shared copy and the redacted copy are made exactly as
+  before. A `step_facts` key already present in a transcript is never believed for a command
+  that can be read.
+
 ### State conflict fires only on a rejected write
 
 - The state conflict check used to fire on any failed read or write, including a failure

@@ -1795,3 +1795,22 @@ def compute_step_facts(
             if call_id is not None and call_id in pending and status != "unknown":
                 pending[call_id]["exit_status"] = status
     return facts_by_node
+
+
+def annotate_step_facts(transcript: object, *, skip_keys: Collection[str] = ()) -> None:
+    """Write ``step_facts`` on every shell call block of ``transcript``, in place.
+
+    Same facts as :func:`compute_step_facts`. A call block that is not a shell step loses
+    any ``step_facts`` key it carried, so only facts computed here (or carried by an already
+    hidden step, validated again) are ever believed. Local analysis uses this on a copy it
+    owns so the parsers see the same facts an upload carries.
+    """
+    facts_by_node = compute_step_facts(transcript, skip_keys=skip_keys)
+    for role, node in _carriers(transcript, skip_keys):
+        if role != "call":
+            continue
+        facts = facts_by_node.get(id(node))
+        if facts is not None:
+            node[STEP_FACTS_KEY] = dict(facts)
+        else:
+            node.pop(STEP_FACTS_KEY, None)
