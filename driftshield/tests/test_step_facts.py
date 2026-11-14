@@ -277,6 +277,68 @@ CLASSIFICATION_TABLE = [
     ),
     ("aws sagemaker-runtime invoke-endpoint --endpoint-name e o.json", "unknown", "unknown"),
     ("aws lambda update-function-code --function-name f", "deploy", "outside_service"),
+    # jq is a plain filter: it reads input and prints, so it counts inside a check
+    ("gh pr view 1 --json comments | jq '.comments[].body'", "read_only", "outside_service"),
+    ("cat f.json | jq .x", "read_only", "own_checkout"),
+    ("cat f.json | jq -r '.items[] | .name'", "read_only", "own_checkout"),
+    ("jq -c '.a' f.json", "read_only", "own_checkout"),
+    ("jq -nr --arg a b '$a'", "read_only", "unknown"),
+    ("git status && cat f.json | jq .x", "read_only", "own_checkout"),
+    (
+        "gh api repos/o/r/issues/5/comments | jq '.[].body' | head -5",
+        "read_only",
+        "outside_service",
+    ),
+    # a read that carries its own filter is a read
+    ("gh pr view 5 --json comments -q '.comments[].body'", "read_only", "outside_service"),
+    ("gh pr view 5 --json comments --jq '.comments[] | .body'", "read_only", "outside_service"),
+    ("gh pr list --json number -q '.[].number'", "read_only", "outside_service"),
+    ("gh api repos/o/r/issues/5/comments --jq '.[].body'", "read_only", "outside_service"),
+    (
+        "gh api repos/o/r/issues/5/comments --paginate --jq '.[].body'",
+        "read_only",
+        "outside_service",
+    ),
+    ("gh api -X GET repos/o/r/issues/5/comments --jq '.[].body'", "read_only", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api repos/o/r/issues/5/comments -f body=x --jq .id", "outside_write", "outside_service"),
+    (
+        "gh api -X PATCH repos/o/r/issues/5 -F state=closed --jq .id",
+        "outside_write",
+        "outside_service",
+    ),
+    # jq that reads another file, loads modules or runs a program from a file is not a filter
+    ("jq --rawfile a f.txt .x", "unknown", "unknown"),
+    ("jq --slurpfile a f.json .x", "unknown", "unknown"),
+    ("jq --argfile a f.json .x", "unknown", "unknown"),
+    ("jq -f prog.jq data.json", "unknown", "unknown"),
+    ("jq --from-file prog.jq data.json", "unknown", "unknown"),
+    ("jq -nf prog.jq", "unknown", "unknown"),
+    ("jq -L mods .", "unknown", "unknown"),
+    ("jq -Lmods .", "unknown", "unknown"),
+    ("jq --library-path mods .", "unknown", "unknown"),
+    ("jq 'import \"a\" as a; .'", "unknown", "unknown"),
+    ("jq 'include \"a\"; .'", "unknown", "unknown"),
+    ("jq modulemeta", "unknown", "unknown"),
+    ("cat f.json | jq --rawfile a g .x", "unknown", "unknown"),
+    ("gh pr view 1 --json comments | jq -f prog.jq", "unknown", "unknown"),
+    ("jq .x f.json > out.json", "unknown", "unknown"),
+    # other interpreters stay out
+    ("cat f.json | python3 -c 'import sys'", "unknown", "unknown"),
+    ("gh pr view 1 | node -e 1", "unknown", "unknown"),
+    ("gh pr view 1 | ruby -e 1", "unknown", "unknown"),
+    ("gh pr view 1 | perl -e 1", "unknown", "unknown"),
+    ("gh pr view 1 | sh", "unknown", "unknown"),
+    ("gh pr view 1 | awk '{print}'", "unknown", "unknown"),
+    # yq writes files with -s and --split-exp
+    ("yq '.a' f.yaml", "read_only", "own_checkout"),
+    ("yq -s . f.yaml", "unknown", "unknown"),
+    ("yq --split-exp 'x' f.yaml", "unknown", "unknown"),
+    ("yq -f prog f.yaml", "unknown", "unknown"),
     # a plain chain of checks is a check
     ("cd repo && git status", "read_only", "own_checkout"),
     ("cd app && ls", "read_only", "own_checkout"),
@@ -1214,3 +1276,77 @@ def test_a_cd_out_of_the_checkout_makes_the_target_unknown(leave: str):
         kind, target = classify_command(f"{leave} && {chain}")
         assert kind == classify_command(chain)[0], (leave, chain)
         assert target == "unknown", (leave, chain)
+
+
+# --------------------------------------------------------------------------- #
+# jq is a check only as a plain filter
+# --------------------------------------------------------------------------- #
+
+JQ_STAGE_CHAINS = [
+    "gh pr view 1 --json comments | jq '.comments[].body'",
+    "cat f.json | jq .x",
+    "git status && cat f.json | jq -r .x",
+    "gh api repos/o/r/issues/5/comments | jq '.[].body' | head -5",
+]
+JQ_NOT_A_FILTER = [
+    "jq --rawfile a f.txt .x",
+    "jq --slurpfile a f.json .x",
+    "jq --argfile a f.json .x",
+    "jq -f prog.jq",
+    "jq --from-file prog.jq",
+    "jq -nf prog.jq",
+    "jq -rf prog.jq",
+    "jq -L mods .",
+    "jq -Lmods .",
+    "jq --library-path mods .",
+    "jq --library-path=mods .",
+    "jq 'import \"a\" as a; .'",
+    "jq 'include \"a\"; .'",
+    "yq -s . f.yaml",
+    "yq --split-exp x f.yaml",
+    "yq -f prog f.yaml",
+]
+
+
+def test_the_jq_chains_are_in_the_checks_the_property_tests_extend():
+    for chain in JQ_STAGE_CHAINS:
+        assert chain in ALLOWLISTED_CHAINS or classify_command(chain)[0] in CHECK_KINDS, chain
+        assert classify_command(chain)[0] == "read_only"
+
+
+def test_a_dangerous_suffix_after_a_jq_stage_is_never_a_check():
+    for chain in JQ_STAGE_CHAINS:
+        for suffix in CHAIN_SUFFIXES + [" | python3 -c 1", " | sh", " | node -e 1", " | tee f"]:
+            assert classify_command(chain + suffix)[0] not in CHECK_KINDS, chain + suffix
+        for prefix in CHAIN_PREFIXES:
+            assert classify_command(prefix + chain)[0] not in CHECK_KINDS, prefix + chain
+
+
+@pytest.mark.parametrize("command", JQ_NOT_A_FILTER)
+def test_jq_with_file_module_or_code_flags_is_never_a_check(command: str):
+    shapes = [
+        command,
+        f"cat f.json | {command}",
+        f"gh pr view 1 | {command}",
+        f"ls && {command}",
+        f"{command} | head",
+        f"git status && {command} && ls",
+    ]
+    for shape in shapes:
+        assert classify_command(shape)[0] not in CHECK_KINDS, shape
+        facts = redact(_claude_pair(shape, "git push origin x")).payload["events"][1]
+        assert facts["message"]["content"][0]["step_facts"]["checked_before"] is False, shape
+
+
+def test_other_interpreters_after_a_read_are_never_a_check():
+    for interpreter in (
+        "python3 -c 1",
+        "python script.py",
+        "node -e 1",
+        "ruby -e 1",
+        "perl -e 1",
+        "sh",
+        "bash -c ls",
+    ):
+        assert classify_command(f"gh pr view 1 | {interpreter}")[0] not in CHECK_KINDS
+        assert classify_command(f"cat f.json | jq .x | {interpreter}")[0] not in CHECK_KINDS

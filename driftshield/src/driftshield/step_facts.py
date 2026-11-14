@@ -44,7 +44,9 @@ STEP_FACTS_KEY = "step_facts"
 # classification of a frozen set of commands per version (tests/test_analyser_versions.py).
 # v1: 0.3.0. v2: 0.3.1 (chains of checks, environment assignments, local merge,
 # pull request create and invoke are no longer counted as checks or writes).
-STEP_FACTS_VERSION = "step-facts.v2"
+# v3: 0.3.3 (jq and yq count as plain filters only: any flag that reads another file, loads
+# modules or writes files makes the call something else).
+STEP_FACTS_VERSION = "step-facts.v3"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -636,8 +638,47 @@ def _has_flag(tokens: list[str], *flags: str) -> bool:
     return any(token in flags or any(token.startswith(f + "=") for f in flags) for token in tokens)
 
 
+_JQ_FILE_OR_CODE_FLAGS = frozenset(
+    {"--rawfile", "--slurpfile", "--argfile", "--from-file", "--library-path"}
+)
+_JQ_MODULE_WORDS = re.compile(r"\b(?:import|include|modulemeta)\b")
+_YQ_FILE_OR_CODE_FLAGS = frozenset({"--from-file", "--split-exp", "--split-exp-file"})
+
+
+def _short_flag_letters(tokens: list[str]) -> set[str]:
+    """The letters of every single dash option group, so ``-nf`` counts as ``n`` and ``f``."""
+    letters: set[str] = set()
+    for token in tokens:
+        if token.startswith("-") and not token.startswith("--") and len(token) > 1:
+            letters.update(token[1:])
+    return letters
+
+
+def _filter_reads_files_or_runs_code(program: str, rest: list[str], positional: list[str]) -> bool:
+    """True for a ``jq`` or ``yq`` call that is not a plain filter.
+
+    A plain filter reads standard input or the files named on the command line and prints.
+    A flag that reads another file (``--rawfile``, ``--slurpfile``, ``-f``), loads modules
+    (``-L``, an ``import`` or ``include`` in the program), or for ``yq`` writes files
+    (``-s``, ``--split-exp``) makes the call something else, so it is not a check.
+    """
+    if program == "jq":
+        flags = {token.split("=", 1)[0] for token in rest if token.startswith("--")}
+        letters = _short_flag_letters(rest)
+        return bool(
+            flags & _JQ_FILE_OR_CODE_FLAGS
+            or letters & {"f", "L"}
+            or any(_JQ_MODULE_WORDS.search(token) for token in positional)
+        )
+    flags = {token.split("=", 1)[0] for token in rest if token.startswith("--")}
+    letters = _short_flag_letters(rest)
+    return bool(flags & _YQ_FILE_OR_CODE_FLAGS or letters & {"f", "s"})
+
+
 def _writes_a_file(program: str, rest: list[str], positional: list[str]) -> bool:
     """True for a normally read only program called in a way that writes a file."""
+    if program in {"jq", "yq"} and _filter_reads_files_or_runs_code(program, rest, positional):
+        return True
     if program in {"sort", "tree"} and (
         _has_flag(rest, "-o", "--output") or any(t.startswith("-o") and len(t) > 2 for t in rest)
     ):
