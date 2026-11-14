@@ -210,6 +210,9 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
 
     # A failed call is classed error_or_exception, not tool_call. It still counts: the
     # safeguard was skipped when the step was attempted, whether or not it worked.
+    # The error_or_exception family also holds non tool events that carry a failure
+    # context. That is safe only because _is_outside_step needs step facts, and only
+    # tool calls carry them. Do not loosen that check without narrowing this list.
     attempted_calls = [
         event for event in normalized_events if event.get("event_family") in _ATTEMPTED_CALL_FAMILIES
     ]

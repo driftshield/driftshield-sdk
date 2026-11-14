@@ -12,7 +12,7 @@ import pytest
 
 from driftshield import analyse_run
 
-from tests.core.test_verification_rule import _facts, _match, _tool
+from tests.core.helpers import facts, match, tool
 
 
 def _read(index: int) -> dict[str, Any]:
@@ -37,7 +37,7 @@ def _write(index: int, *, failure: str | None = None) -> dict[str, Any]:
 
 
 def _state_fires(events: list[dict[str, Any]]) -> bool:
-    payload = _match(events, requirement=False)
+    payload = match(events, requirement=False)
     rules = {rule["rule_id"] for rule in payload["matched_rules"]}
     sequences = {seq["sequence_id"] for seq in payload["matched_sequence_patterns"]}
     assert ("R-STA-001" in rules) == ("SEQ-STA-001" in sequences)
@@ -145,17 +145,17 @@ def test_failure_wording_in_a_successful_result_is_not_a_conflict():
 
 
 def test_a_failed_unconfirmed_outside_step_still_fires():
-    failed = _tool(0, facts=_facts("git_push", "main_branch"))
+    failed = tool(0, facts=facts("git_push", "main_branch"))
     failed["event_family"] = "error_or_exception"
-    payload = _match([failed])
+    payload = match([failed])
     assert {rule["rule_id"] for rule in payload["matched_rules"]} >= {"R-VER-001"}
     assert {seq["sequence_id"] for seq in payload["matched_sequence_patterns"]} >= {"SEQ-VER-001"}
 
 
 def test_a_failed_step_that_stays_inside_still_does_not_fire():
-    failed = _tool(0, facts=_facts("read_only"))
+    failed = tool(0, facts=facts("read_only"))
     failed["event_family"] = "error_or_exception"
-    assert not {rule["rule_id"] for rule in _match([failed])["matched_rules"]} & {"R-VER-001"}
+    assert not {rule["rule_id"] for rule in match([failed])["matched_rules"]} & {"R-VER-001"}
 
 
 @pytest.mark.parametrize("is_error", [False, True])

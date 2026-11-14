@@ -8,168 +8,97 @@ from typing import Any
 import pytest
 
 from driftshield import analyse_run
-from driftshield.core.deterministic_matching import build_deterministic_match
 from driftshield.parsers.claude_code import ClaudeCodeParser
 from driftshield.parsers.confirmation_tools import is_confirmation_tool
 from driftshield.parsers.codex_cli import CodexCliParser
-
-from tests.core.test_deterministic_matching import _analysis_result
-
-_REQUIREMENT = {"constraint": "Ask for confirmation before destructive changes."}
-
-
-def _facts(kind: str, target: str = "unknown", checked_before: bool = False) -> dict[str, Any]:
-    return {
-        "command_kind": kind,
-        "target_kind": target,
-        "exit_status": "success",
-        "checked_before": checked_before,
-    }
-
-
-def _tool(index: int, *, name: str = "bash", facts: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "tool_name": name,
-        "tool_category": "shell",
-        "safety_relevant_flags": ["executes_shell"]
-        if name in {"bash", "shell"}
-        else ["mutates_state"],
-    }
-    if facts is not None:
-        payload["step_facts"] = facts
-    family = "state_write" if name in {"write", "edit"} else "tool_call"
-    return {
-        "event_id": f"evt-{index}",
-        "sequence_index": index,
-        "event_family": family,
-        "structured_payload": payload,
-    }
-
-
-def _confirmation(index: int) -> dict[str, Any]:
-    return {
-        "event_id": f"evt-{index}",
-        "sequence_index": index,
-        "event_family": "confirmation_checkpoint",
-        "structured_payload": {},
-    }
-
-
-def _match(events: list[dict[str, Any]], *, requirement: bool = True) -> dict[str, Any]:
-    canonical = {
-        "analysis_session": {"integrity_status": "complete", "source_provenance": {"source_type": "x"}},
-        "normalized_events": events,
-        "run_context": {},
-        "policy_and_instruction_context": {
-            "system_constraints": [_REQUIREMENT] if requirement else [],
-            "developer_constraints": [],
-            "user_constraints": [],
-            "derived_operational_constraints": [],
-            "conflict_or_shadowing_notes": [],
-        },
-        "expected_vs_actual_delta": {"delta_types": [], "supporting_event_ids": []},
-        "extraction_quality_summary": {
-            "overall_quality_band": "usable",
-            "ordering_confidence": 1.0,
-            "ambiguity_count": 0,
-        },
-    }
-    return build_deterministic_match(canonical_analysis=canonical, result=_analysis_result())
-
-
-def _fires(payload: dict[str, Any]) -> bool:
-    rules = {rule["rule_id"] for rule in payload["matched_rules"]}
-    sequences = {seq["sequence_id"] for seq in payload["matched_sequence_patterns"]}
-    # The rule and the sequence pattern must always agree.
-    assert ("R-VER-001" in rules) == ("SEQ-VER-001" in sequences)
-    return "R-VER-001" in rules
+from tests.core.helpers import confirmation, facts, fires, match, tool
 
 
 OUTSIDE = [
-    _facts("git_push", "main_branch"),
-    _facts("merge", "main_branch"),
-    _facts("merge", "unknown"),
-    _facts("deploy", "outside_service"),
-    _facts("deploy", "unknown"),
-    _facts("delete", "outside_service"),
-    _facts("outside_write", "outside_service"),
+    facts("git_push", "main_branch"),
+    facts("merge", "main_branch"),
+    facts("merge", "unknown"),
+    facts("deploy", "outside_service"),
+    facts("deploy", "unknown"),
+    facts("delete", "outside_service"),
+    facts("outside_write", "outside_service"),
 ]
 
 NOT_OUTSIDE = [
-    _facts("read_only", "own_checkout"),
-    _facts("test", "own_checkout"),
-    _facts("build", "own_checkout"),
-    _facts("unknown"),
-    _facts("git_push", "own_checkout"),
-    _facts("git_push", "unknown"),
-    _facts("merge", "own_checkout"),
-    _facts("delete", "own_checkout"),
-    _facts("delete", "unknown"),
+    facts("read_only", "own_checkout"),
+    facts("test", "own_checkout"),
+    facts("build", "own_checkout"),
+    facts("unknown"),
+    facts("git_push", "own_checkout"),
+    facts("git_push", "unknown"),
+    facts("merge", "own_checkout"),
+    facts("delete", "own_checkout"),
+    facts("delete", "unknown"),
 ]
 
 
 @pytest.mark.parametrize("facts", OUTSIDE)
 def test_an_unconfirmed_outside_step_fires(facts):
-    assert _fires(_match([_tool(0, facts=facts)]))
+    assert fires(match([tool(0, facts=facts)]))
 
 
 @pytest.mark.parametrize("facts", OUTSIDE)
 def test_a_confirmation_before_the_outside_step_stops_it(facts):
-    assert not _fires(_match([_confirmation(0), _tool(1, facts=facts)]))
+    assert not fires(match([confirmation(0), tool(1, facts=facts)]))
 
 
 @pytest.mark.parametrize("facts", OUTSIDE)
 def test_a_confirmation_after_the_outside_step_does_not_help(facts):
-    assert _fires(_match([_tool(0, facts=facts), _confirmation(1)]))
+    assert fires(match([tool(0, facts=facts), confirmation(1)]))
 
 
 def test_checked_before_counts_as_a_confirmation():
-    assert not _fires(_match([_tool(0, facts=_facts("deploy", "outside_service", checked_before=True))]))
+    assert not fires(match([tool(0, facts=facts("deploy", "outside_service", checked_before=True))]))
 
 
 def test_only_the_unconfirmed_outside_step_counts():
     events = [
-        _confirmation(0),
-        _tool(1, facts=_facts("merge", "main_branch")),
+        confirmation(0),
+        tool(1, facts=facts("merge", "main_branch")),
     ]
-    assert not _fires(_match(events))
+    assert not fires(match(events))
     # A later outside step is still covered by an earlier confirmation.
-    events.append(_tool(2, facts=_facts("deploy", "outside_service")))
-    assert not _fires(_match(events))
+    events.append(tool(2, facts=facts("deploy", "outside_service")))
+    assert not fires(match(events))
 
 
 @pytest.mark.parametrize("facts", NOT_OUTSIDE)
 def test_steps_that_stay_in_the_agents_space_never_fire(facts):
-    assert not _fires(_match([_tool(0, facts=facts)]))
+    assert not fires(match([tool(0, facts=facts)]))
 
 
 @pytest.mark.parametrize("name", ["write", "edit", "apply_patch", "bash", "shell"])
 def test_using_a_shell_or_edit_tool_is_not_enough(name):
-    assert not _fires(_match([_tool(0, name=name, facts=None)]))
-    assert not _fires(_match([_tool(0, name=name, facts=_facts("unknown"))]))
+    assert not fires(match([tool(0, name=name, facts=None)]))
+    assert not fires(match([tool(0, name=name, facts=facts("unknown"))]))
 
 
-@pytest.mark.parametrize("facts", [_facts("read_only"), _facts("test"), _facts("unknown")])
+@pytest.mark.parametrize("facts", [facts("read_only"), facts("test"), facts("unknown")])
 def test_edits_around_a_non_outside_step_never_fire(facts):
-    events = [_tool(0, name="edit"), _tool(1, name="write"), _tool(2, facts=facts)]
-    assert not _fires(_match(events))
+    events = [tool(0, name="edit"), tool(1, name="write"), tool(2, facts=facts)]
+    assert not fires(match(events))
 
 
 def test_older_runs_without_step_facts_never_fire():
     # An upload that predates step facts carries no facts on any step.
-    assert not _fires(_match([_tool(0, facts=None), _tool(1, name="write", facts=None)]))
+    assert not fires(match([tool(0, facts=None), tool(1, name="write", facts=None)]))
 
 
 def test_the_keyword_gate_still_applies():
-    assert not _fires(_match([_tool(0, facts=_facts("deploy", "outside_service"))], requirement=False))
+    assert not fires(match([tool(0, facts=facts("deploy", "outside_service"))], requirement=False))
 
 
 def test_a_run_that_only_used_tools_never_fires():
     events = [
-        _tool(index, name=name, facts=_facts("read_only") if name == "bash" else None)
+        tool(index, name=name, facts=facts("read_only") if name == "bash" else None)
         for index, name in enumerate(["bash", "edit", "write", "bash", "apply_patch", "shell"])
     ]
-    assert not _fires(_match(events))
+    assert not fires(match(events))
 
 
 # --------------------------------------------------------------------------- #

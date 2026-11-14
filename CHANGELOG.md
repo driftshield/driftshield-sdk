@@ -5,6 +5,11 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
+**Do not release until intel accepts `phase-3g-deterministic-rules-v3`.** This change moves
+the matching rules version from `phase-3g-deterministic-rules-v2` to
+`phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
+from the release stop counting.
+
 ### Local analysis computes step facts like an upload
 
 - Local analysis (`analyse_run`, `driftshield analyze` on a raw Claude Code, OpenClaw or
@@ -15,11 +20,6 @@ notes for each tag are taken from the matching section of this file.
 - What is uploaded does not change: the shared copy and the redacted copy are made exactly as
   before. A `step_facts` key already present in a transcript is never believed for a command
   that can be read.
-
-**Do not release until intel accepts `phase-3g-deterministic-rules-v3`.** This change moves
-the matching rules version from `phase-3g-deterministic-rules-v2` to
-`phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
-from the release stop counting.
 
 ### State conflict fires only on a rejected write
 
