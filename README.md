@@ -315,7 +315,7 @@ command, then only the label leaves. A command that does not match a known shape
 is `unknown`. The rule is fail closed: `read_only`, `test` and `build` are only
 given to a step where every part is a plain command from a fixed allowlist with
 no flag that writes files, and the parts are joined only by `&&`, `||` or `|`.
-`cd repo && git status` and `gh pr view 1 | head` are `read_only`. Any other
+`cd repo && git status` and `gh pr view 1 | head` are `read_only`. A `jq` stage is a plain filter and counts too (`gh pr view 1 --json comments | jq ...`), unless it reads another file or loads modules (`--rawfile`, `-f`, `-L`, `import`). Any other
 shell syntax (`;`, brackets, `$(...)`, backticks, redirects, `&`, a comment or a
 newline), any part that is not an allowlisted check, and a chain of only `cd`
 make the step `unknown`. The only thing skipped in a chain is `cd` or `pushd`:
