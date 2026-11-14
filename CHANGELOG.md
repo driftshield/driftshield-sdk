@@ -15,19 +15,18 @@ notes for each tag are taken from the matching section of this file.
   which version made it (`metadata.analyser.matching_rules_version`), so findings from the
   earlier rules can be told apart from these.
 
-### jq filters and `gh --jq` reads count as checks
+### jq and yq count as checks only when they are plain filters
 
-- A `jq` stage now counts inside a chain of checks, so `gh pr view 1 --json comments | jq
-  '.comments[].body'` and `cat f.json | jq .x` are `read_only` and set `checked_before` for
-  the steps after them. `jq` only counts as a plain filter: any flag that reads another file
-  (`--rawfile`, `--slurpfile`, `--argfile`, `-f`, `--from-file`), loads modules (`-L`,
-  `--library-path`, an `import` or `include` in the program) makes the step `unknown`. Before,
-  those forms were wrongly counted as checks. `yq -s`, `--split-exp` and `-f` are `unknown`
-  too, because they write or read other files. A pipe into any other interpreter (`python`,
+- A `jq` stage inside a chain of checks (`gh pr view 1 --json comments | jq
+  '.comments[].body'`, `cat f.json | jq .x`) and single `gh` reads with their own filter
+  (`gh pr view N --json comments -q '...'`, `--jq '...'`, `gh api <path> --jq '...'` as a GET
+  with no `-X` write verb and no `-f` or `-F` fields) already counted as checks, and still do.
+- 0.3.3 narrows `jq` and `yq` to plain filters. A `jq` call with a flag that reads another
+  file (`--rawfile`, `--slurpfile`, `--argfile`, `-f`, `--from-file`) or loads modules (`-L`,
+  `--library-path`, an `import` or `include` in the program) is now `unknown`, and so is
+  `yq` with `-s`, `--split-exp` or `-f`, because they write or read other files. Before,
+  those forms were wrongly counted as checks. A pipe into any other interpreter (`python`,
   `node`, `ruby`, `perl`, `sh`, `awk`) is still never a check.
-- Single `gh` reads that carry their own filter are checks: `gh pr view N --json comments -q
-  '...'`, `--jq '...'`, and `gh api <path> --jq '...'` (a GET, with no `-X` write verb and no
-  `-f` or `-F` fields).
 - The step facts version is now `step-facts.v3` (it was `v2`). The matching rules version
   stays `phase-3g-deterministic-rules-v3`: no rule's firing logic changed, only which steps
   count as checks.
