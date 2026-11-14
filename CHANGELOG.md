@@ -3,12 +3,17 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.3 - 2026-11-14
 
-**Do not release until intel accepts `phase-3g-deterministic-rules-v3`.** This change moves
-the matching rules version from `phase-3g-deterministic-rules-v2` to
-`phase-3g-deterministic-rules-v3`. Intel must list v3 as a known version first, or uploads
-from the release stop counting.
+### Findings you can trust: local analysis works out step facts, and state conflict needs a real conflict
+
+- Local analysis now works out step facts, so the open source verification failure check
+  can fire on a real unconfirmed outside step, and state conflict fires only on a real
+  conflicting write. The verification failure check now gives the same answer on your
+  machine as it does for an upload.
+- The matching rules version is now `phase-3g-deterministic-rules-v3`. Every upload says
+  which version made it (`metadata.analyser.matching_rules_version`), so findings from the
+  earlier rules can be told apart from these.
 
 ### Local analysis computes step facts like an upload
 
