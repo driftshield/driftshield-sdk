@@ -44,7 +44,7 @@ import re
 from typing import Any
 
 from driftshield.intake_contract import REQUIRED_REDACTION_FIELDS
-from driftshield.step_facts import STEP_FACTS_KEY, compute_step_facts
+from driftshield.step_facts import STEP_FACTS_KEY, annotate_step_facts, compute_step_facts
 
 
 logger = logging.getLogger(__name__)
@@ -486,6 +486,19 @@ def _redact_value(value: Any, path: str, entries: list[RedactionEntry]) -> Any:
     if isinstance(value, str):
         return _redact_string(value, path, entries)
     return value
+
+
+def add_step_facts(payload: Any) -> None:
+    """Write step facts on the shell blocks of ``payload`` in place (a copy the caller owns).
+
+    The same classifier and the same skipped keys as :func:`redact`, so a locally analysed
+    transcript carries exactly the facts an upload of it would. Never raises: a failure
+    leaves the payload without facts, with one warning that names only the exception type.
+    """
+    try:
+        annotate_step_facts(payload, skip_keys=_DROPPED_KEYS)
+    except Exception as error:  # noqa: BLE001
+        logger.warning("step facts dropped for this transcript: %s", type(error).__name__)
 
 
 def redact(payload: dict[str, Any]) -> RedactionResult:

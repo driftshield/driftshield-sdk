@@ -204,8 +204,7 @@ def _transcript(*, question: str | None) -> bytes:
                 "type": "tool_use",
                 "id": "b1",
                 "name": "Bash",
-                "input": {"command": "x"},
-                "step_facts": _facts("deploy", "outside_service"),
+                "input": {"command": "vercel --prod"},
             },
         )
     )

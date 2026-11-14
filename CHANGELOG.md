@@ -3,6 +3,19 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Local analysis computes step facts like an upload
+
+- Local analysis (`analyse_run`, `driftshield analyze` on a raw Claude Code, OpenClaw or
+  Codex transcript) now computes step facts with the same fixed list classifier as an upload,
+  so the verification failure check gives the same answer locally as it would for the upload.
+  Before this, step facts were only computed while redacting, so a local analysis never
+  reported a verification failure (0.3.1 and 0.3.2).
+- What is uploaded does not change: the shared copy and the redacted copy are made exactly as
+  before. A `step_facts` key already present in a transcript is never believed for a command
+  that can be read.
+
 ## 0.3.2 - 2026-11-13
 
 ### Uploads say which analyser made them

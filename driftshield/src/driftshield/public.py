@@ -58,7 +58,12 @@ from driftshield.parsers.registry import (
     get_parser,
     load_json_document,
 )
-from driftshield.recursive_redactor import REDACTION_RULESET_VERSION, REDACTOR_VERSION, redact
+from driftshield.recursive_redactor import (
+    REDACTION_RULESET_VERSION,
+    REDACTOR_VERSION,
+    add_step_facts,
+    redact,
+)
 from driftshield.remote_submission import (
     OssRemoteSubmissionConfig,
     RemoteSubmissionError,
@@ -385,6 +390,9 @@ def _parse_bytes(
     else:
         transcript = _line_records(text, warnings)
 
+    if detected in _STEP_FACT_FORMATS:
+        parse_input = _with_step_facts(parse_input)
+
     try:
         parser = get_parser(detected)
         events = parser.parse(parse_input)
@@ -394,6 +402,39 @@ def _parse_bytes(
         ) from exc
     skipped = parser.skipped_records_by_reason
     return events, detected, transcript, warnings, dict(skipped) if skipped is not None else None
+
+
+# The formats whose parsers read ``step_facts`` off a tool call block into the events.
+_STEP_FACT_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw"})
+
+
+def _with_step_facts(text: str) -> str:
+    """``text`` with step facts written on its shell tool calls, for the parser only.
+
+    Local analysis then sees the same facts an upload of the run carries, so the verdict
+    matches. The shareable copy (``transcript``) is the original text, not this one, so
+    what is uploaded does not change: the redactor computes the same facts itself.
+    """
+    lines = text.split("\n")
+    records: list[dict[str, Any]] = []
+    slots: list[int] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            record = json.loads(stripped)
+        except ValueError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+            slots.append(index)
+    if not records:
+        return text
+    add_step_facts({"events": records})
+    for index, record in zip(slots, records):
+        lines[index] = json.dumps(record)
+    return "\n".join(lines)
 
 
 def _line_records(text: str, warnings: list[str]) -> dict[str, Any]:
