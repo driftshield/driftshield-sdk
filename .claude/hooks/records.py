@@ -126,7 +126,9 @@ def rate_limit_wait(headers: dict) -> float | None:
             return None
     except ValueError:
         return None
-    return max(0.0, wait) if math.isfinite(wait) else None  # nan or inf from a header never reaches time.sleep
+    if wait == math.inf:
+        return wait  # over the cap, so get() fails at once and the value never reaches time.sleep
+    return max(0.0, wait) if math.isfinite(wait) else None  # nan or -inf: no usable hint
 
 
 class GitHubError(Exception):
