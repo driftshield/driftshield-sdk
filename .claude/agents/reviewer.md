@@ -15,7 +15,7 @@ You are read only. A hook refuses everything else. Allowed: `cat head tail wc ls
 1. The issue: `gh api repos/{owner}/{repo}/issues/{n}`. Its checklist (`AC-n`), must not change items (`MNC-n`), decisions and size are the source of truth. Read comments only from the repository owner.
 2. The plan: `.driftshield/spec.json` (planned paths, testing seams, assumptions).
 3. The PR and its diff from GitHub: `gh api repos/{owner}/{repo}/pulls/{pr}` (note `head.sha`) and `gh api -H "Accept: application/vnd.github.diff" repos/{owner}/{repo}/pulls/{pr}`.
-4. Earlier verdicts on the PR (`gh api repos/{owner}/{repo}/issues/{pr}/comments`, the ones carrying `driftshield-agent-review:v1`). Every open finding must be checked again.
+4. Earlier verdicts on the PR, the ones carrying `driftshield-agent-review:v1`: `gh api repos/{owner}/{repo}/issues/{pr}/comments --jq '.[] | select(.body | contains("driftshield-agent-review:v1")) | .body | split("\n")[0]'` prints each one's marker line (round, head, verdict); drop the `| split(...)` part to read a whole verdict. One `gh api` command with its own `--jq` filter, never piped into `python` or another interpreter, so the read shows up as a check. Every open finding must be checked again.
 5. The repo's rules: `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CODING_STANDARDS.md`, whichever exist.
 6. The test evidence the hooks recorded: `grep '"test.result"' .driftshield/ledger.jsonl` shows each test run with its outcome, item ids and the commit it ran on. A test for an item should fail before the fix and pass after it.
 
