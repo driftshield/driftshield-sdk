@@ -457,6 +457,15 @@
     ]
    ],
    "sample_chatgpt_export.json|raw": [],
+   "sample_claude_code_scoped_checks.jsonl|raw": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.71
+    ]
+   ],
+   "sample_claude_code_scoped_checks.jsonl|redacted": [],
    "sample_claude_code_session.jsonl|raw": [
     [
      "mechanism:assumption_mutation",
@@ -565,6 +574,72 @@
    ],
    "sample_openclaw_trajectory.json|raw": [],
    "sample_openclaw_trajectory.json|redacted": []
+  }
+ },
+ "step_fact_sequences": {
+  "step-facts.v5": {
+   "[\"cd x; git status; gh pr merge 3\"]": [
+    true
+   ],
+   "[\"gh pr merge 1\", \"gh pr merge 2\"]": [
+    false,
+    false
+   ],
+   "[\"gh pr merge 1\", \"git status\", \"gh pr merge 2\"]": [
+    false,
+    false,
+    true
+   ],
+   "[\"gh pr merge 3; git status\"]": [
+    false
+   ],
+   "[\"git status && gh pr merge 3\"]": [
+    true
+   ],
+   "[\"git status\", \"gh pr merge 1\", \"gh pr merge 2\"]": [
+    false,
+    true,
+    false
+   ],
+   "[\"git status\", \"gh pr merge 1\"]": [
+    false,
+    true
+   ],
+   "[\"git status\", \"git commit -m x\", \"git push origin main\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"git status\", \"rm -rf build\", \"gh pr merge 3\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"git status\", \"vercel --prod\", \"pytest -q\", \"git push origin main\"]": [
+    false,
+    true,
+    false,
+    true
+   ],
+   "[\"ls | gh pr merge 3\"]": [
+    false
+   ],
+   "[\"ls\", \"curl -X POST https://example.com/u -d a=b\", \"ls\", \"curl -X POST https://example.com/u\"]": [
+    false,
+    true,
+    false,
+    true
+   ],
+   "[\"ls\"]": [
+    false
+   ],
+   "[\"ls; gh pr merge 1\", \"gh pr merge 2\"]": [
+    true,
+    false
+   ],
+   "[\"ls; git commit -m x; gh pr merge 3\"]": [
+    false
+   ]
   }
  },
  "step_facts": {

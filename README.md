@@ -333,8 +333,11 @@ in any part of a chain, so `pytest && git push origin main` is a `git_push` on
 `main_branch`. Comment and here document text is scanned like any other text and
 can only make a step look more like a write, never less.
 `exit_status` comes from the tool result's own error flag or exit code.
-`checked_before` is true when an earlier shell step in the same run was
-`read_only`, `test` or `build`. Local changes such as `git commit` or `mkdir`
+`checked_before` is true when a shell step that is `read_only`, `test` or `build` ran after
+the previous outside step (a push to a main branch, a merge, a deploy, a delete on an outside
+service or an outside write), or after the start of the run for the first one, or earlier in
+the same command line (`cd x; git status; gh pr merge 3`). One early check does not excuse
+every later merge. A confirmation step before an outside step still counts. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.

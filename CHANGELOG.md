@@ -6,10 +6,22 @@ notes for each tag are taken from the matching section of this file.
 ## Unreleased
 
 **Do not release until intel accepts `phase-3g-deterministic-rules-v4` (matching rules) and
-`step-facts.v5` (step facts).** This change moves the matching rules version from
+`step-facts.v5` (step facts).** This release moves the matching rules version from
 `phase-3g-deterministic-rules-v3` to `phase-3g-deterministic-rules-v4` and the step facts
 version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
 first, or uploads from the release stop counting.
+
+### A check excuses an outside step only until the next outside step
+
+- Before, one recognised check anywhere earlier in a run excused every later merge, deploy
+  or push to main, so the verification failure check rarely fired on long sessions. Now a
+  check counts only if it came after the previous outside step, or after the start of the run
+  for the first one, or earlier in the same command line (`cd x; git status; gh pr merge 3`).
+  `git status`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A check between two
+  merges excuses only the second. A confirmation step before an outside step still counts.
+- A step that stays in the agent's own space (a local delete or commit) does not start a new
+  scope, and a failed outside step does.
+- `checked_before` changed, which is part of step facts `v5` (see above).
 
 ### State conflict ignores edits the tool refused
 

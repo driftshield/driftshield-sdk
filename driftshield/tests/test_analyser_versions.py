@@ -87,6 +87,44 @@ def error_class_behaviour(texts: list[str]) -> dict[str, str]:
     return {text: str(classify_error(text)) for text in texts}
 
 
+# Sequences of shell steps whose ``checked_before`` flags are pinned per step facts version.
+# ``checked_before`` depends on the order of steps, so a single command cannot pin it.
+SEQUENCES: list[list[str]] = [
+    ["ls"],
+    ["git status", "gh pr merge 1"],
+    ["git status", "gh pr merge 1", "gh pr merge 2"],
+    ["gh pr merge 1", "git status", "gh pr merge 2"],
+    ["gh pr merge 1", "gh pr merge 2"],
+    ["git status", "vercel --prod", "pytest -q", "git push origin main"],
+    ["git status", "rm -rf build", "gh pr merge 3"],
+    ["git status", "git commit -m x", "git push origin main"],
+    ["cd x; git status; gh pr merge 3"],
+    ["git status && gh pr merge 3"],
+    ["gh pr merge 3; git status"],
+    ["ls | gh pr merge 3"],
+    ["ls; git commit -m x; gh pr merge 3"],
+    ["ls; gh pr merge 1", "gh pr merge 2"],
+    ["ls", "curl -X POST https://example.com/u -d a=b", "ls", "curl -X POST https://example.com/u"],
+]
+
+
+def step_fact_sequences_behaviour() -> dict[str, list[bool]]:
+    """``checked_before`` of every step of each frozen sequence, as an upload carries it."""
+    from tests.test_step_facts import claude_code
+
+    out: dict[str, list[bool]] = {}
+    for commands in SEQUENCES:
+        steps = [(command, f"c{index}", False) for index, command in enumerate(commands)]
+        run = analyse_run(claude_code(steps), format="claude_code")
+        out[json.dumps(commands)] = [
+            block["step_facts"]["checked_before"]
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+    return out
+
+
 def _load() -> dict[str, dict[str, dict[str, Any]]]:
     return json.loads(GOLDEN.read_text())
 
@@ -151,6 +189,25 @@ def test_the_step_facts_version_has_pinned_error_classes():
     )
 
 
+def test_the_step_facts_version_has_pinned_sequences():
+    pinned = _load()["step_fact_sequences"]
+    assert STEP_FACTS_VERSION in pinned, (
+        f"STEP_FACTS_VERSION is {STEP_FACTS_VERSION!r} but no step sequences are pinned for it. "
+        "Add them with: PYTHONPATH=src python -m tests.test_analyser_versions --write"
+    )
+
+
+def test_checked_before_matches_the_pinned_sequences_for_the_current_version():
+    pinned = _load()["step_fact_sequences"][STEP_FACTS_VERSION]
+    current = step_fact_sequences_behaviour()
+    changed = sorted(k for k in pinned if current.get(k) != pinned[k])
+    assert not changed, (
+        f"checked_before changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION in step_facts.py and pin the new "
+        "behaviour (see the module docstring); never edit the entry of a released version."
+    )
+
+
 def test_error_classes_match_the_pinned_ones_for_the_current_version():
     pinned = _load()["error_classes"][STEP_FACTS_VERSION]
     current = error_class_behaviour(list(pinned))
@@ -182,6 +239,9 @@ def _write() -> None:
     classes = data["error_classes"].setdefault(STEP_FACTS_VERSION, {})
     for text, value in error_class_behaviour(_frozen_error_texts()).items():
         classes.setdefault(text, value)
+    sequences = data.setdefault("step_fact_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
+    for key, value in step_fact_sequences_behaviour().items():
+        sequences.setdefault(key, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
