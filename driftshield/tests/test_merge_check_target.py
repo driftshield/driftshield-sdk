@@ -18,6 +18,8 @@ from driftshield import analyse_run
 from driftshield.core.deterministic_matching import build_deterministic_match
 from driftshield.step_facts import classify_command
 from driftshield.step_facts_pr import (
+    _UNSAFE,
+    clear_reads,
     command_pr_reads,
     command_pr_refs,
     gh_pr_target,
@@ -28,6 +30,11 @@ from tests.test_step_facts import ALLOWLISTED_CHECKS, CHECK_KINDS, DANGEROUS_PAR
 
 GATE = "Constraint: ask for confirmation before destructive actions."
 NONE: frozenset[tuple[str, str]] = frozenset()
+
+
+def _tied(command: str, reads: frozenset[tuple[str, str]] = NONE) -> bool | None:
+    """``merge_tied_check`` with the command kind the classifier gives the command."""
+    return merge_tied_check(command, reads, command_kind=classify_command(command)[0])
 
 
 def _flags(commands: list[str], failed: set[int] | None = None) -> list[bool]:
@@ -192,14 +199,14 @@ SAFE_SAME_LINE = [
 
 @pytest.mark.parametrize("command", SAFE_SAME_LINE)
 def test_a_read_of_the_same_pull_request_earlier_in_the_command_line_counts(command):
-    assert merge_tied_check(command, NONE) is True
+    assert _tied(command) is True
     assert _flags([command]) == [True]
 
 
 @pytest.mark.parametrize("command", SAFE_SAME_LINE)
 def test_the_same_command_line_does_not_check_a_merge_of_another_pull_request(command):
     other = command.replace("5", "6", 1)  # the read changes, the merge does not
-    assert merge_tied_check(other, NONE) is False
+    assert _tied(other) is False
 
 
 UNCHECKED_SAME_LINE = [
@@ -240,7 +247,7 @@ UNCHECKED_SAME_LINE = [
 
 @pytest.mark.parametrize("command", UNCHECKED_SAME_LINE)
 def test_a_read_that_is_not_plainly_a_read_of_that_pull_request_never_checks_a_merge(command):
-    assert merge_tied_check(command, NONE) is not True, command
+    assert _tied(command) is not True, command
     assert _flags([command])[-1] is False, command
 
 
@@ -331,7 +338,7 @@ def test_a_dangerous_part_in_a_substitution_or_loop_never_lets_a_read_check_a_me
             f"for i in 1 2; do {read}; {part}; done; gh pr merge 3",
             f"for i in 1 2; do {part}; {read}; done; gh pr merge 3",
         ):
-            assert merge_tied_check(command, NONE) is not True, repr(command)
+            assert _tied(command) is not True, repr(command)
             assert command_pr_reads(command) == set(), repr(command)
 
 
@@ -387,3 +394,101 @@ def test_nothing_but_the_boolean_leaves():
         if isinstance(block, dict) and "step_facts" in block
     ]
     assert all(set(f) == {"command_kind", "target_kind", "exit_status", "checked_before", "error_class"} for f in facts)
+
+
+# --------------------------------------------------------------------------- #
+# Review round 1: other outside steps keep the scoped rule exactly as before
+# --------------------------------------------------------------------------- #
+
+# Non merge outside steps whose command the pull request reader cannot parse: a file redirect,
+# a subshell, brackets, a lone & and a comment. A check in an earlier step must still count.
+UNPARSEABLE_OUTSIDE = [
+    "vercel --prod > deploy.log",
+    "(cd app && vercel --prod)",
+    "[ -f app/package.json ] && vercel --prod",
+    "[[ -f x ]] && git push origin main",
+    "vercel --prod &",
+    "git push origin main # ship it",
+    "git push origin main > push.log",
+    "gh pr comment 5 -b done > out.txt",
+    "{ vercel --prod; }",
+    "if ls; then git push origin main; fi",
+    "if [ -f x ]; then vercel --prod; fi",
+    "for i in 1; do vercel --prod; done",
+    "while true; do git push origin main; done",
+    "echo $(vercel --prod)",
+    "x=`vercel --prod`",
+    "git push origin main <<EOF\nx\nEOF",
+]
+
+
+@pytest.mark.parametrize("command", UNPARSEABLE_OUTSIDE)
+def test_a_non_merge_outside_step_keeps_the_scoped_rule_whatever_its_command_looks_like(command):
+    kind = classify_command(command)[0]
+    assert kind in {"deploy", "git_push", "outside_write"}, (command, kind)
+    assert merge_tied_check(command, NONE, command_kind=kind) is None
+    # A check in an earlier step counts for it, and without one it is not checked.
+    assert _flags(["ls", command]) == [False, True], command
+    assert _flags(["git status", command]) == [False, True], command
+    assert _flags(["gh pr view 1", command]) == [False, True], command
+
+
+@pytest.mark.parametrize("kind", ["deploy", "git_push", "delete", "outside_write", "unknown", "read_only"])
+def test_the_tie_does_not_apply_to_any_step_that_is_not_a_merge(kind):
+    for command in ("vercel --prod", "ls; vercel --prod", "(vercel --prod)", "gh pr merge 5", ""):
+        assert merge_tied_check(command, NONE, command_kind=kind) is None
+
+
+def test_a_merge_in_a_command_it_cannot_parse_is_not_checked():
+    # The scoped rule would let a local read excuse it, so it stays unchecked.
+    for command in ("ls; (gh pr merge 5)", "ls && [ -f x ] && gh pr merge 5", "gh pr view 5; gh pr merge 5 > log"):
+        assert classify_command(command)[0] == "merge", command
+        assert _tied(command) is False, command
+        assert _flags([command])[-1] is False, command
+
+
+def test_a_write_in_an_if_block_is_found_as_its_kind_and_an_earlier_check_still_counts():
+    block = "if ls; then git push origin main; fi"
+    assert classify_command(block) == ("git_push", "main_branch")
+    # Both ways: with a check in an earlier step it is checked ...
+    assert _flags(["ls", "if [ -f x ]; then git push origin main; fi"]) == [False, True]
+    assert _flags(["pytest -q", "if true; then vercel --prod; fi"]) == [False, True]
+    assert _flags(["ls", block]) == [False, True]
+    # ... and with nothing before it, and a condition that is not a check, it is not.
+    assert _flags(["if true; then git push origin main; fi"]) == [False]
+    assert _flags(["if true; then vercel --prod; fi"]) == [False]
+    assert _flags(["git commit -m x", "if true; then git push origin main; fi"]) == [False, False]
+    # A condition that is a check counts as one, as it does for any command line.
+    assert _flags([block]) == [True]
+    assert _fires(["if true; then git push origin main; fi"])
+    assert not _fires(["ls", "if true; then git push origin main; fi"])
+
+
+def test_a_stale_read_does_not_survive_a_merge_written_in_another_repository_form():
+    assert _flags(["gh pr view 5", "gh pr merge 5 -R o/r", "gh pr merge 5"])[-1] is False
+    assert _flags(["gh pr view 5 -R o/r", "gh pr merge 5", "gh pr merge 5 -R o/r"])[-1] is False
+    assert _flags(["gh pr view 5 -R o/r", "gh pr merge 5 -R o/r", "gh pr merge 5 -R o/r"])[-1] is False
+    assert _flags(["gh pr view 5", "gh pr merge 5", "gh pr merge 5"])[-1] is False
+    # A merge of another number leaves it alone.
+    assert _flags(["gh pr view 5", "gh pr merge 6 -R o/r", "gh pr merge 5"])[-1] is True
+    # Two different repositories stay apart for the check itself.
+    assert _flags(["gh pr view 5 -R a/b", "gh pr merge 5 -R c/d"])[-1] is False
+
+
+def test_clearing_reads_matches_the_same_or_an_unknown_repository():
+    reads = {("", "5"), ("o/r", "5"), ("x/y", "5"), ("", "6")}
+    assert clear_reads(reads, {("o/r", "5")}) == {("x/y", "5"), ("", "6")}
+    assert clear_reads(reads, {("", "5")}) == {("", "6")}
+    assert clear_reads(reads, {("o/r", "7")}) == reads
+    assert clear_reads(set(), {("", "5")}) == set()
+
+
+def test_the_unsafe_analysis_cannot_be_changed_by_a_caller():
+    import dataclasses
+
+    assert isinstance(_UNSAFE.reads, frozenset) and isinstance(_UNSAFE.sub_reads, frozenset)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        _UNSAFE.state = "safe"  # type: ignore[misc]
+    leaked = set(_UNSAFE.reads)
+    leaked.add(("", "1"))
+    assert not _UNSAFE.reads

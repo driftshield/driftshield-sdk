@@ -120,6 +120,9 @@ SEQUENCES: list[list[str]] = [
     ["gh pr merge 5 --match-head-commit $(gh pr view 5 --json headRefOid -q .headRefOid)"],
     ["gh pr merge 5 --match-head-commit $(gh pr view 6 --json headRefOid -q .headRefOid)"],
     ["while ! gh pr view 3 --json state; do git push origin main; done; gh pr merge 3"],
+    ["gh pr view 5", "gh pr merge 5 -R o/r", "gh pr merge 5"],
+    ["ls", "if true; then git push origin main; fi"],
+    ["ls", "(cd app && vercel --prod)"],
 ]
 
 

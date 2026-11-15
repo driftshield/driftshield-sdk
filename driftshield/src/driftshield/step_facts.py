@@ -2246,7 +2246,12 @@ def compute_step_facts(
     step whose command is visible never keeps facts from the input: they are
     recomputed.
     """
-    from driftshield.step_facts_pr import command_pr_reads, command_pr_refs, merge_tied_check
+    from driftshield.step_facts_pr import (
+        clear_reads,
+        command_pr_reads,
+        command_pr_refs,
+        merge_tied_check,
+    )
 
     facts_by_node: dict[int, dict[str, Any]] = {}
     # call id -> (facts, call block, is a shell step)
@@ -2280,7 +2285,9 @@ def compute_step_facts(
                     # A merge is checked only by a read of that same pull request: the
                     # scoped check rule below is for every other outside step.
                     tied = (
-                        merge_tied_check(command, frozenset(pr_reads))
+                        merge_tied_check(
+                            command, frozenset(pr_reads), command_kind=facts["command_kind"]
+                        )
                         if outside and command is not None
                         else None
                     )
@@ -2295,7 +2302,7 @@ def compute_step_facts(
                 if outside:
                     seen_check = False
                     if command is not None:
-                        pr_reads -= command_pr_refs(command)
+                        pr_reads = clear_reads(pr_reads, command_pr_refs(command))
                 else:
                     if facts["command_kind"] in _CHECK_KINDS:
                         seen_check = True

@@ -638,6 +638,11 @@
     false,
     false
    ],
+   "[\"gh pr view 5\", \"gh pr merge 5 -R o/r\", \"gh pr merge 5\"]": [
+    false,
+    false,
+    false
+   ],
    "[\"git status && gh pr merge 3\"]": [
     false
    ],
@@ -669,9 +674,17 @@
    "[\"ls | gh pr merge 3\"]": [
     false
    ],
+   "[\"ls\", \"(cd app && vercel --prod)\"]": [
+    false,
+    true
+   ],
    "[\"ls\", \"curl -X POST https://example.com/u -d a=b\", \"ls\", \"curl -X POST https://example.com/u\"]": [
     false,
     true,
+    false,
+    true
+   ],
+   "[\"ls\", \"if true; then git push origin main; fi\"]": [
     false,
     true
    ],

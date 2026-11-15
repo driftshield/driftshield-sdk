@@ -16,7 +16,7 @@ before the merge can be trusted. When in doubt the answer is "not checked".
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import re
 
 from driftshield.step_facts import (
@@ -285,13 +285,13 @@ def _replace_substitutions(text: str) -> tuple[str, list[str]] | None:
 # --------------------------------------------------------------------------- #
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Analysis:
     state: str  # safe, risk or unsafe
-    reads: set[PrRef] = field(default_factory=set)
+    reads: frozenset[PrRef] = frozenset()
     kind: str = ""  # the write kind, for a risk statement
     ref: PrRef | None = None  # the pull request a merge names
-    sub_reads: set[PrRef] = field(default_factory=set)
+    sub_reads: frozenset[PrRef] = frozenset()
 
 
 _UNSAFE = _Analysis("unsafe")
@@ -344,12 +344,13 @@ def _analyse_simple(text: str, *, strict: bool) -> _Analysis:
     if replaced is None:
         return _UNSAFE
     stripped, bodies = replaced
-    sub_reads: set[PrRef] = set()
+    found_reads: set[PrRef] = set()
     for body in bodies:
         found = _guarded_body_reads(body)
         if found is None:
             return _UNSAFE
-        sub_reads |= found
+        found_reads |= found
+    sub_reads = frozenset(found_reads)
     tokens = _tokenise(stripped)
     if tokens is None:
         return _UNSAFE
@@ -371,7 +372,7 @@ def _analyse_simple(text: str, *, strict: bool) -> _Analysis:
         return _UNSAFE  # inside a loop only sleep is allowed: cd, export and the like change later commands
     if kind in {"read_only", "neutral"}:
         ref = _pr_read_ref(segment)
-        return _Analysis("safe", reads=sub_reads | ({ref} if ref else set()))
+        return _Analysis("safe", reads=sub_reads | ({ref} if ref else frozenset()))
     if kind in {"test", "build"} and not strict:
         return _Analysis("safe", reads=sub_reads)
     return _UNSAFE
@@ -396,7 +397,7 @@ def _analyse_loop(statements: list[_Statement]) -> _Analysis:
     """A ``for``, ``while`` or ``until`` loop. Safe only if all of it is reads and neutral words."""
     header = statements[0].text
     keyword = _first_word(header)
-    reads: set[PrRef] = set()
+    loop_reads: set[PrRef] = set()
     parts: list[str] = []
     position = 1
     if keyword == "for":
@@ -425,8 +426,8 @@ def _analyse_loop(statements: list[_Statement]) -> _Analysis:
         analysis = _analyse_simple(part, strict=True)
         if analysis.state != "safe":
             return _UNSAFE
-        reads |= analysis.reads
-    return _Analysis("safe", reads=reads)
+        loop_reads |= analysis.reads
+    return _Analysis("safe", reads=frozenset(loop_reads))
 
 
 @dataclass
@@ -462,8 +463,15 @@ def _items(command: str) -> list[_Item] | None:
 # --------------------------------------------------------------------------- #
 
 
-def merge_tied_check(command: str, reads_before: frozenset[PrRef]) -> bool | None:
+def merge_tied_check(
+    command: str, reads_before: frozenset[PrRef], *, command_kind: str
+) -> bool | None:
     """Whether the first write part of ``command``, a merge, was checked by a read of its PR.
+
+    Applies only to a step whose command kind is ``merge``. For any other outside step (a
+    deploy, a push to main, a delete, an outside write) the answer is ``None`` without reading
+    the command, so those steps keep the scoped rule exactly as before, whatever their command
+    looks like (a redirect, a subshell, brackets, ``&``, an ``if`` block).
 
     ``reads_before`` are the pull requests read since the previous outside step on them. The
     answer is ``True`` only if the first write part is a merge naming a literal pull request
@@ -472,8 +480,12 @@ def merge_tied_check(command: str, reads_before: frozenset[PrRef]) -> bool | Non
     merge that was not, or when something unsafe runs before it. ``None`` when the first write
     part is not a merge, so the caller applies the scoped rule for other outside steps.
     """
+    if command_kind != "merge":
+        return None
     items = _items(command)
     if items is None:
+        # A merge in a command this reader cannot parse is not checked: the scoped rule
+        # would let a local read excuse it.
         return False
     reads = set(reads_before)
     group: set[PrRef] = set()
@@ -503,6 +515,22 @@ def command_pr_reads(command: str) -> set[PrRef]:
             return set()
         reads |= item.analysis.reads
     return reads
+
+
+def clear_reads(reads: set[PrRef], named: set[PrRef]) -> set[PrRef]:
+    """``reads`` without the pull requests an outside step names, across repository forms.
+
+    A step on number N in any repository form clears the read of N with the same repository
+    or an unknown one (the current repository, written without ``-R``), so a stale read of
+    ``("", 5)`` does not survive ``gh pr merge 5 -R o/r``.
+    """
+    return {
+        read
+        for read in reads
+        if not any(
+            read[1] == ref[1] and (read[0] == ref[0] or "" in {read[0], ref[0]}) for ref in named
+        )
+    }
 
 
 def command_pr_refs(command: str) -> set[PrRef]:

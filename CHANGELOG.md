@@ -39,6 +39,13 @@ first, or uploads from the release stop counting.
   variable, `$(...)`, the current branch) is not checked.
 - The number is worked out on your machine from the command and only the `checked_before`
   boolean leaves. No value was added to any fixed step facts list.
+- The tie applies to merges only. Every other outside step (a deploy, a push to main, a
+  delete, an outside write) keeps the scoped rule whatever its command looks like, so a check
+  in an earlier step still counts for a deploy written with a redirect, a subshell, brackets or
+  an `if` block. A merge in a command the reader cannot parse is not checked.
+- A merge of pull request N in any repository form (`gh pr merge 5 -R o/r`) clears an earlier
+  read of N with the same or an unknown repository, so a stale read does not check a later
+  merge.
 - A write inside a loop body or an `if` branch is now found as its own write kind
   (`while ...; do git push origin main; done` is a `git_push`). Before, it was `unknown`.
   Other outside steps keep the scoped rule above.
