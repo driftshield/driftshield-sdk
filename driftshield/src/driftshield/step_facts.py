@@ -15,6 +15,12 @@ command *before* redaction and sends only values from closed lists:
 ``checked_before``
     ``True`` when an earlier shell step in the same run was ``read_only``,
     ``test`` or ``build``; ``False`` otherwise.
+``error_class``
+    Why a step failed, from its result text: ``none`` (it did not fail, or the
+    reason could not be read), ``precondition_failed``, ``permission_denied``,
+    ``conflict``, ``not_found``, ``timeout``, ``other``. Shell steps always carry
+    the field. Any other tool call (an edit, a write, a read) carries step facts
+    only when its result was an error, so the field is there to say why.
 
 Nothing else leaves: no command text, path, argument, prompt or code, and no
 hash or fingerprint of them. Every value is checked against its list by
@@ -46,7 +52,10 @@ STEP_FACTS_KEY = "step_facts"
 # pull request create and invoke are no longer counted as checks or writes).
 # v3: 0.3.3 (jq and yq count as plain filters only: any flag that reads another file, loads
 # modules or writes files makes the call something else).
-STEP_FACTS_VERSION = "step-facts.v4"
+# v4: 0.3.3 (read only chains join on ; and newline, quiet redirects and sleep are skipped,
+# narrow help calls). v5: 0.3.4 (a new ``error_class`` field; a failed tool call that is not
+# a shell step now carries step facts too).
+STEP_FACTS_VERSION = "step-facts.v5"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -61,6 +70,15 @@ COMMAND_KINDS: tuple[str, ...] = (
 )
 TARGET_KINDS: tuple[str, ...] = ("own_checkout", "main_branch", "outside_service", "unknown")
 EXIT_STATUSES: tuple[str, ...] = ("success", "failure", "unknown")
+ERROR_CLASSES: tuple[str, ...] = (
+    "none",
+    "precondition_failed",
+    "permission_denied",
+    "conflict",
+    "not_found",
+    "timeout",
+    "other",
+)
 
 _CHECK_KINDS = frozenset({"read_only", "test", "build"})
 # Most serious first. A compound command takes the most serious kind in it.
@@ -91,26 +109,32 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "target_kind": "unknown",
         "exit_status": "unknown",
         "checked_before": checked_before,
+        "error_class": "none",
     }
 
 
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
     """Rebuild ``value`` from the fixed lists, or ``None`` when it is not facts.
 
-    Only the four known keys are read. Each value must be an exact member of
-    its list, otherwise it becomes ``unknown`` (``False`` for the flag). No
-    other key and no free text can survive.
+    Only the five known keys are read. Each value must be an exact member of
+    its list, otherwise it becomes ``unknown`` (``False`` for the flag, ``none``
+    for the error class, so a bad or missing value never reads as a failure
+    reason). No other key and no free text can survive.
     """
     if not isinstance(value, Mapping):
         return None
     kind = value.get("command_kind")
     target = value.get("target_kind")
     status = value.get("exit_status")
+    error_class = value.get("error_class")
     return {
         "command_kind": kind if isinstance(kind, str) and kind in COMMAND_KINDS else "unknown",
         "target_kind": target if isinstance(target, str) and target in TARGET_KINDS else "unknown",
         "exit_status": status if isinstance(status, str) and status in EXIT_STATUSES else "unknown",
         "checked_before": value.get("checked_before") is True,
+        "error_class": (
+            error_class if isinstance(error_class, str) and error_class in ERROR_CLASSES else "none"
+        ),
     }
 
 
@@ -1777,6 +1801,123 @@ def _chain_check_label(command: str) -> _Result:
 
 
 # --------------------------------------------------------------------------- #
+# Error classes (result text in, one enum value out)
+# --------------------------------------------------------------------------- #
+
+_MAX_ERROR_TEXT_CHARS = 4_000
+# Checked in this order, so the first class with a matching phrase wins. A refused edit
+# ("string to replace not found") must be a precondition failure, not not_found.
+_ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "permission_denied",
+        (
+            "permission denied",
+            "eacces",
+            "eperm",
+            "operation not permitted",
+            "not permitted",
+            "permission to use",
+            "requested permissions",
+            "haven't granted",
+            "hasn't granted",
+            "has been denied",
+            "doesn't want to proceed",
+            "tool use was rejected",
+            "user rejected",
+            "user denied",
+            "requires approval",
+        ),
+    ),
+    (
+        "precondition_failed",
+        (
+            "string to replace not found",
+            "not found in file",
+            "no changes to make",
+            "exactly the same",
+            "matches of the string",
+            "multiple matches",
+            "more than one match",
+            "not unique",
+            "has not been read yet",
+            "read it again",
+            "modified since",
+            "has been modified",
+            "unexpectedly modified",
+            "did not match",
+            "patch failed",
+            "hunk failed",
+            "verification failed",
+            "context mismatch",
+        ),
+    ),
+    (
+        "conflict",
+        (
+            "conflict",
+            "already exists",
+            "eexist",
+            "409",
+            "version mismatch",
+            "stale",
+            "concurrent modification",
+            "is locked",
+        ),
+    ),
+    (
+        "not_found",
+        (
+            "no such file",
+            "no such directory",
+            "enoent",
+            "does not exist",
+            "not found",
+            "404",
+        ),
+    ),
+    ("timeout", ("timed out", "timeout", "etimedout", "deadline exceeded")),
+)
+
+
+def classify_error(text: object) -> str | None:
+    """Sort a failed tool result into one value of ``ERROR_CLASSES``.
+
+    Only phrases from the fixed lists above are looked for, so the result is never
+    free text. ``None`` means the text is hidden (a redacted placeholder) or not text,
+    and the caller keeps whatever it already had.
+    """
+    if not isinstance(text, str) or text.lstrip().startswith("<REDACTED"):
+        return None
+    lowered = text[:_MAX_ERROR_TEXT_CHARS].lower()
+    for error_class, phrases in _ERROR_PHRASES:
+        if any(phrase in lowered for phrase in phrases):
+            return error_class
+    return "other"
+
+
+def _text_of(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        chunks: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, Mapping) and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+        return "\n".join(chunks)
+    return ""
+
+
+def _result_text(node: Mapping[str, Any]) -> str:
+    """The visible text of a tool result block, for any supported adapter."""
+    for key in ("content", "output"):
+        if key in node:
+            return _text_of(node[key])
+    return ""
+
+
+# --------------------------------------------------------------------------- #
 # Reading raw transcripts (before redaction)
 # --------------------------------------------------------------------------- #
 
@@ -1887,6 +2028,16 @@ def _carriers(
     return found
 
 
+def _input_hidden(value: object) -> bool:
+    """True when a tool input is already a redaction placeholder."""
+    if isinstance(value, str):
+        return value.lstrip().startswith("<REDACTED")
+    if isinstance(value, Mapping):
+        placeholder = value.get("redacted")
+        return isinstance(placeholder, str) and placeholder.startswith("<REDACTED")
+    return False
+
+
 def _call_id(node: Mapping[str, Any]) -> str | None:
     for key in ("id", "call_id"):
         value = node.get(key)
@@ -1928,33 +2079,51 @@ def compute_step_facts(
     recomputed.
     """
     facts_by_node: dict[int, dict[str, Any]] = {}
-    pending: dict[str, dict[str, Any]] = {}
+    # call id -> (facts, call block, is a shell step)
+    pending: dict[str, tuple[dict[str, Any], dict[str, Any], bool]] = {}
     seen_check = False
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
-            if name.lower() not in SHELL_TOOL_NAMES:
-                continue
             raw_input = node.get("input") if "input" in node else node.get("arguments")
-            command = _command_from_input(raw_input)
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
-            if command is None and carried is not None:
-                facts = carried
+            if name.lower() in SHELL_TOOL_NAMES:
+                command = _command_from_input(raw_input)
+                if command is None and carried is not None:
+                    facts = carried
+                else:
+                    kind, target = classify_command(command)
+                    facts = unknown_facts()
+                    facts["command_kind"], facts["target_kind"] = kind, target
+                facts["checked_before"] = seen_check
+                if facts["command_kind"] in _CHECK_KINDS:
+                    seen_check = True
+                facts_by_node[id(node)] = facts
+                is_shell = True
             else:
-                kind, target = classify_command(command)
-                facts = unknown_facts()
-                facts["command_kind"], facts["target_kind"] = kind, target
-            facts["checked_before"] = seen_check
-            if facts["command_kind"] in _CHECK_KINDS:
-                seen_check = True
-            facts_by_node[id(node)] = facts
+                # Any other tool call gets facts only if its result turns out to be an
+                # error (below). Facts already on a call whose input is hidden were
+                # written by an earlier redaction and are kept after validation. On a
+                # call whose input is visible they are never believed.
+                facts = carried if carried is not None and _input_hidden(raw_input) else unknown_facts()
+                if facts is carried:
+                    facts_by_node[id(node)] = facts
+                is_shell = False
             call_id = _call_id(node)
             if call_id is not None:
-                pending[call_id] = facts
+                pending[call_id] = (facts, node, is_shell)
         else:
             call_id, status = _result_id_and_status(node)
-            if call_id is not None and call_id in pending and status != "unknown":
-                pending[call_id]["exit_status"] = status
+            if call_id is None or call_id not in pending or status == "unknown":
+                continue
+            facts, call_node, is_shell = pending[call_id]
+            facts["exit_status"] = status
+            if status == "failure":
+                error_class = classify_error(_result_text(node))
+                if error_class is not None:
+                    facts["error_class"] = error_class
+                if not is_shell:
+                    facts_by_node[id(call_node)] = facts
     return facts_by_node
 
 

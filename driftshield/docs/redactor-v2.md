@@ -41,9 +41,11 @@ in any part of the command, or `unknown`. A local `git merge`, `gh pr create`
 and `aws ... invoke` are `unknown`. Comment and here document text is scanned like any other text and
 can only make a step look more like a write, never less.
 
-A shell tool call keeps one extra key, `step_facts`, with four values taken
-from fixed lists: `command_kind`, `target_kind`, `exit_status` and
-`checked_before`. They are computed from the raw command before it is
+A shell tool call keeps one extra key, `step_facts`, with five values taken
+from fixed lists: `command_kind`, `target_kind`, `exit_status`, `checked_before` and
+`error_class` (why a step failed: `none`, `precondition_failed`, `permission_denied`,
+`conflict`, `not_found`, `timeout` or `other`). Any other tool call carries `step_facts`
+only when its result was an error, to say why. They are computed from the raw command before it is
 replaced, and no command text, path, argument or hash of them is kept. The key
 is written by the redactor only. A `step_facts` key in the input is never
 copied as is: for a step whose command is visible the facts are recomputed from

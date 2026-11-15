@@ -24,10 +24,19 @@ def _read(index: int) -> dict[str, Any]:
     }
 
 
-def _write(index: int, *, failure: str | None = None) -> dict[str, Any]:
+def _write(
+    index: int, *, failure: str | None = None, error_class: str | None = "other"
+) -> dict[str, Any]:
+    """A write event. ``error_class`` is what the step facts say; ``None`` means no facts."""
     payload: dict[str, Any] = {"tool_name": "write"}
     if failure is not None:
         payload["failure_context"] = {"status": failure, "error": "boom" if failure == "error" else None}
+        if error_class is not None:
+            payload["step_facts"] = {
+                **facts("unknown"),
+                "exit_status": "failure",
+                "error_class": error_class,
+            }
     return {
         "event_id": f"evt-{index}",
         "sequence_index": index,
@@ -44,13 +53,26 @@ def _state_fires(events: list[dict[str, Any]]) -> bool:
     return "R-STA-001" in rules
 
 
-def test_a_rejected_write_after_a_read_fires():
-    assert _state_fires([_read(0), _write(1, failure="error")])
+@pytest.mark.parametrize("error_class", ["conflict", "other"])
+def test_a_rejected_write_after_a_read_fires_for_a_conflict_or_an_unexplained_failure(error_class):
+    assert _state_fires([_read(0), _write(1, failure="error", error_class=error_class)])
+
+
+@pytest.mark.parametrize(
+    "error_class", ["precondition_failed", "permission_denied", "not_found", "timeout", "none"]
+)
+def test_an_edit_the_tool_refused_or_a_failure_that_wrote_nothing_never_fires(error_class):
+    assert not _state_fires([_read(0), _write(1, failure="error", error_class=error_class)])
+
+
+def test_a_rejected_write_with_no_step_facts_does_not_fire():
+    # An upload from before error classes exists: the reason is unknown, so rather miss.
+    assert not _state_fires([_read(0), _write(1, failure="error", error_class=None)])
 
 
 def test_a_rejected_write_without_an_earlier_read_does_not_fire():
-    assert not _state_fires([_write(0, failure="error")])
-    assert not _state_fires([_write(0, failure="error"), _read(1)])
+    assert not _state_fires([_write(0, failure="error", error_class="conflict")])
+    assert not _state_fires([_write(0, failure="error", error_class="conflict"), _read(1)])
 
 
 def test_a_successful_write_after_a_read_does_not_fire():
@@ -107,13 +129,77 @@ def _conflict_hit(*lines: str) -> bool:
     return any(hit.signature_id == "mechanism:state_conflict" for hit in run.signature_hits)
 
 
-def test_read_then_a_write_that_errors_is_a_conflict():
-    assert _conflict_hit(
+def _read_then_failed_write(write_result: str, tool: str = "Write") -> bool:
+    return _conflict_hit(
         _call("2026-03-01T11:00:00Z", "r", "Read"),
         _result("2026-03-01T11:00:01Z", "r", "contents", False),
-        _call("2026-03-01T11:00:02Z", "w", "Write"),
-        _result("2026-03-01T11:00:03Z", "w", "file has been modified since read", True),
+        _call("2026-03-01T11:00:02Z", "w", tool),
+        _result("2026-03-01T11:00:03Z", "w", write_result, True),
     )
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "CONFLICT: the file already exists",
+        "HTTP 409 version mismatch",
+        "something unexpected happened",
+    ],
+)
+def test_read_then_a_write_that_fails_as_a_conflict_or_unexplained_is_a_conflict(message):
+    assert _read_then_failed_write(message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "String to replace not found in file.",
+        "File has been modified since read, either by the user or by a linter.",
+        "File has not been read yet. Read it first before writing to it.",
+        "Claude requested permissions to write to a.py, but you haven't granted it yet.",
+        "Permission to use Edit has been denied.",
+        "ENOENT: no such file or directory",
+        "Command timed out",
+    ],
+)
+@pytest.mark.parametrize("tool", ["Edit", "Write"])
+def test_an_edit_the_tool_refused_is_not_a_conflict(message, tool):
+    assert not _read_then_failed_write(message, tool)
+
+
+def _openclaw_read_then_failed_write(write_result: str) -> bool:
+    records = [
+        {"type": "session", "id": "s1", "timestamp": "2026-09-01T09:00:00.000Z"},
+        {"type": "message", "id": "a0", "timestamp": "2026-09-01T09:01:00.000Z",
+         "message": {"role": "assistant", "content": [
+             {"type": "toolCall", "id": "r", "name": "read", "arguments": {"path": "/a.py"}}]}},
+        {"type": "message", "id": "r0", "timestamp": "2026-09-01T09:01:01.000Z",
+         "message": {"role": "toolResult", "toolCallId": "r", "isError": False,
+                     "content": [{"type": "text", "text": "x"}], "details": {"status": "completed"}}},
+        {"type": "message", "id": "a1", "timestamp": "2026-09-01T09:02:00.000Z",
+         "message": {"role": "assistant", "content": [
+             {"type": "toolCall", "id": "w", "name": "edit",
+              "arguments": {"path": "/a.py", "oldText": "a", "newText": "b"}}]}},
+        {"type": "message", "id": "r1", "timestamp": "2026-09-01T09:02:01.000Z",
+         "message": {"role": "toolResult", "toolCallId": "w", "isError": True,
+                     "content": [{"type": "text", "text": write_result}],
+                     "details": {"status": "error"}}},
+    ]
+    run = analyse_run("\n".join(json.dumps(r) for r in records).encode(), format="openclaw")
+    return any(hit.signature_id == "mechanism:state_conflict" for hit in run.signature_hits)
+
+
+@pytest.mark.parametrize(
+    ("message", "fires"),
+    [
+        ("CONFLICT: the file already exists", True),
+        ("something unexpected happened", True),
+        ("Could not find the exact text in a.py. String to replace not found in file.", False),
+        ("Permission denied", False),
+    ],
+)
+def test_openclaw_edits_follow_the_same_rule(message, fires):
+    assert _openclaw_read_then_failed_write(message) is fires
 
 
 def test_a_failed_read_then_a_good_write_is_not_a_conflict():

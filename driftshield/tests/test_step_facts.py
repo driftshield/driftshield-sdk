@@ -14,13 +14,14 @@ from driftshield.step_facts import (
     _has_shell_operators,
     _split_chain,
     COMMAND_KINDS,
+    ERROR_CLASSES,
     EXIT_STATUSES,
     TARGET_KINDS,
     classify_command,
     sanitise_step_facts,
 )
 
-FACT_KEYS = {"command_kind", "target_kind", "exit_status", "checked_before"}
+FACT_KEYS = {"command_kind", "target_kind", "exit_status", "checked_before", "error_class"}
 
 # (command, command_kind, target_kind). Every command kind and every target
 # kind appears at least once.
@@ -601,6 +602,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "target_kind": "/Users/someone/private",
         "exit_status": "success",
         "checked_before": "yes",
+        "error_class": "permission denied for /Users/someone/private",
         "command": "rm -rf /",
         "extra": {"path": "/etc/passwd"},
     }
@@ -609,6 +611,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "target_kind": "unknown",
         "exit_status": "success",
         "checked_before": False,
+        "error_class": "none",
     }
     assert sanitise_step_facts("a string") is None
     assert sanitise_step_facts(None) is None
@@ -916,6 +919,7 @@ def test_hostile_commands_cannot_leak_through_any_field(builder, fmt, tool):
         assert entry["target_kind"] in TARGET_KINDS
         assert entry["exit_status"] in EXIT_STATUSES
         assert isinstance(entry["checked_before"], bool)
+        assert entry["error_class"] in ERROR_CLASSES
     run = analyse_run(builder(steps, tool), format=fmt)
     dumped = json.dumps(run.redacted_transcript) + json.dumps(run.redaction_manifest)
     for fragment in LEAK_FRAGMENTS:
@@ -959,6 +963,7 @@ def test_a_step_facts_key_in_the_input_is_never_copied_through():
         "target_kind": "own_checkout",
         "exit_status": "unknown",
         "checked_before": False,
+        "error_class": "none",
     }
 
 
@@ -1025,12 +1030,14 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "target_kind": "own_checkout",
             "exit_status": "success",
             "checked_before": False,
+            "error_class": "none",
         },
         {
             "command_kind": "git_push",
             "target_kind": "main_branch",
             "exit_status": "failure",
             "checked_before": True,
+            "error_class": "other",
         },
     ]
     # The second pass must not reset a hidden command to unknown: its own

@@ -287,7 +287,7 @@ environment in the shared copy of the run. It has four fixed strings and nothing
 | `schema_version` | `analyser.v1` | The format of this block |
 | `sdk_version` | for example `0.3.2` | The `driftshield` package version (`driftshield.__version__`). Sent as `unknown` if it is not a plain version number |
 | `matching_rules_version` | for example `phase-3g-deterministic-rules-v2` | The version of the deterministic matching rules. It changes whenever a rule's firing behaviour changes |
-| `step_facts_version` | for example `step-facts.v2` | The version of the shell step classification below. It changes whenever that classification changes |
+| `step_facts_version` | for example `step-facts.v5` | The version of the shell step classification below. It changes whenever that classification changes |
 
 They let a stored verdict or step fact be told apart from one made by an older SDK. They
 come from the installed package, never from the transcript or the machine: a block already
@@ -299,7 +299,7 @@ leave them out.
 Redaction replaces every tool input with a placeholder, so by default nothing
 tells `ls` and `git push` apart. For each shell step (Claude Code `Bash`,
 OpenClaw `exec` and `bash`, and Codex shell calls) the redacted transcript
-keeps one extra key, `step_facts`, with exactly four values. Each value is
+keeps one extra key, `step_facts`, with exactly five values. Each value is
 picked from a fixed list. This is always on. There is no option to turn it off
 or to lower it.
 
@@ -309,6 +309,7 @@ or to lower it.
 | `target_kind` | `own_checkout`, `main_branch`, `outside_service`, `unknown` |
 | `exit_status` | `success`, `failure`, `unknown` |
 | `checked_before` | `true` or `false` |
+| `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
 
 `command_kind` and `target_kind` are decided on your machine by reading the
 command, then only the label leaves. A command that does not match a known shape
@@ -336,8 +337,30 @@ can only make a step look more like a write, never less.
 `read_only`, `test` or `build`. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
+`error_class` says why a step failed, and only a label leaves, never the error text.
+It is read from the failed result on your machine before redaction hides it, by looking
+for fixed phrases, in this order (the first class with a match wins):
+
+| Value | Meaning | Examples of what it matches |
+|-------|---------|-----------------------------|
+| `permission_denied` | The tool or the system refused the call | permission denied, `EACCES`, `EPERM`, a permission the user has not granted, a tool use the user rejected |
+| `precondition_failed` | An edit was refused and nothing was written because the file was not as the edit expected | text to replace not found, more than one match, file not read yet, file changed since it was read, a patch that did not apply |
+| `conflict` | Two writers disagreed | a merge conflict, already exists, `EEXIST`, HTTP 409, a version mismatch |
+| `not_found` | The target is missing | `ENOENT`, no such file, command not found |
+| `timeout` | The call ran out of time | timed out, `ETIMEDOUT` |
+| `other` | The call failed for a reason none of the lists name | everything else that failed |
+| `none` | The step did not fail, or its reason could not be read | |
+
+Every shell step carries `error_class`. Any other tool call (an edit, a write, a read)
+gets a `step_facts` block only when its result was an error, with `command_kind` and
+`target_kind` set to `unknown` and the reason in `error_class`. A call that worked has no
+`step_facts`. A value that is not in the list, or no value at all (an older upload), reads
+as `none`. State conflict uses it: a write the tool rejected after an earlier read counts
+only when the class is `conflict` or `other`, never for `precondition_failed`,
+`permission_denied`, `not_found` or `timeout`, where nothing was written.
+
 Never sent: the command text, any path or argument, prompts, code, file
-contents, and any hash or fingerprint of them. The value of each field is
+contents, the error text, and any hash or fingerprint of them. The value of each field is
 checked against its list before it is written, so a mistake in the classifier
 can only produce `unknown`, never free text.
 

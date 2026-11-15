@@ -3,6 +3,30 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+**Do not release until intel accepts `phase-3g-deterministic-rules-v4` (matching rules) and
+`step-facts.v5` (step facts).** This change moves the matching rules version from
+`phase-3g-deterministic-rules-v3` to `phase-3g-deterministic-rules-v4` and the step facts
+version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
+first, or uploads from the release stop counting.
+
+### State conflict ignores edits the tool refused
+
+- A Claude Code `Edit` refused because the text to replace was not found, a write that
+  was blocked by permissions, a missing file and a timeout all wrote nothing, but each
+  counted as a state conflict if the run had read a file earlier. State conflict now fires
+  only on a rejected write whose reason is a conflict or one the fixed lists do not name
+  (`other`). It never fires on `precondition_failed` or `permission_denied`.
+- To tell them apart after redaction, step facts carry a new field, `error_class`, picked
+  from a fixed list: `none`, `precondition_failed`, `permission_denied`, `conflict`,
+  `not_found`, `timeout`, `other`. It is read from the failed result's text on your
+  machine before redaction, and only the label leaves. Every shell step carries it. Any
+  other tool call gets step facts only when its result was an error. No error text, path
+  or hash is sent. The README lists the values.
+- A write that fails with no step facts or no error class (an older upload) does not count
+  as a conflict: the reason is unknown, so the check errs towards missing.
+
 ## 0.3.3 - 2026-11-14
 
 ### Findings you can trust: local analysis works out step facts, and state conflict needs a real conflict
