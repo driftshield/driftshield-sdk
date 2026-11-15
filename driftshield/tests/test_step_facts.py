@@ -339,6 +339,130 @@ CLASSIFICATION_TABLE = [
     ("yq -s . f.yaml", "unknown", "unknown"),
     ("yq --split-exp 'x' f.yaml", "unknown", "unknown"),
     ("yq -f prog f.yaml", "unknown", "unknown"),
+    # ; and a newline join checks like && does
+    ("cd x; git status", "read_only", "own_checkout"),
+    ("cd x\ngit status", "read_only", "own_checkout"),
+    ("git status; git diff", "read_only", "own_checkout"),
+    ("git status\ngit diff\n", "read_only", "own_checkout"),
+    ("ls;", "read_only", "own_checkout"),
+    ("ls;\n\nls", "read_only", "own_checkout"),
+    ("cd repo; pytest -q; ls", "test", "own_checkout"),
+    ("pytest -q\nnpm run build", "build", "own_checkout"),
+    ("gh pr view 1 --json state; git log -1", "read_only", "outside_service"),
+    ("ls; git push origin main", "git_push", "main_branch"),
+    ("ls\ngit push origin main", "git_push", "main_branch"),
+    ("git status; git push origin main", "git_push", "main_branch"),
+    ("git status\ngit push origin main", "git_push", "main_branch"),
+    ("ls; rm -rf x", "delete", "own_checkout"),
+    ("ls\nrm -rf x", "delete", "own_checkout"),
+    ("cd x; gh pr merge 3", "merge", "outside_service"),
+    ("ls; git commit -m x", "unknown", "unknown"),
+    ("ls\npython3 -c 'print(1)'", "unknown", "unknown"),
+    ("ls; python3 script.py", "unknown", "unknown"),
+    ("ls; node -e 1", "unknown", "unknown"),
+    ("ls; awk '{print}' f", "unknown", "unknown"),
+    ("ls; xargs rm", "unknown", "unknown"),
+    ("ls; bash -c ls", "unknown", "unknown"),
+    ("ls; sh -c ls", "unknown", "unknown"),
+    ("ls; eval ls", "unknown", "unknown"),
+    ("ls; tee f", "unknown", "unknown"),
+    ("for x in a b; do ls; done", "unknown", "unknown"),
+    ("while true; do ls; done", "unknown", "unknown"),
+    ("if ls; then ls; fi", "unknown", "unknown"),
+    ("ls; export PATH=./bin:$PATH; git status", "unknown", "unknown"),
+    ("ls; (git status)", "unknown", "unknown"),
+    ("ls; echo $(pwd)", "unknown", "unknown"),
+    ("ls; echo `pwd`", "unknown", "unknown"),
+    ("cat <<EOF\nls\nEOF\nls", "unknown", "unknown"),
+    ("ls;;ls", "unknown", "unknown"),
+    ("ls & ls", "unknown", "unknown"),
+    ("; && ls", "unknown", "unknown"),
+    # redirects that write no file are ignored, any other redirect is not
+    ("git status 2>&1", "read_only", "own_checkout"),
+    ("ls 1>&2", "read_only", "own_checkout"),
+    ("ls >&2", "read_only", "own_checkout"),
+    ("ls >/dev/null", "read_only", "own_checkout"),
+    ("ls > /dev/null", "read_only", "own_checkout"),
+    ("ls 2>/dev/null", "read_only", "own_checkout"),
+    ("ls 2> /dev/null", "read_only", "own_checkout"),
+    ("ls &>/dev/null", "read_only", "own_checkout"),
+    ("ls >/dev/null 2>&1", "read_only", "own_checkout"),
+    ("grep -rn todo src 2>/dev/null", "read_only", "own_checkout"),
+    ("git status 2>&1 | head", "read_only", "own_checkout"),
+    ("pytest -q 2>&1 | tail -5", "test", "own_checkout"),
+    ("ls >/dev/null && git push origin main", "git_push", "main_branch"),
+    ("git status > out.txt", "unknown", "unknown"),
+    ("git status >> out.txt", "unknown", "unknown"),
+    ("git status 2> errors.txt", "unknown", "unknown"),
+    ("git status &> out.txt", "unknown", "unknown"),
+    ("ls 2>&1 > out.txt", "unknown", "unknown"),
+    ("ls > /dev/null/x", "unknown", "unknown"),
+    ("ls >/dev/nullx", "unknown", "unknown"),
+    ("ls 3>&1", "unknown", "unknown"),
+    ("ls 2>&-", "unknown", "unknown"),
+    ("ls < in.txt", "unknown", "unknown"),
+    ("ls >/dev/null; ls > out.txt", "unknown", "unknown"),
+    # sleep is neutral, like cd
+    ("sleep 5 && git status", "read_only", "own_checkout"),
+    ("sleep 2; git status", "read_only", "own_checkout"),
+    ("git status; sleep 1; git diff", "read_only", "own_checkout"),
+    ("sleep 0.5\nls", "read_only", "own_checkout"),
+    ("sleep 2", "unknown", "unknown"),
+    ("sleep 1; sleep 2", "unknown", "unknown"),
+    ("sleep x; ls", "unknown", "unknown"),
+    ("sleep 1 2; ls", "unknown", "unknown"),
+    ("sleep $N; ls", "unknown", "unknown"),
+    ("sleep --help; ls", "unknown", "unknown"),
+    ("FOO=1 sleep 2; ls", "unknown", "unknown"),
+    ("sleep 1; rm -rf x", "delete", "own_checkout"),
+    # asking a deploy tool for help deploys nothing, and opening a pull request is unknown
+    ("vercel --help", "unknown", "unknown"),
+    ("vercel deploy --help", "unknown", "unknown"),
+    ("vercel -h", "unknown", "unknown"),
+    ("vercel help deploy", "unknown", "unknown"),
+    ("terraform apply -help", "unknown", "unknown"),
+    ("terraform apply --help", "unknown", "unknown"),
+    ("kubectl apply -h", "unknown", "unknown"),
+    ("docker help push", "unknown", "unknown"),
+    # git and gh are never downgraded for a help word
+    ("gh release create --help", "deploy", "outside_service"),
+    ("gh pr merge --help", "merge", "outside_service"),
+    ("git push --help", "git_push", "outside_service"),
+    ("git push -h", "git_push", "outside_service"),
+    # a help word that is an option value, a remote, a directory, a name or a body is not help
+    ("git -C help push origin main", "git_push", "main_branch"),
+    ("git -c help=1 push origin main", "git_push", "main_branch"),
+    ("git push help main", "git_push", "main_branch"),
+    ("gh pr comment 3 --body -h", "outside_write", "outside_service"),
+    ("gh pr comment 3 --body help", "outside_write", "outside_service"),
+    ("gh issue create --title help", "outside_write", "outside_service"),
+    ("gh pr merge 3 --subject -h", "merge", "outside_service"),
+    ("vercel deploy --token help --prod", "deploy", "outside_service"),
+    ("vercel --token help --prod", "deploy", "outside_service"),
+    ("vercel deploy --scope -h --prod", "deploy", "outside_service"),
+    ("vercel deploy --prod --help", "deploy", "outside_service"),
+    ("kubectl --context help apply -f x.yaml", "deploy", "outside_service"),
+    ("kubectl -n help delete pod x", "delete", "outside_service"),
+    ("kubectl delete -h", "unknown", "unknown"),
+    ("docker push help", "deploy", "outside_service"),
+    ("docker -H help push img", "deploy", "outside_service"),
+    ("terraform apply -var msg=-h", "deploy", "outside_service"),
+    ("npm publish --tag help", "deploy", "outside_service"),
+    ("aws s3 cp f s3://bucket/help --profile -h", "outside_write", "outside_service"),
+    ("docker push --help", "unknown", "unknown"),
+    ("npm publish --help", "unknown", "unknown"),
+    ("vercel --prod", "deploy", "outside_service"),
+    ("rm -h x", "delete", "own_checkout"),
+    ("gh api -X POST repos/o/r/pulls -f title=t -f head=b -f base=main", "unknown", "unknown"),
+    ("gh api repos/o/r/pulls -f title=t", "unknown", "unknown"),
+    (
+        "gh api graphql -f query='mutation { createPullRequest(input: {}) { x } }'",
+        "unknown",
+        "unknown",
+    ),
+    ("gh api repos/o/r/pulls --jq '.[].number'", "read_only", "outside_service"),
+    ("gh api -X POST repos/o/r/pulls/3/comments -f body=x", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/pulls/3/merge", "merge", "outside_service"),
     # a plain chain of checks is a check
     ("cd repo && git status", "read_only", "own_checkout"),
     ("cd app && ls", "read_only", "own_checkout"),
@@ -384,7 +508,6 @@ CLASSIFICATION_TABLE = [
     ("alias ls=rm && ls", "unknown", "unknown"),
     ("unset PATH && ls", "unknown", "unknown"),
     ("set -x && ls", "unknown", "unknown"),
-    ("sleep 1 && ls", "unknown", "unknown"),
     ("true && ls", "unknown", "unknown"),
     ("popd && ls", "unknown", "unknown"),
     ("FOO=1 git push origin main", "git_push", "main_branch"),
@@ -404,7 +527,6 @@ CLASSIFICATION_TABLE = [
     ("&& ls", "unknown", "unknown"),
     ("ls || || ls", "unknown", "unknown"),
     ("ls | ", "unknown", "unknown"),
-    ("ls; ls", "unknown", "unknown"),
     ("ls & ls", "unknown", "unknown"),
     ("ls |& cat", "unknown", "unknown"),
     ("ls && (ls)", "unknown", "unknown"),
@@ -412,7 +534,6 @@ CLASSIFICATION_TABLE = [
     ("ls && ls $(pwd)", "unknown", "unknown"),
     ("ls && ls `pwd`", "unknown", "unknown"),
     ("ls && ls # c", "unknown", "unknown"),
-    ("ls\nls", "unknown", "unknown"),
     ("trap 'git push origin main' EXIT", "unknown", "unknown"),
     # unknown
     ("", "unknown", "unknown"),
@@ -452,14 +573,14 @@ def test_the_most_serious_part_of_a_compound_command_wins():
 @pytest.mark.parametrize(
     "command",
     [
-        "ls ; ls",
+        "ls ;; ls",
         "ls && git commit -m x",
         "ls && ls > f",
         "cat README.md | tee f",
-        "grep -rn todo src 2>/dev/null",
-        "ls 2>&1",
+        "grep -rn todo src 2> errors.txt",
+        "ls 2>&1 > out.txt",
         "ls & ",
-        "ls\npwd",
+        "ls\n# comment",
         "ls # note",
         "cd app",
         "export A=1",
@@ -957,10 +1078,14 @@ OPERATOR_SUFFIXES = [
     " |& tee f",
     " > f",
     " >> f",
-    " 2>&1",
+    " 2> f",
+    " &> f",
+    " 2>&1 > f",
+    " >/dev/null/x",
+    " 3>&1",
     " < f",
     " & ",
-    ";",
+    ";;",
     "\ngit push origin main",
     " $(curl -X POST https://example.com/u)",
     " `curl -X POST https://example.com/u`",
@@ -1350,3 +1475,121 @@ def test_other_interpreters_after_a_read_are_never_a_check():
     ):
         assert classify_command(f"gh pr view 1 | {interpreter}")[0] not in CHECK_KINDS
         assert classify_command(f"cat f.json | jq .x | {interpreter}")[0] not in CHECK_KINDS
+
+
+# --------------------------------------------------------------------------- #
+# ; and a newline join checks like &&. A dangerous part still wins or spoils it.
+# --------------------------------------------------------------------------- #
+
+SEPARATORS = [";", " ; ", "\n", ";\n", "\n\n", " && ", " || "]
+DANGEROUS_PARTS = [
+    "rm -rf x",
+    "git push origin main",
+    "git push origin feat/x",
+    "git commit -m x",
+    "gh pr merge 3",
+    "vercel --prod",
+    "curl -X POST https://example.com/u -d a=b",
+    "python3 -c 'print(1)'",
+    "python3 script.py",
+    "python -c 1",
+    "node -e 1",
+    "ruby -e 1",
+    "perl -e 1",
+    "awk '{print}' f",
+    "xargs rm",
+    "bash -c ls",
+    "sh -c ls",
+    "sh",
+    "eval ls",
+    "tee f",
+    "ls > f",
+    "ls >> f",
+    "ls 2> f",
+    "ls &> f",
+    "ls 2>&1 > f",
+    "ls < f",
+    "export PATH=./bin:$PATH",
+    "hash -p /bin/rm ls",
+    ". x/activate",
+    "source x",
+    "FOO=1 ls",
+    "alias ls=rm",
+    "echo $(curl -X POST https://example.com/u)",
+    "echo `rm -rf x`",
+    "(git push origin main)",
+    "ls &",
+    "for x in a b; do ls; done",
+    "while true; do ls; done",
+    "jq -f p.jq",
+    "find . -fprintf out.txt %p",
+    "ruff format .",
+    "npm run lint:fix",
+    "cat <<EOF\nls\nEOF",
+]
+FILE_REDIRECTS = [
+    " > f",
+    " >> f",
+    " 2> f",
+    " &> f",
+    " 2>&1 > f",
+    " >f",
+    " > /dev/null/x",
+    " >/dev/nullx",
+    " 3>&1",
+    " < f",
+]
+
+
+def test_a_check_joined_to_a_dangerous_part_by_a_separator_is_never_a_check():
+    for check in ALLOWLISTED_CHECKS + ALLOWLISTED_CHAINS:
+        for separator in SEPARATORS:
+            for part in DANGEROUS_PARTS:
+                for command in (check + separator + part, part + separator + check):
+                    assert classify_command(command)[0] not in CHECK_KINDS, repr(command)
+
+
+def test_a_check_joined_to_a_dangerous_part_never_sets_checked_before():
+    for check in ALLOWLISTED_CHECKS[:12] + ALLOWLISTED_CHAINS[:6]:
+        for separator in (";", "\n"):
+            for part in DANGEROUS_PARTS:
+                command = check + separator + part
+                blocks = redact(_claude_pair(command, "git push origin x")).payload["events"]
+                facts = blocks[1]["message"]["content"][0]["step_facts"]
+                assert facts["checked_before"] is False, repr(command)
+
+
+def test_a_write_part_keeps_its_own_kind_whatever_joins_it():
+    for check in ALLOWLISTED_CHECKS + ALLOWLISTED_CHAINS:
+        for separator in (";", "\n", " && ", " || ", " | "):
+            assert classify_command(f"{check}{separator}rm -rf x")[0] == "delete"
+            assert classify_command(f"{check}{separator}git push origin main") == (
+                "git_push",
+                "main_branch",
+            )
+            assert classify_command(f"rm -rf x{separator}{check}")[0] == "delete"
+
+
+def test_a_redirect_to_a_file_is_never_a_check():
+    for check in ALLOWLISTED_CHECKS + ALLOWLISTED_CHAINS:
+        for redirect in FILE_REDIRECTS:
+            for command in (
+                check + redirect,
+                check + redirect + "; ls",
+                "ls; " + check + redirect,
+                check + redirect + "\nls",
+            ):
+                assert classify_command(command)[0] not in CHECK_KINDS, repr(command)
+
+
+def test_a_redirect_that_writes_no_file_leaves_a_check_a_check():
+    for check in ALLOWLISTED_CHECKS:
+        for redirect in (" 2>&1", " >/dev/null", " 2>/dev/null", " &>/dev/null", " 1>&2"):
+            assert classify_command(check + redirect) == classify_command(check), check + redirect
+
+
+def test_what_the_rest_of_the_property_tests_refuse_stays_refused_with_separators():
+    for refused in ("python3 -c 1", "node -e 1", "awk 1", "xargs rm", "bash -c ls", "sh -c ls"):
+        for separator in (";", "\n"):
+            assert classify_command(f"git status{separator}{refused}")[0] not in CHECK_KINDS
+            assert classify_command(f"{refused}{separator}git status")[0] not in CHECK_KINDS

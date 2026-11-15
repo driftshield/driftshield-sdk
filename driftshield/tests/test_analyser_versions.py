@@ -143,7 +143,10 @@ def _write() -> None:
     for key, value in matching_behaviour().items():
         matching.setdefault(key, value)
     facts = data["step_facts"].setdefault(STEP_FACTS_VERSION, {})
-    for command, value in step_facts_behaviour(_frozen_commands()).items():
+    # Every command pinned for an earlier version is classified again, so the new entry
+    # shows exactly what changed from the old one.
+    earlier = {c for version, pinned in data["step_facts"].items() for c in pinned}
+    for command, value in step_facts_behaviour(sorted(set(_frozen_commands()) | earlier)).items():
         facts.setdefault(command, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 

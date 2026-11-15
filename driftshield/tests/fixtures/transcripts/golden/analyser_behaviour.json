@@ -2692,6 +2692,1712 @@
     "unknown",
     "unknown"
    ]
+  },
+  "step-facts.v4": {
+   "": [
+    "unknown",
+    "unknown"
+   ],
+   "   ": [
+    "unknown",
+    "unknown"
+   ],
+   "&& ls": [
+    "unknown",
+    "unknown"
+   ],
+   "(( x = 1<<2 ))\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "(git push origin main);ls": [
+    "git_push",
+    "main_branch"
+   ],
+   "(npm test);git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   ". x/activate && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "./scripts/run.sh": [
+    "unknown",
+    "unknown"
+   ],
+   "; && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "FOO=1 git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "FOO=1 ls": [
+    "unknown",
+    "unknown"
+   ],
+   "FOO=1 ls && git status": [
+    "unknown",
+    "unknown"
+   ],
+   "FOO=1 sleep 2; ls": [
+    "unknown",
+    "unknown"
+   ],
+   "PATH=./bin ls": [
+    "unknown",
+    "unknown"
+   ],
+   "alias ls=rm && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "aws --profile p --region eu-west-1 lambda invoke --function-name f o.json": [
+    "unknown",
+    "unknown"
+   ],
+   "aws --profile p --region eu-west-1 lambda update-function-code --function-name f": [
+    "deploy",
+    "outside_service"
+   ],
+   "aws --profile p ec2 describe-instances": [
+    "read_only",
+    "outside_service"
+   ],
+   "aws --profile p s3 rm s3://bucket/key": [
+    "delete",
+    "outside_service"
+   ],
+   "aws lambda invoke --function-name f out.json": [
+    "unknown",
+    "unknown"
+   ],
+   "aws lambda update-function-code --function-name f": [
+    "deploy",
+    "outside_service"
+   ],
+   "aws s3 cp f s3://bucket/help --profile -h": [
+    "outside_write",
+    "outside_service"
+   ],
+   "aws s3 cp out.txt s3://bucket/out.txt": [
+    "outside_write",
+    "outside_service"
+   ],
+   "aws sagemaker-runtime invoke-endpoint --endpoint-name e o.json": [
+    "unknown",
+    "unknown"
+   ],
+   "bash -c 'git push origin main'": [
+    "unknown",
+    "unknown"
+   ],
+   "black .": [
+    "unknown",
+    "unknown"
+   ],
+   "cargo build --release": [
+    "build",
+    "own_checkout"
+   ],
+   "cargo clippy --fix": [
+    "unknown",
+    "unknown"
+   ],
+   "cat /etc/hosts": [
+    "read_only",
+    "unknown"
+   ],
+   "cat <(curl -X DELETE https://example.com/u)": [
+    "delete",
+    "outside_service"
+   ],
+   "cat <<\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<\"EOF\"\n`rm -rf build`\nEOF": [
+    "delete",
+    "own_checkout"
+   ],
+   "cat <<'EOF'\n$(git push origin main)\nEOF": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<'EOF'\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<'EOF'\ngit push origin main\nEOF": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<'EOF'\ntext\nEOF\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<'EOF'\ntext\nEOF\nrm -rf build": [
+    "delete",
+    "own_checkout"
+   ],
+   "cat <<'EOF' | git push origin main\ntext\nEOF": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<-EOF\n\t`rm -rf build`\n\tEOF": [
+    "delete",
+    "own_checkout"
+   ],
+   "cat <<< hello\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<EOF\n$(git push origin main)\nEOF": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<EOF\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat <<EOF\nhello\nEOF": [
+    "unknown",
+    "unknown"
+   ],
+   "cat <<EOF\nls\nEOF\nls": [
+    "unknown",
+    "unknown"
+   ],
+   "cat <<EOF\nplain text\nEOF": [
+    "unknown",
+    "unknown"
+   ],
+   "cat <<EOF\ntext\nEOF\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cat README.md": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cat README.md | head -20": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cat f | xargs rm": [
+    "unknown",
+    "unknown"
+   ],
+   "cat f.json | jq --rawfile a g .x": [
+    "unknown",
+    "unknown"
+   ],
+   "cat f.json | jq -r '.items[] | .name'": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cat f.json | jq .x": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cat f.json | python3 -c 'import sys'": [
+    "unknown",
+    "unknown"
+   ],
+   "cd $HOME && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "cd && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "cd - && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "cd .. && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "cd ../other && git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "cd ./app && git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cd /etc && cat passwd": [
+    "read_only",
+    "unknown"
+   ],
+   "cd /etc && rm -rf conf": [
+    "delete",
+    "unknown"
+   ],
+   "cd /tmp/x && pytest": [
+    "test",
+    "unknown"
+   ],
+   "cd app && ls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cd app && pytest": [
+    "test",
+    "own_checkout"
+   ],
+   "cd repo": [
+    "unknown",
+    "unknown"
+   ],
+   "cd repo && cd ..": [
+    "unknown",
+    "unknown"
+   ],
+   "cd repo && git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cd repo; pytest -q; ls": [
+    "test",
+    "own_checkout"
+   ],
+   "cd sub/../.. && git status": [
+    "read_only",
+    "unknown"
+   ],
+   "cd sub/dir && pytest -q": [
+    "test",
+    "own_checkout"
+   ],
+   "cd x\ngit status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cd x && npm run lint:fix": [
+    "unknown",
+    "unknown"
+   ],
+   "cd x && rm -rf build": [
+    "delete",
+    "own_checkout"
+   ],
+   "cd x; gh pr merge 3": [
+    "merge",
+    "outside_service"
+   ],
+   "cd x; git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "cd ~ && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "curl --data @file https://api.example.com/x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "curl -X POST https://api.example.com/x -d a=b": [
+    "outside_write",
+    "outside_service"
+   ],
+   "curl -o /dev/null https://example.com/health": [
+    "read_only",
+    "outside_service"
+   ],
+   "curl -o out.bin https://example.com/f": [
+    "unknown",
+    "unknown"
+   ],
+   "curl -sSLO https://example.com/f": [
+    "unknown",
+    "unknown"
+   ],
+   "curl https://example.com/health": [
+    "read_only",
+    "outside_service"
+   ],
+   "date": [
+    "read_only",
+    "own_checkout"
+   ],
+   "date -s '2026-01-01'": [
+    "unknown",
+    "unknown"
+   ],
+   "docker -H help push img": [
+    "deploy",
+    "outside_service"
+   ],
+   "docker -H tcp://host:2375 push img": [
+    "deploy",
+    "outside_service"
+   ],
+   "docker build -t app .": [
+    "build",
+    "own_checkout"
+   ],
+   "docker help push": [
+    "unknown",
+    "unknown"
+   ],
+   "docker push --help": [
+    "unknown",
+    "unknown"
+   ],
+   "docker push help": [
+    "deploy",
+    "outside_service"
+   ],
+   "docker push registry/app:1": [
+    "deploy",
+    "outside_service"
+   ],
+   "echo \"$(echo \")\"; git push origin main)\"": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo \"$(echo $(rm -rf build))\"": [
+    "delete",
+    "own_checkout"
+   ],
+   "echo \"$(echo ')'; git push origin main)\"": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo \"$(echo \\\"x\\\")\"": [
+    "unknown",
+    "unknown"
+   ],
+   "echo \"$(git push origin main)\"": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo \"$(ls)\"": [
+    "unknown",
+    "unknown"
+   ],
+   "echo \"<<EOF\"\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo \"`git push origin main`\"": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo $((1<<2))\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo $(git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo $(ls": [
+    "unknown",
+    "unknown"
+   ],
+   "echo $(whoami)": [
+    "unknown",
+    "unknown"
+   ],
+   "echo '$(git push origin main)'": [
+    "read_only",
+    "unknown"
+   ],
+   "echo '<<EOF'\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo 'git push origin main'": [
+    "read_only",
+    "own_checkout"
+   ],
+   "echo `date`": [
+    "unknown",
+    "unknown"
+   ],
+   "echo `echo <<EOF`\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo `git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo `git push origin main`": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo `ls": [
+    "unknown",
+    "unknown"
+   ],
+   "echo hi # $(git push origin main)": [
+    "git_push",
+    "main_branch"
+   ],
+   "echo hi # `rm -rf build`": [
+    "delete",
+    "own_checkout"
+   ],
+   "env LD_PRELOAD=x.so ls": [
+    "unknown",
+    "unknown"
+   ],
+   "eslint --fix src": [
+    "unknown",
+    "unknown"
+   ],
+   "eslint src": [
+    "test",
+    "own_checkout"
+   ],
+   "export A=1 && export B=2": [
+    "unknown",
+    "unknown"
+   ],
+   "export A=1 && pytest": [
+    "unknown",
+    "unknown"
+   ],
+   "export PATH=./bin:$PATH && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "fd -x rm": [
+    "unknown",
+    "unknown"
+   ],
+   "find . -fls out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "find . -fprint0 out.bin": [
+    "unknown",
+    "unknown"
+   ],
+   "find . -fprintf out.txt %p": [
+    "unknown",
+    "unknown"
+   ],
+   "find . -name '*.pyc' -delete": [
+    "delete",
+    "own_checkout"
+   ],
+   "find . -name x": [
+    "read_only",
+    "own_checkout"
+   ],
+   "for x in a b; do ls; done": [
+    "unknown",
+    "unknown"
+   ],
+   "frobnicate --all": [
+    "unknown",
+    "unknown"
+   ],
+   "gh -R owner/repo pr merge 3": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api -X GET repos/o/r/issues/5/comments --jq '.[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api -X PATCH repos/o/r -f a=b": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PATCH repos/o/r/issues/5 -F state=closed --jq .id": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/merges -f base=main -f head=x": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/pulls -f title=t -f head=b -f base=main": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/pulls/3/comments -f body=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/pulls/3/merge": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api -X PUT repos/o/r/pulls/3/merge": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api graphql -F query='mutation { mergePullRequest(input: {}) { x } }'": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api graphql -f body=mergePullRequest -f query='query { x }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { createPullRequest(input: {}) { x } }'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: 1}) { x } }'": [
+    "merge",
+    "outside_service"
+   ],
+   "gh api repos/o/r/issues/5/comments --jq '.[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api repos/o/r/issues/5/comments --paginate --jq '.[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api repos/o/r/issues/5/comments -f body=x --jq .id": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api repos/o/r/issues/5/comments | jq '.[].body' | head -5": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api repos/o/r/pulls": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api repos/o/r/pulls --jq '.[].number'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api repos/o/r/pulls -f title=t": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api repos/o/r/pulls/3/merge": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh issue create --title help": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue create --title t": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr checks 12": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr comment 12 --body hi": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr comment 3 --body -h": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr comment 3 --body help": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr create --title t --body b": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr list --json number -q '.[].number'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr merge --help": [
+    "merge",
+    "outside_service"
+   ],
+   "gh pr merge 12 --squash": [
+    "merge",
+    "outside_service"
+   ],
+   "gh pr merge 3 --subject -h": [
+    "merge",
+    "outside_service"
+   ],
+   "gh pr view 1 --json comments | jq '.comments[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr view 1 --json comments | jq -f prog.jq": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 1 --json state; git log -1": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr view 1 | awk '{print}'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 1 | head": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr view 1 | node -e 1": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 1 | perl -e 1": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 1 | ruby -e 1": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 1 | sh": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr view 12": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr view 5 --json comments --jq '.comments[] | .body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh pr view 5 --json comments -q '.comments[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh release create --help": [
+    "deploy",
+    "outside_service"
+   ],
+   "gh release create v1.0.0": [
+    "deploy",
+    "outside_service"
+   ],
+   "git -C help push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git -C sub status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git -c help=1 push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git branch -D old": [
+    "delete",
+    "own_checkout"
+   ],
+   "git commit -m \"$(rm -rf build)\"": [
+    "delete",
+    "own_checkout"
+   ],
+   "git commit -m wip": [
+    "unknown",
+    "unknown"
+   ],
+   "git diff --output=d.patch": [
+    "unknown",
+    "unknown"
+   ],
+   "git diff --stat": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git fetch origin": [
+    "unknown",
+    "unknown"
+   ],
+   "git log --oneline -5": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git merge --abort": [
+    "unknown",
+    "unknown"
+   ],
+   "git merge feat/x": [
+    "unknown",
+    "unknown"
+   ],
+   "git push": [
+    "git_push",
+    "outside_service"
+   ],
+   "git push --force-with-lease origin HEAD:master": [
+    "git_push",
+    "main_branch"
+   ],
+   "git push --help": [
+    "git_push",
+    "outside_service"
+   ],
+   "git push -h": [
+    "git_push",
+    "outside_service"
+   ],
+   "git push -u origin feat/step-facts": [
+    "git_push",
+    "outside_service"
+   ],
+   "git push help main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git push origin --delete old": [
+    "delete",
+    "outside_service"
+   ],
+   "git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status\ngit diff\n": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git status && FOO=1 git diff": [
+    "unknown",
+    "unknown"
+   ],
+   "git status && cat f.json | jq .x": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status && git add .": [
+    "unknown",
+    "unknown"
+   ],
+   "git status && git diff && git log --oneline -5": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status && git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git status &> out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "git status 2> errors.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "git status 2>&1": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status 2>&1 | head": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status > out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "git status >> out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "git status || git diff": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status; git diff": [
+    "read_only",
+    "own_checkout"
+   ],
+   "git status; git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "git status; sleep 1; git diff": [
+    "read_only",
+    "own_checkout"
+   ],
+   "go test ./...": [
+    "test",
+    "own_checkout"
+   ],
+   "gofmt -l -w .": [
+    "unknown",
+    "unknown"
+   ],
+   "gofmt -l .": [
+    "test",
+    "own_checkout"
+   ],
+   "grep -rn \"a|b\" src | head": [
+    "read_only",
+    "own_checkout"
+   ],
+   "grep -rn todo src": [
+    "read_only",
+    "own_checkout"
+   ],
+   "grep -rn todo src 2>/dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "hash -p /bin/rm ls && ls -rf x": [
+    "unknown",
+    "unknown"
+   ],
+   "head -20 README.md": [
+    "read_only",
+    "own_checkout"
+   ],
+   "helm -n ns uninstall rel": [
+    "delete",
+    "outside_service"
+   ],
+   "http --download example.com/f": [
+    "unknown",
+    "unknown"
+   ],
+   "http --form example.com/x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "http DELETE example.com/x": [
+    "delete",
+    "outside_service"
+   ],
+   "http GET example.com/x": [
+    "read_only",
+    "outside_service"
+   ],
+   "http POST example.com/x a=b": [
+    "outside_write",
+    "outside_service"
+   ],
+   "http PUT example.com/x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "http example.com/x a=b": [
+    "outside_write",
+    "outside_service"
+   ],
+   "http example.com/x q==1 Accept:application/json": [
+    "read_only",
+    "outside_service"
+   ],
+   "if ls; then ls; fi": [
+    "unknown",
+    "unknown"
+   ],
+   "jest -u": [
+    "unknown",
+    "unknown"
+   ],
+   "jq 'import \"a\" as a; .'": [
+    "unknown",
+    "unknown"
+   ],
+   "jq 'include \"a\"; .'": [
+    "unknown",
+    "unknown"
+   ],
+   "jq --argfile a f.json .x": [
+    "unknown",
+    "unknown"
+   ],
+   "jq --from-file prog.jq data.json": [
+    "unknown",
+    "unknown"
+   ],
+   "jq --library-path mods .": [
+    "unknown",
+    "unknown"
+   ],
+   "jq --rawfile a f.txt .x": [
+    "unknown",
+    "unknown"
+   ],
+   "jq --slurpfile a f.json .x": [
+    "unknown",
+    "unknown"
+   ],
+   "jq -L mods .": [
+    "unknown",
+    "unknown"
+   ],
+   "jq -Lmods .": [
+    "unknown",
+    "unknown"
+   ],
+   "jq -c '.a' f.json": [
+    "read_only",
+    "own_checkout"
+   ],
+   "jq -f prog.jq data.json": [
+    "unknown",
+    "unknown"
+   ],
+   "jq -nf prog.jq": [
+    "unknown",
+    "unknown"
+   ],
+   "jq -nr --arg a b '$a'": [
+    "read_only",
+    "unknown"
+   ],
+   "jq .x f.json > out.json": [
+    "unknown",
+    "unknown"
+   ],
+   "jq modulemeta": [
+    "unknown",
+    "unknown"
+   ],
+   "kubectl --context c apply -f x.yaml": [
+    "deploy",
+    "outside_service"
+   ],
+   "kubectl --context help apply -f x.yaml": [
+    "deploy",
+    "outside_service"
+   ],
+   "kubectl -n help delete pod x": [
+    "delete",
+    "outside_service"
+   ],
+   "kubectl -n prod delete pod web": [
+    "delete",
+    "outside_service"
+   ],
+   "kubectl -n x get pods": [
+    "read_only",
+    "outside_service"
+   ],
+   "kubectl apply -f k8s/": [
+    "deploy",
+    "outside_service"
+   ],
+   "kubectl apply -h": [
+    "unknown",
+    "unknown"
+   ],
+   "kubectl auth can-i get pods": [
+    "read_only",
+    "outside_service"
+   ],
+   "kubectl auth reconcile -f rbac.yaml": [
+    "unknown",
+    "unknown"
+   ],
+   "kubectl delete -h": [
+    "unknown",
+    "unknown"
+   ],
+   "kubectl delete pod web": [
+    "delete",
+    "outside_service"
+   ],
+   "ls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls\nls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls\npython3 -c 'print(1)'": [
+    "unknown",
+    "unknown"
+   ],
+   "ls\nrm -rf x": [
+    "delete",
+    "own_checkout"
+   ],
+   "ls # <<EOF\ngit push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls & ls": [
+    "unknown",
+    "unknown"
+   ],
+   "ls &&": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && (ls)": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && frobnicate": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && git commit -m x": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && ls # c": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && ls $(pwd)": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && ls > f": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && ls `pwd`": [
+    "unknown",
+    "unknown"
+   ],
+   "ls && ruff format .": [
+    "unknown",
+    "unknown"
+   ],
+   "ls &>/dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls 'unterminated": [
+    "unknown",
+    "unknown"
+   ],
+   "ls -la src": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls 1>&2": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls 2> /dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls 2>&-": [
+    "unknown",
+    "unknown"
+   ],
+   "ls 2>&1 > out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "ls 2>/dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls 3>&1": [
+    "unknown",
+    "unknown"
+   ],
+   "ls < in.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "ls > /dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls > /dev/null/x": [
+    "unknown",
+    "unknown"
+   ],
+   "ls > out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "ls >&2": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls >(curl -X POST https://example.com/u -d a=b)": [
+    "outside_write",
+    "outside_service"
+   ],
+   "ls >/dev/null": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls >/dev/null && git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls >/dev/null 2>&1": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls >/dev/null; ls > out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "ls >/dev/nullx": [
+    "unknown",
+    "unknown"
+   ],
+   "ls `curl -X POST https://example.com/u -d a=b`": [
+    "outside_write",
+    "outside_service"
+   ],
+   "ls | ": [
+    "unknown",
+    "unknown"
+   ],
+   "ls | sh": [
+    "unknown",
+    "unknown"
+   ],
+   "ls | tee f": [
+    "unknown",
+    "unknown"
+   ],
+   "ls |& cat": [
+    "unknown",
+    "unknown"
+   ],
+   "ls || git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls || || ls": [
+    "unknown",
+    "unknown"
+   ],
+   "ls&&(git push origin main)": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls;": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls;\n\nls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls; (git status)": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; awk '{print}' f": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; bash -c ls": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; echo $(pwd)": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; echo `pwd`": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; eval ls": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; export PATH=./bin:$PATH; git status": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; git commit -m x": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; git push origin main": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls; ls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "ls; node -e 1": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; python3 script.py": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; rm -rf x": [
+    "delete",
+    "own_checkout"
+   ],
+   "ls; sh -c ls": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; tee f": [
+    "unknown",
+    "unknown"
+   ],
+   "ls; xargs rm": [
+    "unknown",
+    "unknown"
+   ],
+   "ls;(git push origin main)": [
+    "git_push",
+    "main_branch"
+   ],
+   "ls;(rm -rf build)": [
+    "delete",
+    "own_checkout"
+   ],
+   "ls;;ls": [
+    "unknown",
+    "unknown"
+   ],
+   "make": [
+    "build",
+    "own_checkout"
+   ],
+   "make -C sub test": [
+    "test",
+    "own_checkout"
+   ],
+   "make -j 4": [
+    "build",
+    "own_checkout"
+   ],
+   "make deploy": [
+    "deploy",
+    "outside_service"
+   ],
+   "make format": [
+    "unknown",
+    "unknown"
+   ],
+   "make frobnicate": [
+    "unknown",
+    "unknown"
+   ],
+   "make test": [
+    "test",
+    "own_checkout"
+   ],
+   "mkdir build": [
+    "unknown",
+    "unknown"
+   ],
+   "mypy src": [
+    "test",
+    "own_checkout"
+   ],
+   "npm --prefix web test": [
+    "test",
+    "own_checkout"
+   ],
+   "npm audit fix": [
+    "unknown",
+    "unknown"
+   ],
+   "npm publish": [
+    "deploy",
+    "outside_service"
+   ],
+   "npm publish --help": [
+    "unknown",
+    "unknown"
+   ],
+   "npm publish --tag help": [
+    "deploy",
+    "outside_service"
+   ],
+   "npm run build": [
+    "build",
+    "own_checkout"
+   ],
+   "npm run format": [
+    "unknown",
+    "unknown"
+   ],
+   "npm run lint:fix": [
+    "unknown",
+    "unknown"
+   ],
+   "npm run test:unit": [
+    "test",
+    "own_checkout"
+   ],
+   "npm test": [
+    "test",
+    "own_checkout"
+   ],
+   "npx --package typescript tsc --noEmit": [
+    "test",
+    "own_checkout"
+   ],
+   "npx -y vitest run": [
+    "test",
+    "own_checkout"
+   ],
+   "pnpm --filter app build": [
+    "build",
+    "own_checkout"
+   ],
+   "popd && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "prettier --write .": [
+    "unknown",
+    "unknown"
+   ],
+   "pushd +1 && ls": [
+    "read_only",
+    "unknown"
+   ],
+   "pushd app && ls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "pytest && npm run build": [
+    "build",
+    "own_checkout"
+   ],
+   "pytest -q": [
+    "test",
+    "own_checkout"
+   ],
+   "pytest -q\nnpm run build": [
+    "build",
+    "own_checkout"
+   ],
+   "pytest -q 2>&1 | tail -5": [
+    "test",
+    "own_checkout"
+   ],
+   "python -m pytest tests/test_a.py": [
+    "test",
+    "own_checkout"
+   ],
+   "rm -h x": [
+    "delete",
+    "own_checkout"
+   ],
+   "rm -rf ../other": [
+    "delete",
+    "unknown"
+   ],
+   "rm -rf /var/data": [
+    "delete",
+    "unknown"
+   ],
+   "rm -rf build": [
+    "delete",
+    "own_checkout"
+   ],
+   "ruff check --fix .": [
+    "unknown",
+    "unknown"
+   ],
+   "ruff check .": [
+    "test",
+    "own_checkout"
+   ],
+   "ruff check . && mypy src && pytest -q": [
+    "test",
+    "own_checkout"
+   ],
+   "ruff format --check .": [
+    "test",
+    "own_checkout"
+   ],
+   "ruff format .": [
+    "unknown",
+    "unknown"
+   ],
+   "sed -i s/a/b/ f": [
+    "unknown",
+    "unknown"
+   ],
+   "sed -n '1w out.txt' f": [
+    "unknown",
+    "unknown"
+   ],
+   "sed -n 1,20p README.md": [
+    "read_only",
+    "own_checkout"
+   ],
+   "set -x && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep $N; ls": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep --help; ls": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep 0.5\nls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "sleep 1 && ls": [
+    "read_only",
+    "own_checkout"
+   ],
+   "sleep 1 2; ls": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep 1; rm -rf x": [
+    "delete",
+    "own_checkout"
+   ],
+   "sleep 1; sleep 2": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep 2": [
+    "unknown",
+    "unknown"
+   ],
+   "sleep 2; git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "sleep 5 && git status": [
+    "read_only",
+    "own_checkout"
+   ],
+   "sleep x; ls": [
+    "unknown",
+    "unknown"
+   ],
+   "sort -o out.txt in.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "sort in.txt": [
+    "read_only",
+    "own_checkout"
+   ],
+   "source .venv/bin/activate && pytest -q": [
+    "unknown",
+    "unknown"
+   ],
+   "source x && git status": [
+    "unknown",
+    "unknown"
+   ],
+   "ssh host systemctl restart app": [
+    "outside_write",
+    "outside_service"
+   ],
+   "terraform apply --help": [
+    "unknown",
+    "unknown"
+   ],
+   "terraform apply -auto-approve": [
+    "deploy",
+    "outside_service"
+   ],
+   "terraform apply -help": [
+    "unknown",
+    "unknown"
+   ],
+   "terraform apply -var msg=-h": [
+    "deploy",
+    "outside_service"
+   ],
+   "terraform destroy": [
+    "delete",
+    "outside_service"
+   ],
+   "terraform fmt": [
+    "unknown",
+    "unknown"
+   ],
+   "terraform fmt -check": [
+    "read_only",
+    "own_checkout"
+   ],
+   "terraform plan": [
+    "read_only",
+    "outside_service"
+   ],
+   "terraform plan -out=plan.bin": [
+    "unknown",
+    "unknown"
+   ],
+   "terraform state list": [
+    "read_only",
+    "outside_service"
+   ],
+   "trap 'git push origin main' EXIT": [
+    "unknown",
+    "unknown"
+   ],
+   "tree -o tree.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "true && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "tsc -p .": [
+    "build",
+    "own_checkout"
+   ],
+   "uniq in.txt": [
+    "read_only",
+    "own_checkout"
+   ],
+   "uniq in.txt out.txt": [
+    "unknown",
+    "unknown"
+   ],
+   "unset PATH && ls": [
+    "unknown",
+    "unknown"
+   ],
+   "uv build": [
+    "build",
+    "own_checkout"
+   ],
+   "uv run --extra dev pytest tests -q": [
+    "test",
+    "own_checkout"
+   ],
+   "uv run --with rich --python 3.12 ruff check .": [
+    "test",
+    "own_checkout"
+   ],
+   "uv run FOO=1 pytest": [
+    "unknown",
+    "unknown"
+   ],
+   "uv run ruff check .": [
+    "test",
+    "own_checkout"
+   ],
+   "vercel --help": [
+    "unknown",
+    "unknown"
+   ],
+   "vercel --prod": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel --token help --prod": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel -h": [
+    "unknown",
+    "unknown"
+   ],
+   "vercel deploy --help": [
+    "unknown",
+    "unknown"
+   ],
+   "vercel deploy --prod --help": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel deploy --scope -h --prod": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel deploy --token help --prod": [
+    "deploy",
+    "outside_service"
+   ],
+   "vercel help deploy": [
+    "unknown",
+    "unknown"
+   ],
+   "wget -qO- https://example.com/f": [
+    "read_only",
+    "outside_service"
+   ],
+   "wget https://example.com/f": [
+    "unknown",
+    "unknown"
+   ],
+   "while true; do ls; done": [
+    "unknown",
+    "unknown"
+   ],
+   "x=$(git push origin main)": [
+    "git_push",
+    "main_branch"
+   ],
+   "xh --auth u:p example.com/x": [
+    "read_only",
+    "outside_service"
+   ],
+   "xh DELETE example.com/x": [
+    "delete",
+    "outside_service"
+   ],
+   "yq '.a' f.yaml": [
+    "read_only",
+    "own_checkout"
+   ],
+   "yq --split-exp 'x' f.yaml": [
+    "unknown",
+    "unknown"
+   ],
+   "yq -f prog f.yaml": [
+    "unknown",
+    "unknown"
+   ],
+   "yq -i '.a = 1' f.yaml": [
+    "unknown",
+    "unknown"
+   ],
+   "yq -s . f.yaml": [
+    "unknown",
+    "unknown"
+   ]
   }
  }
 }

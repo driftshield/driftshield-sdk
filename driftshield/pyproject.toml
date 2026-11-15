@@ -1,6 +1,6 @@
 [project]
 name = "driftshield-sdk"
-version = "0.3.2"
+version = "0.3.3"
 description = "Open-source AI decision forensics toolkit"
 authors = [
     { name = "Tomasz Borys" },
