@@ -125,8 +125,8 @@ def test_scoped_facts_are_never_more_lenient_than_the_run_wide_rule():
                     seen = True
 
 
-def test_carried_facts_of_a_hidden_command_are_scoped_too():
-    payload = {
+def _hidden_payload(rows: list[tuple[str, str, bool]]) -> dict[str, Any]:
+    return {
         "events": [
             {
                 "type": "assistant",
@@ -141,26 +141,73 @@ def test_carried_facts_of_a_hidden_command_are_scoped_too():
                                 "command_kind": kind,
                                 "target_kind": target,
                                 "exit_status": "success",
-                                "checked_before": True,
+                                "checked_before": checked,
                             },
                         }
                     ]
                 },
             }
-            for index, (kind, target) in enumerate(
-                [
-                    ("read_only", "own_checkout"),
-                    ("merge", "outside_service"),
-                    ("merge", "outside_service"),
-                ]
-            )
+            for index, (kind, target, checked) in enumerate(rows)
         ]
     }
+
+
+def _flags(payload: dict[str, Any]) -> list[bool]:
     facts = compute_step_facts(payload)
-    flags = [
-        facts[id(record["message"]["content"][0])]["checked_before"] for record in payload["events"]
+    return [facts[id(r["message"]["content"][0])]["checked_before"] for r in payload["events"]]
+
+
+def test_a_hidden_command_keeps_the_checked_before_it_carried():
+    # The command lines can no longer be read, so the carried flags are what the first
+    # analysis worked out, including a check earlier in the same command line.
+    rows = [
+        ("read_only", "own_checkout", False),
+        ("merge", "outside_service", True),
+        ("merge", "outside_service", False),
+        ("merge", "outside_service", True),
     ]
-    assert flags == [False, True, False]
+    assert _flags(_hidden_payload(rows)) == [False, True, False, True]
+
+
+def test_a_carried_flag_is_still_only_a_validated_boolean():
+    payload = _hidden_payload([("merge", "outside_service", False)])
+    block = payload["events"][0]["message"]["content"][0]
+    block["step_facts"]["checked_before"] = "yes"
+    assert _flags(payload) == [False]
+    block["step_facts"]["checked_before"] = 1
+    assert _flags(payload) == [False]
+
+
+@pytest.mark.parametrize(
+    "commands",
+    [
+        ["cd x; git status; gh pr merge 1"],
+        ["cd x; git status; gh pr merge 1", "gh pr merge 2"],
+        ["git status && gh pr merge 1", "ls; vercel --prod", "gh pr merge 3"],
+        ["gh pr merge 1; git status", "gh pr merge 2"],
+        ["ls | gh pr merge 1"],
+        ["git status", "gh pr merge 1", "gh pr merge 2"],
+        ["gh pr merge 1", "git status", "gh pr merge 2"],
+        ["ls; git commit -m x; gh pr merge 1"],
+    ],
+)
+def test_the_redacted_copy_gives_the_same_checked_before_as_the_first_analysis(
+    commands: list[str],
+):
+    steps = [(command, f"c{index}", False) for index, command in enumerate(commands)]
+    first = analyse_run(claude_code(steps), format="claude_code")
+    again = analyse_run(json.dumps(first.redacted_transcript), format="claude_code")
+    third = analyse_run(json.dumps(again.redacted_transcript), format="claude_code")
+
+    def flags(run: Any) -> list[bool]:
+        return [
+            block["step_facts"]["checked_before"]
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+
+    assert flags(first) == flags(again) == flags(third)
 
 
 def test_the_outside_step_rule_is_one_definition():
@@ -271,6 +318,28 @@ def test_local_analysis_and_the_redacted_copy_agree_on_the_scoped_counts():
     run = _run(["git status", "gh pr merge 1", "gh pr merge 2"])
     again = analyse_run(json.dumps(run.redacted_transcript), format="claude_code")
     assert _unconfirmed(run) == _unconfirmed(again) == 1
+
+
+@pytest.mark.parametrize(
+    ("commands", "unconfirmed"),
+    [
+        (["cd x; git status; gh pr merge 1"], 0),
+        (["cd x; git status; gh pr merge 1", "gh pr merge 2"], 1),
+        (["git status && gh pr merge 1"], 0),
+        (["gh pr merge 1; git status"], 1),
+        (["ls | gh pr merge 1"], 1),
+    ],
+)
+def test_a_check_in_the_same_command_line_survives_the_redacted_copy(
+    commands: list[str], unconfirmed: int
+):
+    run = _run(commands)
+    again = analyse_run(json.dumps(run.redacted_transcript), format="claude_code")
+    assert _unconfirmed(run) == unconfirmed
+    assert _unconfirmed(again) == unconfirmed
+    # The keyword gate reads instruction text, which redaction replaces, so only the first
+    # analysis can fire; the counts above are what the verdict is built from.
+    assert _fires(run) is bool(unconfirmed)
 
 
 def test_redaction_still_changes_nothing_but_the_facts():

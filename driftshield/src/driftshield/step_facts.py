@@ -1992,7 +1992,8 @@ def compute_step_facts(
 
     A step whose command is already hidden (the transcript was redacted
     before and is being analysed again) keeps the facts it carries, validated
-    against the fixed lists again; an unmarked one gets ``unknown`` values. A
+    against the fixed lists again, ``checked_before`` included, so the redacted copy gives
+    the same answer as the first analysis; an unmarked one gets ``unknown`` values. A
     step whose command is visible never keeps facts from the input: they are
     recomputed.
     """
@@ -2007,7 +2008,8 @@ def compute_step_facts(
             raw_input = node.get("input") if "input" in node else node.get("arguments")
             command = _command_from_input(raw_input)
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
-            if command is None and carried is not None:
+            hidden = command is None and carried is not None
+            if hidden and carried is not None:
                 facts = carried
             else:
                 kind, target = classify_command(command)
@@ -2015,11 +2017,16 @@ def compute_step_facts(
                 facts["command_kind"], facts["target_kind"] = kind, target
             # A check counts only if it came after the previous outside step (or after the
             # start of the run for the first one), or earlier in the same command line.
-            facts["checked_before"] = seen_check or (
-                command is not None
-                and facts["command_kind"] in _RISK_ORDER
-                and _check_earlier_in_command(command)
-            )
+            # A hidden command keeps the flag it carried (after the usual list validation):
+            # the command line it was worked out from can no longer be read, so recomputing
+            # would lose a check that ran earlier in the same command line and the redacted
+            # copy would disagree with the first analysis.
+            if not hidden:
+                facts["checked_before"] = seen_check or (
+                    command is not None
+                    and facts["command_kind"] in _RISK_ORDER
+                    and _check_earlier_in_command(command)
+                )
             if is_outside_step(facts["command_kind"], facts["target_kind"]):
                 seen_check = False
             elif facts["command_kind"] in _CHECK_KINDS:
