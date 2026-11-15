@@ -287,7 +287,7 @@ environment in the shared copy of the run. It has four fixed strings and nothing
 | `schema_version` | `analyser.v1` | The format of this block |
 | `sdk_version` | for example `0.3.2` | The `driftshield` package version (`driftshield.__version__`). Sent as `unknown` if it is not a plain version number |
 | `matching_rules_version` | for example `phase-3g-deterministic-rules-v2` | The version of the deterministic matching rules. It changes whenever a rule's firing behaviour changes |
-| `step_facts_version` | for example `step-facts.v5` | The version of the shell step classification below. It changes whenever that classification changes |
+| `step_facts_version` | for example `step-facts.v5` | The version of the step facts below: the labels of shell steps and the error class of a failed tool call. It changes whenever either changes |
 
 They let a stored verdict or step fact be told apart from one made by an older SDK. They
 come from the installed package, never from the transcript or the machine: a block already
@@ -339,7 +339,13 @@ are `unknown`.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.
 It is read from the failed result on your machine before redaction hides it, by looking
-for fixed phrases, in this order (the first class with a match wins):
+for fixed phrases, in this order (the first class with a match wins). Phrases are looked
+for only in the lead line (the first line, skipping an `Exit code N` header), in later
+lines that start like an error (`Error:`, `fatal`, `ValueError:`, an `error` field) and in
+the error fields of a JSON result. A stray word in a quoted snippet or a stack frame below
+does not count. `404` and `409` count only as HTTP status tokens (`HTTP/1.1 409`,
+`status 404`, `"code": "404"`, `404 Not Found`), never as a number inside an id, a hash or
+a line number:
 
 | Value | Meaning | Examples of what it matches |
 |-------|---------|-----------------------------|

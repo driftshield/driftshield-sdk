@@ -67,6 +67,125 @@ def test_the_order_decides_when_phrases_overlap():
     assert classify_error("Permission denied: file already exists") == "permission_denied"
 
 
+# 404 and 409 count only as HTTP status tokens, never as a number inside something else.
+STATUS_TOKENS = [
+    ("HTTP/1.1 409 Conflict", "conflict"),
+    ("HTTP 409", "conflict"),
+    ("request failed with status 409", "conflict"),
+    ("status code: 409", "conflict"),
+    ('{"status": 409}', "conflict"),
+    ('{"error": {"code": "409"}}', "conflict"),
+    ("409 Conflict", "conflict"),
+    ("HTTP/2 404", "not_found"),
+    ("Response status 404", "not_found"),
+    ("Error: 404", "not_found"),
+    ("404 Not Found", "not_found"),
+    ('{"code": 404}', "not_found"),
+    ('{"status_code": "404", "message": "gone"}', "not_found"),
+]
+NOT_STATUS_TOKENS = [
+    "Error: bad state at line 404",
+    "Error: bad state at line 409",
+    "Error: write failed after 4040 bytes",
+    "Error: write failed after 409 bytes",
+    "Error: commit 5a404f9c failed to apply",
+    "Error: id 1409abc rejected",
+    "Error: node-409.js crashed",
+    "Error: object 9a409b is corrupt",
+    "Failed at src/app.py:404:12",
+    "Failed at src/app.py:409:3",
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), STATUS_TOKENS)
+def test_404_and_409_match_as_status_tokens(text: str, expected: str):
+    assert classify_error(text) == expected
+
+
+@pytest.mark.parametrize("text", NOT_STATUS_TOKENS)
+def test_404_and_409_do_not_match_inside_ids_hashes_or_line_numbers(text: str):
+    assert classify_error(text) == "other"
+
+
+# Realistic multi line errors that carry stray phrases below the lead line. Only the lead
+# line, error lines and error fields decide the class.
+MULTI_LINE = [
+    (
+        "Error: unexpected failure writing the file\n"
+        "    at writeFile (/app/dist/timeout-stale.js:404:12)\n"
+        "    at retry (/app/dist/conflict.js:409:3)\n"
+        "  // handle the conflict, the stale cache and the timeout here\n",
+        "other",
+    ),
+    (
+        "Exit code 1\n"
+        "running migration 0409_add_index\n"
+        "WARNING: lock is stale, file not found in cache, did not match any rule\n"
+        "done with errors\n",
+        "other",
+    ),
+    (
+        "Traceback (most recent call last):\n"
+        '  File "app.py", line 404, in handler\n'
+        "    raise_conflict()  # not found, timeout, stale\n"
+        "ValueError: bad input\n",
+        "other",
+    ),
+    (
+        "Command failed\n"
+        "$ cat notes.md\n"
+        "the doc says: permission denied happens when the file already exists\n",
+        "other",
+    ),
+    # A real class on the lead line wins even with stray words below it.
+    (
+        "<tool_use_error>String to replace not found in file.\n"
+        "String: def f():\n"
+        "    # TODO: handle timeout, conflict and permission denied\n"
+        "</tool_use_error>",
+        "precondition_failed",
+    ),
+    (
+        "Exit code 1\n"
+        "bash: ./deploy.sh: Permission denied\n"
+        "note: the stale lock and the timeout are unrelated\n",
+        "permission_denied",
+    ),
+    # A reason on a later error line counts.
+    (
+        "Command failed\n"
+        "running step two\n"
+        "Error: connect ETIMEDOUT 10.0.0.1:443\n",
+        "timeout",
+    ),
+    (
+        "Exit code 128\n"
+        "fatal: a conflict occurred, refusing to merge unrelated histories\n",
+        "conflict",
+    ),
+    # A JSON result is read through its error fields only.
+    (
+        json.dumps({"output": "write failed", "metadata": {"exit_code": 1, "note": "stale timeout"}}),
+        "other",
+    ),
+    (
+        json.dumps({"output": "apply_patch verification failed: expected lines missing", "metadata": {"exit_code": 1}}),
+        "precondition_failed",
+    ),
+    (json.dumps({"error": "ENOENT: no such file", "trace": "conflict conflict conflict"}), "not_found"),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), MULTI_LINE)
+def test_only_the_lead_and_error_lines_decide_the_class(text: str, expected: str):
+    assert classify_error(text) == expected
+
+
+def test_a_shell_error_that_starts_with_its_exit_code_is_read_from_the_next_line():
+    assert classify_error("Exit code 1\ncat: x.txt: No such file or directory") == "not_found"
+    assert classify_error("Process exited with code 2\nbash: x: Permission denied") == "permission_denied"
+
+
 @pytest.mark.parametrize("hidden", ["<REDACTED:prompt_response:abc>", "  <REDACTED:x:1> trailing", None, 5, [], {}])
 def test_hidden_or_non_text_is_not_classified(hidden: object):
     assert classify_error(hidden) is None

@@ -1857,7 +1857,6 @@ _ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "conflict",
             "already exists",
             "eexist",
-            "409",
             "version mismatch",
             "stale",
             "concurrent modification",
@@ -1872,25 +1871,111 @@ _ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "enoent",
             "does not exist",
             "not found",
-            "404",
         ),
     ),
     ("timeout", ("timed out", "timeout", "etimedout", "deadline exceeded")),
 )
 
 
+def _status_pattern(code: str) -> re.Pattern[str]:
+    """``code`` as an HTTP status token, never a bare number inside an id or a line number.
+
+    Matches ``HTTP/1.1 409``, ``HTTP 409``, ``status 409``, ``status code: 409``,
+    ``"code": "409"``, ``error 409`` and ``409 Conflict`` style leads. A number glued to
+    other characters (``a1409``, ``409abc``), or after ``line`` or ``at``, does not match.
+    """
+    return re.compile(
+        rf"(?:\bhttp(?:/\d(?:\.\d)?)?\W{{1,3}}|\bstatus(?: code)?\W{{1,4}}|\bcode\W{{1,4}}"
+        rf"|\berror\W{{1,3}}){code}\b|(?<![\w.]){code}\s+(?:not found|conflict)\b"
+    )
+
+
+_STATUS_TOKENS = {"conflict": _status_pattern("409"), "not_found": _status_pattern("404")}
+# The first line of a Claude Code shell error is often only the exit code. Skip it so the
+# line that says what happened is the lead.
+_EXIT_HEADER = re.compile(r"^(?:exit code:? ?\d+|process exited with code \d+)\W*$")
+# A later line counts only when it starts like an error line. Quoted file contents, logs
+# and stack frames below the lead line do not.
+_ERROR_LINE = re.compile(
+    r"^(?:<tool_use_error>|npm err!|error\b|fatal\b|failed\b|exception\b|panic\b"
+    r"|[\w.]*error:|[\w.]*exception:|\"?(?:error|message|stderr)\"?\s*[:=])"
+)
+_JSON_ERROR_KEYS = frozenset({"error", "message", "output", "stderr", "detail"})
+_JSON_STATUS_KEYS = frozenset({"status", "status_code", "code"})
+
+
+def _json_error_text(text: str) -> str | None:
+    """The error fields of a result that is a JSON document, joined, or ``None``."""
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        document = json.loads(stripped)
+    except ValueError:
+        return None
+    chunks: list[str] = []
+
+    def walk(node: object, depth: int) -> None:
+        if depth > 4:
+            return
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                name = str(key).lower()
+                if isinstance(value, str) and name in _JSON_ERROR_KEYS:
+                    chunks.append(value)
+                elif name in _JSON_STATUS_KEYS and isinstance(value, (int, str)) and not isinstance(value, bool):
+                    chunks.append(f"status {value}")
+                elif isinstance(value, (Mapping, list)):
+                    walk(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+    walk(document, 0)
+    return "\n".join(chunks) if chunks else None
+
+
+def _error_scope(text: str) -> str:
+    """The part of a result that says what went wrong: the lead line and error lines.
+
+    The lead is the first non empty line after an exit code header. Later lines count only
+    when they start like an error (``Error:``, ``fatal``, ``ValueError:``, an ``error``
+    field). Everything else, such as a quoted snippet that happens to say ``timeout`` or
+    ``stale``, is not looked at.
+    """
+    text = text[:_MAX_ERROR_TEXT_CHARS]
+    text = _json_error_text(text) or text
+    scoped: list[str] = []
+    lead_found = False
+    for raw in text.splitlines():
+        line = raw.strip().lower()
+        if not line:
+            continue
+        if not lead_found:
+            if _EXIT_HEADER.match(line):
+                continue
+            scoped.append(line)
+            lead_found = True
+        elif _ERROR_LINE.match(line):
+            scoped.append(line)
+    return "\n".join(scoped)
+
+
 def classify_error(text: object) -> str | None:
     """Sort a failed tool result into one value of ``ERROR_CLASSES``.
 
-    Only phrases from the fixed lists above are looked for, so the result is never
-    free text. ``None`` means the text is hidden (a redacted placeholder) or not text,
-    and the caller keeps whatever it already had.
+    Only phrases from the fixed lists above are looked for, and only in the lead line and
+    error lines of the text (see :func:`_error_scope`), so the result is never free text
+    and a stray word in a long error does not change the class. 404 and 409 count only as
+    HTTP status tokens. ``None`` means the text is hidden (a redacted placeholder) or not
+    text, and the caller keeps whatever it already had.
     """
     if not isinstance(text, str) or text.lstrip().startswith("<REDACTED"):
         return None
-    lowered = text[:_MAX_ERROR_TEXT_CHARS].lower()
+    scope = _error_scope(text)
     for error_class, phrases in _ERROR_PHRASES:
-        if any(phrase in lowered for phrase in phrases):
+        status = _STATUS_TOKENS.get(error_class)
+        if any(phrase in scope for phrase in phrases) or (status and status.search(scope)):
             return error_class
     return "other"
 

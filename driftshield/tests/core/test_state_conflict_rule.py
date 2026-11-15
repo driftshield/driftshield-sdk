@@ -167,6 +167,24 @@ def test_an_edit_the_tool_refused_is_not_a_conflict(message, tool):
     assert not _read_then_failed_write(message, tool)
 
 
+STRAY = (
+    "    at retry (/app/dist/timeout-stale.js:404:12)\n"
+    "  // handle the conflict, the stale cache, a timeout and permission denied here\n"
+)
+
+
+def test_stray_words_below_the_lead_line_do_not_hide_a_real_failure():
+    # An unexplained failure stays `other` and still fires, whatever the stack frames say.
+    assert _read_then_failed_write("Error: unexpected failure writing the file\n" + STRAY)
+    assert _read_then_failed_write("Error: bad state at line 404\n" + STRAY)
+
+
+def test_stray_words_below_the_lead_line_do_not_turn_a_refusal_into_a_conflict():
+    assert not _read_then_failed_write(
+        "<tool_use_error>String to replace not found in file.\n" + STRAY + "</tool_use_error>", "Edit"
+    )
+
+
 def _openclaw_read_then_failed_write(write_result: str) -> bool:
     records = [
         {"type": "session", "id": "s1", "timestamp": "2026-09-01T09:00:00.000Z"},

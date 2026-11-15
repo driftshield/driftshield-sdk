@@ -77,9 +77,10 @@ def step_facts_behaviour(commands: list[str]) -> dict[str, list[str]]:
 
 
 def _frozen_error_texts() -> list[str]:
-    from tests.test_error_class import ERROR_TABLE
+    from tests.test_error_class import MULTI_LINE, NOT_STATUS_TOKENS, STATUS_TOKENS, ERROR_TABLE
 
-    return [text for text, _ in ERROR_TABLE]
+    texts = [text for text, _ in ERROR_TABLE + STATUS_TOKENS + MULTI_LINE]
+    return texts + list(NOT_STATUS_TOKENS)
 
 
 def error_class_behaviour(texts: list[str]) -> dict[str, str]:

@@ -24,6 +24,11 @@ first, or uploads from the release stop counting.
   machine before redaction, and only the label leaves. Every shell step carries it. Any
   other tool call gets step facts only when its result was an error. No error text, path
   or hash is sent. The README lists the values.
+- The class is read only from the lead line, from later lines that start like an error and
+  from the error fields of a JSON result, so a stray word such as "timeout" or "stale" in a
+  quoted snippet or a stack frame does not change it. `404` and `409` count only as HTTP
+  status tokens (`HTTP/1.1 409`, `status 404`), never inside an id, a hash or a line number.
+  Step facts stay `step-facts.v5`: it is not released yet, and no pinned row changed.
 - A write that fails with no step facts or no error class (an older upload) does not count
   as a conflict: the reason is unknown, so the check errs towards missing.
 
