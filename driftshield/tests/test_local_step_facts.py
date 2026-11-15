@@ -126,7 +126,8 @@ def test_local_step_facts_equal_the_facts_an_upload_carries(builder, fmt: str):
     assert facts == _call_facts(again)
     assert [f["command_kind"] for f in facts] == ["read_only", "test", "git_push", "outside_write"]
     assert [f["exit_status"] for f in facts] == ["success", "failure", "success", "unknown"]
-    assert [f["checked_before"] for f in facts] == [False, True, True, True]
+    # the check covers the push; the push starts a new scope, so the POST has no check before it
+    assert [f["checked_before"] for f in facts] == [False, True, True, False]
 
 
 def _fixture_paths() -> list[Path]:

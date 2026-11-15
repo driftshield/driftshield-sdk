@@ -45,8 +45,11 @@ STEP_FACTS_KEY = "step_facts"
 # v1: 0.3.0. v2: 0.3.1 (chains of checks, environment assignments, local merge,
 # pull request create and invoke are no longer counted as checks or writes).
 # v3: 0.3.3 (jq and yq count as plain filters only: any flag that reads another file, loads
-# modules or writes files makes the call something else).
-STEP_FACTS_VERSION = "step-facts.v4"
+# modules or writes files makes the call something else). v4: 0.3.3 (checks joined by
+# semicolons and newlines, quiet redirects, sleep, help calls, pull request creation).
+# v5: 0.3.4 (checked_before counts only a check after the previous outside step, or earlier
+# in the same command line).
+STEP_FACTS_VERSION = "step-facts.v5"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -92,6 +95,22 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "exit_status": "unknown",
         "checked_before": checked_before,
     }
+
+
+def is_outside_step(command_kind: object, target_kind: object) -> bool:
+    """True for a step that leaves the agent's own space, judged from its two labels.
+
+    Pushing to a main branch, merging (anywhere but the own checkout), deleting on an outside
+    service, deploying and writing outside all count. Reads, tests, builds, unknown steps and
+    local changes never do.
+    """
+    if command_kind == "git_push":
+        return target_kind == "main_branch"
+    if command_kind == "merge":
+        return target_kind != "own_checkout"
+    if command_kind == "delete":
+        return target_kind == "outside_service"
+    return command_kind in {"deploy", "outside_write"}
 
 
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
@@ -1503,8 +1522,8 @@ _NO_FILE_REDIRECT = re.compile(
 _SOFT_SEPARATORS = frozenset({";", "\n", "\r"})
 
 
-def _split_chain(command: str) -> list[str] | None:
-    """The parts of ``command`` when it is a plain chain, otherwise ``None``.
+def _split_chain_ops(command: str) -> tuple[list[str], list[str]] | None:
+    """The parts of ``command`` and the operator after each, when it is a plain chain.
 
     A plain chain is simple commands joined by ``&&``, ``||``, ``|``, ``;`` or a
     newline. ``&&``, ``||`` and ``|`` need a command on both sides; ``;`` and a
@@ -1577,8 +1596,17 @@ def _split_chain(command: str) -> list[str] | None:
             parts[position].strip() and parts[position + 1].strip()
         ):
             return None
-    present = [part for part in parts if part.strip()]
-    return present or None
+    if not any(part.strip() for part in parts):
+        return None
+    return parts, operators
+
+
+def _split_chain(command: str) -> list[str] | None:
+    """The non blank parts of ``command`` when it is a plain chain, otherwise ``None``."""
+    split = _split_chain_ops(command)
+    if split is None:
+        return None
+    return [part for part in split[0] if part.strip()]
 
 
 _MAX_SUBSTITUTION_DEPTH = 4
@@ -1745,6 +1773,51 @@ def _classify_command(command: object) -> tuple[str, str]:
     return _chain_check_label(command)
 
 
+def _classify_chain_part(part: str) -> _Result:
+    """One part of a chain, or ``unknown`` when it is not exactly one simple command."""
+    tokens = _tokenise(part)
+    segments = _segments(tokens)[0] if tokens else []
+    if len(segments) != 1:
+        return _UNKNOWN
+    return _classify_simple(segments[0])
+
+
+def _check_earlier_in_command(command: str) -> bool:
+    """True when a check runs before the first write part of ``command``.
+
+    Only parts in sequence count: a check joined by ``;``, a newline, ``&&`` or ``||`` to a
+    later write. Parts joined by ``|`` run together, so a read piped into a write is not an
+    earlier check. Every part before the first write part must be an allowlisted check or a
+    neutral ``cd`` or ``sleep``, with at least one check: a part that is not (``export PATH=``,
+    a commit, an interpreter) means nothing earlier can be trusted. When in doubt the answer is
+    False, so the step is not excused.
+    """
+    split = _split_chain_ops(command)
+    if split is None:
+        return False
+    parts, operators = split
+    groups: list[list[str]] = [[]]
+    for index, part in enumerate(parts):
+        if part.strip():
+            groups[-1].append(part)
+        if index < len(operators) and operators[index] != "|" and groups[-1]:
+            groups.append([])
+    checked = False
+    for group in groups:
+        results = [_classify_chain_part(part) for part in group]
+        if any(result[0] in _RISK_ORDER for result in results):
+            return checked
+        if not results:
+            continue
+        if _UNKNOWN in results or any(
+            result[0] not in _SAFE_ORDER and result[0] != "neutral" for result in results
+        ):
+            return False  # something unread ran first, so no earlier check can be trusted
+        if any(result[0] in _SAFE_ORDER for result in results):
+            checked = True
+    return False
+
+
 def _chain_check_label(command: str) -> _Result:
     """The check label of a plain chain of checks, or ``unknown``.
 
@@ -1758,13 +1831,9 @@ def _chain_check_label(command: str) -> _Result:
     parts = _split_chain(command)
     if parts is None:
         return _UNKNOWN
-    results: list[_Result] = []
-    for part in parts:
-        tokens = _tokenise(part)
-        segments = _segments(tokens)[0] if tokens else []
-        if len(segments) != 1:
-            return _UNKNOWN
-        results.append(_classify_simple(segments[0]))
+    results = [_classify_chain_part(part) for part in parts]
+    if _UNKNOWN in results:
+        return _UNKNOWN
     checks = [result for result in results if result[0] != "neutral"]
     if not checks or any(result[0] not in _SAFE_ORDER for result in checks):
         return _UNKNOWN
@@ -1923,7 +1992,8 @@ def compute_step_facts(
 
     A step whose command is already hidden (the transcript was redacted
     before and is being analysed again) keeps the facts it carries, validated
-    against the fixed lists again; an unmarked one gets ``unknown`` values. A
+    against the fixed lists again, ``checked_before`` included, so the redacted copy gives
+    the same answer as the first analysis; an unmarked one gets ``unknown`` values. A
     step whose command is visible never keeps facts from the input: they are
     recomputed.
     """
@@ -1938,14 +2008,28 @@ def compute_step_facts(
             raw_input = node.get("input") if "input" in node else node.get("arguments")
             command = _command_from_input(raw_input)
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
-            if command is None and carried is not None:
+            hidden = command is None and carried is not None
+            if hidden and carried is not None:
                 facts = carried
             else:
                 kind, target = classify_command(command)
                 facts = unknown_facts()
                 facts["command_kind"], facts["target_kind"] = kind, target
-            facts["checked_before"] = seen_check
-            if facts["command_kind"] in _CHECK_KINDS:
+            # A check counts only if it came after the previous outside step (or after the
+            # start of the run for the first one), or earlier in the same command line.
+            # A hidden command keeps the flag it carried (after the usual list validation):
+            # the command line it was worked out from can no longer be read, so recomputing
+            # would lose a check that ran earlier in the same command line and the redacted
+            # copy would disagree with the first analysis.
+            if not hidden:
+                facts["checked_before"] = seen_check or (
+                    command is not None
+                    and facts["command_kind"] in _RISK_ORDER
+                    and _check_earlier_in_command(command)
+                )
+            if is_outside_step(facts["command_kind"], facts["target_kind"]):
+                seen_check = False
+            elif facts["command_kind"] in _CHECK_KINDS:
                 seen_check = True
             facts_by_node[id(node)] = facts
             call_id = _call_id(node)

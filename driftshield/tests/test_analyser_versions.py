@@ -76,6 +76,44 @@ def step_facts_behaviour(commands: list[str]) -> dict[str, list[str]]:
     return {command: list(classify_command(command)) for command in commands}
 
 
+# Sequences of shell steps whose ``checked_before`` flags are pinned per step facts version.
+# ``checked_before`` depends on the order of steps, so a single command cannot pin it.
+SEQUENCES: list[list[str]] = [
+    ["ls"],
+    ["git status", "gh pr merge 1"],
+    ["git status", "gh pr merge 1", "gh pr merge 2"],
+    ["gh pr merge 1", "git status", "gh pr merge 2"],
+    ["gh pr merge 1", "gh pr merge 2"],
+    ["git status", "vercel --prod", "pytest -q", "git push origin main"],
+    ["git status", "rm -rf build", "gh pr merge 3"],
+    ["git status", "git commit -m x", "git push origin main"],
+    ["cd x; git status; gh pr merge 3"],
+    ["git status && gh pr merge 3"],
+    ["gh pr merge 3; git status"],
+    ["ls | gh pr merge 3"],
+    ["ls; git commit -m x; gh pr merge 3"],
+    ["ls; gh pr merge 1", "gh pr merge 2"],
+    ["ls", "curl -X POST https://example.com/u -d a=b", "ls", "curl -X POST https://example.com/u"],
+]
+
+
+def step_fact_sequences_behaviour() -> dict[str, list[bool]]:
+    """``checked_before`` of every step of each frozen sequence, as an upload carries it."""
+    from tests.test_step_facts import claude_code
+
+    out: dict[str, list[bool]] = {}
+    for commands in SEQUENCES:
+        steps = [(command, f"c{index}", False) for index, command in enumerate(commands)]
+        run = analyse_run(claude_code(steps), format="claude_code")
+        out[json.dumps(commands)] = [
+            block["step_facts"]["checked_before"]
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+    return out
+
+
 def _load() -> dict[str, dict[str, dict[str, Any]]]:
     return json.loads(GOLDEN.read_text())
 
@@ -132,6 +170,25 @@ def test_the_pinned_commands_cover_every_kind_the_table_documents():
     assert {"outside_write", "unknown"} <= kinds
 
 
+def test_the_step_facts_version_has_pinned_sequences():
+    pinned = _load()["step_fact_sequences"]
+    assert STEP_FACTS_VERSION in pinned, (
+        f"STEP_FACTS_VERSION is {STEP_FACTS_VERSION!r} but no step sequences are pinned for it. "
+        "Add them with: PYTHONPATH=src python -m tests.test_analyser_versions --write"
+    )
+
+
+def test_checked_before_matches_the_pinned_sequences_for_the_current_version():
+    pinned = _load()["step_fact_sequences"][STEP_FACTS_VERSION]
+    current = step_fact_sequences_behaviour()
+    changed = sorted(k for k in pinned if current.get(k) != pinned[k])
+    assert not changed, (
+        f"checked_before changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION in step_facts.py and pin the new "
+        "behaviour (see the module docstring); never edit the entry of a released version."
+    )
+
+
 def test_the_golden_file_is_stable_json():
     text = GOLDEN.read_text()
     assert text == json.dumps(json.loads(text), indent=1, sort_keys=True) + "\n"
@@ -148,6 +205,9 @@ def _write() -> None:
     earlier = {c for version, pinned in data["step_facts"].items() for c in pinned}
     for command, value in step_facts_behaviour(sorted(set(_frozen_commands()) | earlier)).items():
         facts.setdefault(command, value)
+    sequences = data.setdefault("step_fact_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
+    for key, value in step_fact_sequences_behaviour().items():
+        sequences.setdefault(key, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
