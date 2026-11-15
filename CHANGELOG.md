@@ -5,10 +5,11 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
-**Do not release until intel accepts `phase-3g-deterministic-rules-v4`.** This change moves
-the matching rules version from `phase-3g-deterministic-rules-v3` to
-`phase-3g-deterministic-rules-v4`. Intel must list v4 as a known version first, or uploads
-from the release stop counting.
+**Do not release until intel accepts `phase-3g-deterministic-rules-v4` (matching rules) and
+`step-facts.v5` (step facts).** This release moves the matching rules version from
+`phase-3g-deterministic-rules-v3` to `phase-3g-deterministic-rules-v4` and the step facts
+version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
+first, or uploads from the release stop counting.
 
 ### A check excuses an outside step only until the next outside step
 
@@ -20,8 +21,28 @@ from the release stop counting.
   merges excuses only the second. A confirmation step before an outside step still counts.
 - A step that stays in the agent's own space (a local delete or commit) does not start a new
   scope, and a failed outside step does.
-- The step facts version is now `step-facts.v5` (it was `v4`): `checked_before` changed. The
-  matching rules version is now `phase-3g-deterministic-rules-v4`.
+- `checked_before` changed, which is part of step facts `v5` (see above).
+
+### State conflict ignores edits the tool refused
+
+- A Claude Code `Edit` refused because the text to replace was not found, a write that
+  was blocked by permissions, a missing file and a timeout all wrote nothing, but each
+  counted as a state conflict if the run had read a file earlier. State conflict now fires
+  only on a rejected write whose reason is a conflict or one the fixed lists do not name
+  (`other`). It never fires on `precondition_failed` or `permission_denied`.
+- To tell them apart after redaction, step facts carry a new field, `error_class`, picked
+  from a fixed list: `none`, `precondition_failed`, `permission_denied`, `conflict`,
+  `not_found`, `timeout`, `other`. It is read from the failed result's text on your
+  machine before redaction, and only the label leaves. Every shell step carries it. Any
+  other tool call gets step facts only when its result was an error. No error text, path
+  or hash is sent. The README lists the values.
+- The class is read only from the lead line, from later lines that start like an error and
+  from the error fields of a JSON result, so a stray word such as "timeout" or "stale" in a
+  quoted snippet or a stack frame does not change it. `404` and `409` count only as HTTP
+  status tokens (`HTTP/1.1 409`, `status 404`), never inside an id, a hash or a line number.
+  Step facts stay `step-facts.v5`: it is not released yet, and no pinned row changed.
+- A write that fails with no step facts or no error class (an older upload) does not count
+  as a conflict: the reason is unknown, so the check errs towards missing.
 
 ## 0.3.3 - 2026-11-14
 

@@ -15,6 +15,12 @@ command *before* redaction and sends only values from closed lists:
 ``checked_before``
     ``True`` when an earlier shell step in the same run was ``read_only``,
     ``test`` or ``build``; ``False`` otherwise.
+``error_class``
+    Why a step failed, from its result text: ``none`` (it did not fail, or the
+    reason could not be read), ``precondition_failed``, ``permission_denied``,
+    ``conflict``, ``not_found``, ``timeout``, ``other``. Shell steps always carry
+    the field. Any other tool call (an edit, a write, a read) carries step facts
+    only when its result was an error, so the field is there to say why.
 
 Nothing else leaves: no command text, path, argument, prompt or code, and no
 hash or fingerprint of them. Every value is checked against its list by
@@ -48,7 +54,8 @@ STEP_FACTS_KEY = "step_facts"
 # modules or writes files makes the call something else). v4: 0.3.3 (checks joined by
 # semicolons and newlines, quiet redirects, sleep, help calls, pull request creation).
 # v5: 0.3.4 (checked_before counts only a check after the previous outside step, or earlier
-# in the same command line).
+# in the same command line; a new ``error_class`` field; a failed tool call that is not a
+# shell step now carries step facts too).
 STEP_FACTS_VERSION = "step-facts.v5"
 
 COMMAND_KINDS: tuple[str, ...] = (
@@ -64,6 +71,15 @@ COMMAND_KINDS: tuple[str, ...] = (
 )
 TARGET_KINDS: tuple[str, ...] = ("own_checkout", "main_branch", "outside_service", "unknown")
 EXIT_STATUSES: tuple[str, ...] = ("success", "failure", "unknown")
+ERROR_CLASSES: tuple[str, ...] = (
+    "none",
+    "precondition_failed",
+    "permission_denied",
+    "conflict",
+    "not_found",
+    "timeout",
+    "other",
+)
 
 _CHECK_KINDS = frozenset({"read_only", "test", "build"})
 # Most serious first. A compound command takes the most serious kind in it.
@@ -94,6 +110,7 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "target_kind": "unknown",
         "exit_status": "unknown",
         "checked_before": checked_before,
+        "error_class": "none",
     }
 
 
@@ -116,20 +133,25 @@ def is_outside_step(command_kind: object, target_kind: object) -> bool:
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
     """Rebuild ``value`` from the fixed lists, or ``None`` when it is not facts.
 
-    Only the four known keys are read. Each value must be an exact member of
-    its list, otherwise it becomes ``unknown`` (``False`` for the flag). No
-    other key and no free text can survive.
+    Only the five known keys are read. Each value must be an exact member of
+    its list, otherwise it becomes ``unknown`` (``False`` for the flag, ``none``
+    for the error class, so a bad or missing value never reads as a failure
+    reason). No other key and no free text can survive.
     """
     if not isinstance(value, Mapping):
         return None
     kind = value.get("command_kind")
     target = value.get("target_kind")
     status = value.get("exit_status")
+    error_class = value.get("error_class")
     return {
         "command_kind": kind if isinstance(kind, str) and kind in COMMAND_KINDS else "unknown",
         "target_kind": target if isinstance(target, str) and target in TARGET_KINDS else "unknown",
         "exit_status": status if isinstance(status, str) and status in EXIT_STATUSES else "unknown",
         "checked_before": value.get("checked_before") is True,
+        "error_class": (
+            error_class if isinstance(error_class, str) and error_class in ERROR_CLASSES else "none"
+        ),
     }
 
 
@@ -1846,6 +1868,208 @@ def _chain_check_label(command: str) -> _Result:
 
 
 # --------------------------------------------------------------------------- #
+# Error classes (result text in, one enum value out)
+# --------------------------------------------------------------------------- #
+
+_MAX_ERROR_TEXT_CHARS = 4_000
+# Checked in this order, so the first class with a matching phrase wins. A refused edit
+# ("string to replace not found") must be a precondition failure, not not_found.
+_ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "permission_denied",
+        (
+            "permission denied",
+            "eacces",
+            "eperm",
+            "operation not permitted",
+            "not permitted",
+            "permission to use",
+            "requested permissions",
+            "haven't granted",
+            "hasn't granted",
+            "has been denied",
+            "doesn't want to proceed",
+            "tool use was rejected",
+            "user rejected",
+            "user denied",
+            "requires approval",
+        ),
+    ),
+    (
+        "precondition_failed",
+        (
+            "string to replace not found",
+            "not found in file",
+            "no changes to make",
+            "exactly the same",
+            "matches of the string",
+            "multiple matches",
+            "more than one match",
+            "not unique",
+            "has not been read yet",
+            "read it again",
+            "modified since",
+            "has been modified",
+            "unexpectedly modified",
+            "did not match",
+            "patch failed",
+            "hunk failed",
+            "verification failed",
+            "context mismatch",
+        ),
+    ),
+    (
+        "conflict",
+        (
+            "conflict",
+            "already exists",
+            "eexist",
+            "version mismatch",
+            "stale",
+            "concurrent modification",
+            "is locked",
+        ),
+    ),
+    (
+        "not_found",
+        (
+            "no such file",
+            "no such directory",
+            "enoent",
+            "does not exist",
+            "not found",
+        ),
+    ),
+    ("timeout", ("timed out", "timeout", "etimedout", "deadline exceeded")),
+)
+
+
+def _status_pattern(code: str) -> re.Pattern[str]:
+    """``code`` as an HTTP status token, never a bare number inside an id or a line number.
+
+    Matches ``HTTP/1.1 409``, ``HTTP 409``, ``status 409``, ``status code: 409``,
+    ``"code": "409"``, ``error 409`` and ``409 Conflict`` style leads. A number glued to
+    other characters (``a1409``, ``409abc``), or after ``line`` or ``at``, does not match.
+    """
+    return re.compile(
+        rf"(?:\bhttp(?:/\d(?:\.\d)?)?\W{{1,3}}|\bstatus(?: code)?\W{{1,4}}|\bcode\W{{1,4}}"
+        rf"|\berror\W{{1,3}}){code}\b|(?<![\w.]){code}\s+(?:not found|conflict)\b"
+    )
+
+
+_STATUS_TOKENS = {"conflict": _status_pattern("409"), "not_found": _status_pattern("404")}
+# The first line of a Claude Code shell error is often only the exit code. Skip it so the
+# line that says what happened is the lead.
+_EXIT_HEADER = re.compile(r"^(?:exit code:? ?\d+|process exited with code \d+)\W*$")
+# A later line counts only when it starts like an error line. Quoted file contents, logs
+# and stack frames below the lead line do not.
+_ERROR_LINE = re.compile(
+    r"^(?:<tool_use_error>|npm err!|error\b|fatal\b|failed\b|exception\b|panic\b"
+    r"|[\w.]*error:|[\w.]*exception:|\"?(?:error|message|stderr)\"?\s*[:=])"
+)
+_JSON_ERROR_KEYS = frozenset({"error", "message", "output", "stderr", "detail"})
+_JSON_STATUS_KEYS = frozenset({"status", "status_code", "code"})
+
+
+def _json_error_text(text: str) -> str | None:
+    """The error fields of a result that is a JSON document, joined, or ``None``."""
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        document = json.loads(stripped)
+    except ValueError:
+        return None
+    chunks: list[str] = []
+
+    def walk(node: object, depth: int) -> None:
+        if depth > 4:
+            return
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                name = str(key).lower()
+                if isinstance(value, str) and name in _JSON_ERROR_KEYS:
+                    chunks.append(value)
+                elif name in _JSON_STATUS_KEYS and isinstance(value, (int, str)) and not isinstance(value, bool):
+                    chunks.append(f"status {value}")
+                elif isinstance(value, (Mapping, list)):
+                    walk(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+    walk(document, 0)
+    return "\n".join(chunks) if chunks else None
+
+
+def _error_scope(text: str) -> str:
+    """The part of a result that says what went wrong: the lead line and error lines.
+
+    The lead is the first non empty line after an exit code header. Later lines count only
+    when they start like an error (``Error:``, ``fatal``, ``ValueError:``, an ``error``
+    field). Everything else, such as a quoted snippet that happens to say ``timeout`` or
+    ``stale``, is not looked at.
+    """
+    text = text[:_MAX_ERROR_TEXT_CHARS]
+    text = _json_error_text(text) or text
+    scoped: list[str] = []
+    lead_found = False
+    for raw in text.splitlines():
+        line = raw.strip().lower()
+        if not line:
+            continue
+        if not lead_found:
+            if _EXIT_HEADER.match(line):
+                continue
+            scoped.append(line)
+            lead_found = True
+        elif _ERROR_LINE.match(line):
+            scoped.append(line)
+    return "\n".join(scoped)
+
+
+def classify_error(text: object) -> str | None:
+    """Sort a failed tool result into one value of ``ERROR_CLASSES``.
+
+    Only phrases from the fixed lists above are looked for, and only in the lead line and
+    error lines of the text (see :func:`_error_scope`), so the result is never free text
+    and a stray word in a long error does not change the class. 404 and 409 count only as
+    HTTP status tokens. ``None`` means the text is hidden (a redacted placeholder) or not
+    text, and the caller keeps whatever it already had.
+    """
+    if not isinstance(text, str) or text.lstrip().startswith("<REDACTED"):
+        return None
+    scope = _error_scope(text)
+    for error_class, phrases in _ERROR_PHRASES:
+        status = _STATUS_TOKENS.get(error_class)
+        if any(phrase in scope for phrase in phrases) or (status and status.search(scope)):
+            return error_class
+    return "other"
+
+
+def _text_of(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        chunks: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, Mapping) and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+        return "\n".join(chunks)
+    return ""
+
+
+def _result_text(node: Mapping[str, Any]) -> str:
+    """The visible text of a tool result block, for any supported adapter."""
+    for key in ("content", "output"):
+        if key in node:
+            return _text_of(node[key])
+    return ""
+
+
+# --------------------------------------------------------------------------- #
 # Reading raw transcripts (before redaction)
 # --------------------------------------------------------------------------- #
 
@@ -1956,6 +2180,16 @@ def _carriers(
     return found
 
 
+def _input_hidden(value: object) -> bool:
+    """True when a tool input is already a redaction placeholder."""
+    if isinstance(value, str):
+        return value.lstrip().startswith("<REDACTED")
+    if isinstance(value, Mapping):
+        placeholder = value.get("redacted")
+        return isinstance(placeholder, str) and placeholder.startswith("<REDACTED")
+    return False
+
+
 def _call_id(node: Mapping[str, Any]) -> str | None:
     for key in ("id", "call_id"):
         value = node.get(key)
@@ -1998,47 +2232,65 @@ def compute_step_facts(
     recomputed.
     """
     facts_by_node: dict[int, dict[str, Any]] = {}
-    pending: dict[str, dict[str, Any]] = {}
+    # call id -> (facts, call block, is a shell step)
+    pending: dict[str, tuple[dict[str, Any], dict[str, Any], bool]] = {}
     seen_check = False
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
-            if name.lower() not in SHELL_TOOL_NAMES:
-                continue
             raw_input = node.get("input") if "input" in node else node.get("arguments")
-            command = _command_from_input(raw_input)
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
-            hidden = command is None and carried is not None
-            if hidden and carried is not None:
-                facts = carried
+            if name.lower() in SHELL_TOOL_NAMES:
+                command = _command_from_input(raw_input)
+                hidden = command is None and carried is not None
+                if hidden and carried is not None:
+                    facts = carried
+                else:
+                    kind, target = classify_command(command)
+                    facts = unknown_facts()
+                    facts["command_kind"], facts["target_kind"] = kind, target
+                # A check counts only if it came after the previous outside step (or after the
+                # start of the run for the first one), or earlier in the same command line.
+                # A hidden command keeps the flag it carried (after the usual list validation):
+                # the command line it was worked out from can no longer be read, so recomputing
+                # would lose a check that ran earlier in the same command line and the redacted
+                # copy would disagree with the first analysis.
+                if not hidden:
+                    facts["checked_before"] = seen_check or (
+                        command is not None
+                        and facts["command_kind"] in _RISK_ORDER
+                        and _check_earlier_in_command(command)
+                    )
+                if is_outside_step(facts["command_kind"], facts["target_kind"]):
+                    seen_check = False
+                elif facts["command_kind"] in _CHECK_KINDS:
+                    seen_check = True
+                facts_by_node[id(node)] = facts
+                is_shell = True
             else:
-                kind, target = classify_command(command)
-                facts = unknown_facts()
-                facts["command_kind"], facts["target_kind"] = kind, target
-            # A check counts only if it came after the previous outside step (or after the
-            # start of the run for the first one), or earlier in the same command line.
-            # A hidden command keeps the flag it carried (after the usual list validation):
-            # the command line it was worked out from can no longer be read, so recomputing
-            # would lose a check that ran earlier in the same command line and the redacted
-            # copy would disagree with the first analysis.
-            if not hidden:
-                facts["checked_before"] = seen_check or (
-                    command is not None
-                    and facts["command_kind"] in _RISK_ORDER
-                    and _check_earlier_in_command(command)
-                )
-            if is_outside_step(facts["command_kind"], facts["target_kind"]):
-                seen_check = False
-            elif facts["command_kind"] in _CHECK_KINDS:
-                seen_check = True
-            facts_by_node[id(node)] = facts
+                # Any other tool call gets facts only if its result turns out to be an
+                # error (below). Facts already on a call whose input is hidden were
+                # written by an earlier redaction and are kept after validation. On a
+                # call whose input is visible they are never believed.
+                facts = carried if carried is not None and _input_hidden(raw_input) else unknown_facts()
+                if facts is carried:
+                    facts_by_node[id(node)] = facts
+                is_shell = False
             call_id = _call_id(node)
             if call_id is not None:
-                pending[call_id] = facts
+                pending[call_id] = (facts, node, is_shell)
         else:
             call_id, status = _result_id_and_status(node)
-            if call_id is not None and call_id in pending and status != "unknown":
-                pending[call_id]["exit_status"] = status
+            if call_id is None or call_id not in pending or status == "unknown":
+                continue
+            facts, call_node, is_shell = pending[call_id]
+            facts["exit_status"] = status
+            if status == "failure":
+                error_class = classify_error(_result_text(node))
+                if error_class is not None:
+                    facts["error_class"] = error_class
+                if not is_shell:
+                    facts_by_node[id(call_node)] = facts
     return facts_by_node
 
 

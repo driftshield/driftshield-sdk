@@ -323,6 +323,13 @@ def test_deterministic_matching_surfaces_state_conflict_candidates():
                 "event_family": "state_write",
                 "structured_payload": {
                     "failure_context": {"status": "error", "error": "file changed since it was read"},
+                    "step_facts": {
+                        "command_kind": "unknown",
+                        "target_kind": "unknown",
+                        "exit_status": "failure",
+                        "checked_before": False,
+                        "error_class": "conflict",
+                    },
                     "state_transition": {"state_conflict_flag": True, "state_conflict_reason": "stale_read"},
                 },
             },

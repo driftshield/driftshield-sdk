@@ -29,7 +29,7 @@ import pytest
 
 from driftshield import NoParseableEventsError, analyse_run
 from driftshield.core.deterministic_matching import RULESET_VERSION
-from driftshield.step_facts import STEP_FACTS_VERSION, classify_command
+from driftshield.step_facts import STEP_FACTS_VERSION, classify_command, classify_error
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GOLDEN = FIXTURES / "transcripts" / "golden" / "analyser_behaviour.json"
@@ -74,6 +74,17 @@ def _frozen_commands() -> list[str]:
 
 def step_facts_behaviour(commands: list[str]) -> dict[str, list[str]]:
     return {command: list(classify_command(command)) for command in commands}
+
+
+def _frozen_error_texts() -> list[str]:
+    from tests.test_error_class import MULTI_LINE, NOT_STATUS_TOKENS, STATUS_TOKENS, ERROR_TABLE
+
+    texts = [text for text, _ in ERROR_TABLE + STATUS_TOKENS + MULTI_LINE]
+    return texts + list(NOT_STATUS_TOKENS)
+
+
+def error_class_behaviour(texts: list[str]) -> dict[str, str]:
+    return {text: str(classify_error(text)) for text in texts}
 
 
 # Sequences of shell steps whose ``checked_before`` flags are pinned per step facts version.
@@ -170,6 +181,14 @@ def test_the_pinned_commands_cover_every_kind_the_table_documents():
     assert {"outside_write", "unknown"} <= kinds
 
 
+def test_the_step_facts_version_has_pinned_error_classes():
+    pinned = _load()["error_classes"]
+    assert STEP_FACTS_VERSION in pinned, (
+        f"STEP_FACTS_VERSION is {STEP_FACTS_VERSION!r} but no error classes are pinned for it. "
+        "Add them with: PYTHONPATH=src python -m tests.test_analyser_versions --write"
+    )
+
+
 def test_the_step_facts_version_has_pinned_sequences():
     pinned = _load()["step_fact_sequences"]
     assert STEP_FACTS_VERSION in pinned, (
@@ -189,6 +208,17 @@ def test_checked_before_matches_the_pinned_sequences_for_the_current_version():
     )
 
 
+def test_error_classes_match_the_pinned_ones_for_the_current_version():
+    pinned = _load()["error_classes"][STEP_FACTS_VERSION]
+    current = error_class_behaviour(list(pinned))
+    changed = sorted(t for t in pinned if current[t] != pinned[t])
+    assert not changed, (
+        f"Error classes changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION in step_facts.py and pin the new "
+        "classes; never edit the entry of a released version."
+    )
+
+
 def test_the_golden_file_is_stable_json():
     text = GOLDEN.read_text()
     assert text == json.dumps(json.loads(text), indent=1, sort_keys=True) + "\n"
@@ -196,6 +226,7 @@ def test_the_golden_file_is_stable_json():
 
 def _write() -> None:
     data = json.loads(GOLDEN.read_text()) if GOLDEN.exists() else {"matching": {}, "step_facts": {}}
+    data.setdefault("error_classes", {})
     matching = data["matching"].setdefault(RULESET_VERSION, {})
     for key, value in matching_behaviour().items():
         matching.setdefault(key, value)
@@ -205,6 +236,9 @@ def _write() -> None:
     earlier = {c for version, pinned in data["step_facts"].items() for c in pinned}
     for command, value in step_facts_behaviour(sorted(set(_frozen_commands()) | earlier)).items():
         facts.setdefault(command, value)
+    classes = data["error_classes"].setdefault(STEP_FACTS_VERSION, {})
+    for text, value in error_class_behaviour(_frozen_error_texts()).items():
+        classes.setdefault(text, value)
     sequences = data.setdefault("step_fact_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
     for key, value in step_fact_sequences_behaviour().items():
         sequences.setdefault(key, value)

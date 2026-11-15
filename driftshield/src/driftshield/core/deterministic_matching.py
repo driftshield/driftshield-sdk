@@ -19,9 +19,12 @@ MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 # v3: the state conflict rules fire only on a write the system rejected after an earlier
 #     read, never on failure wording or a failed read alone; a failed unconfirmed outside
 #     step now counts for verification failure.
-# v4: a check counts as excusing an outside step only if it came after the previous outside
-#     step (or after the start of the run for the first one), so one early check no longer
-#     excuses every later merge or deploy (0.3.4).
+# v4: (0.3.4) two changes. A check counts as excusing an outside step only if it came after the
+#     previous outside step (or after the start of the run for the first one), so one early
+#     check no longer excuses every later merge or deploy. State conflict fires only on a
+#     rejected write whose error class (from the step facts) is ``conflict`` or ``other``,
+#     never on an edit the tool refused (``precondition_failed``) or a permission refusal
+#     (``permission_denied``).
 RULESET_VERSION = "phase-3g-deterministic-rules-v4"
 
 
@@ -590,8 +593,9 @@ def _conflicting_writes(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Writes the system rejected after the run had already read some state.
 
     A conflict needs a read before it and a write that failed outright (the tool
-    marked it an error, or reported an error). Failure wording in text alone is only
-    a warning and never counts, and neither does a failed read.
+    marked it an error, or reported an error) with an error class of ``conflict`` or
+    ``other``. Failure wording in text alone is only a warning and never counts, and
+    neither does a failed read, a refused edit or a permission refusal.
 
     Which file a read and a write touched is not known: redaction replaces every tool
     input, so two targets cannot be compared. A rejected write after any earlier read
@@ -611,10 +615,23 @@ def _conflicting_writes(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return conflicts
 
 
+# Error classes (from the step facts) that count as a conflicting write. An edit the tool
+# refused because its text was not found or the file changed (precondition_failed), a
+# permission refusal, a missing file and a timeout all wrote nothing and say nothing about
+# two writers disagreeing. ``other`` is a write that failed for a reason the lists do not
+# name; it is kept so a real failure is not missed, and it is the only unexplained class.
+_CONFLICT_ERROR_CLASSES = frozenset({"conflict", "other"})
+
+
 def _write_rejected(event: dict[str, Any]) -> bool:
     payload = event.get("structured_payload") or {}
     failure = payload.get("failure_context") or {}
-    return failure.get("status") == "error" or payload.get("result_status") == "error"
+    if not (failure.get("status") == "error" or payload.get("result_status") == "error"):
+        return False
+    # No step facts, or no error class (older uploads), means the reason is unknown and
+    # the write does not count: rather miss than raise a false alarm.
+    facts = _step_facts(event) or {}
+    return facts.get("error_class") in _CONFLICT_ERROR_CLASSES
 
 
 def _earlier_state_read(events: list[dict[str, Any]], anchor: dict[str, Any] | None) -> dict[str, Any] | None:
