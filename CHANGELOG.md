@@ -3,13 +3,19 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.4 - 2026-11-15
 
-**Do not release until intel accepts `phase-3g-deterministic-rules-v4` (matching rules) and
-`step-facts.v5` (step facts).** This release moves the matching rules version from
-`phase-3g-deterministic-rules-v3` to `phase-3g-deterministic-rules-v4` and the step facts
-version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
-first, or uploads from the release stop counting.
+### Findings you can trust: checks and refused edits
+
+- A check now only excuses the next outside step after it. One recognised check early in a
+  run no longer excuses every later merge, deploy or push to main, so the verification
+  failure check can fire on long sessions.
+- State conflict ignores edits the tool refused. The SDK sorts each tool error into a fixed
+  list (`none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`,
+  `timeout`, `other`) on your machine, and only the label is sent.
+- The matching rules version is now `phase-3g-deterministic-rules-v4` and the step facts
+  version is `step-facts.v5`. Every upload says which versions made it, so findings from the
+  earlier rules can be told apart from these.
 
 ### A check excuses an outside step only until the next outside step
 
@@ -21,7 +27,7 @@ first, or uploads from the release stop counting.
   merges excuses only the second. A confirmation step before an outside step still counts.
 - A step that stays in the agent's own space (a local delete or commit) does not start a new
   scope, and a failed outside step does.
-- `checked_before` changed, which is part of step facts `v5` (see above).
+- `checked_before` changed, which is part of step facts `v5`.
 
 ### State conflict ignores edits the tool refused
 
@@ -40,7 +46,7 @@ first, or uploads from the release stop counting.
   from the error fields of a JSON result, so a stray word such as "timeout" or "stale" in a
   quoted snippet or a stack frame does not change it. `404` and `409` count only as HTTP
   status tokens (`HTTP/1.1 409`, `status 404`), never inside an id, a hash or a line number.
-  Step facts stay `step-facts.v5`: it is not released yet, and no pinned row changed.
+  Step facts are `step-facts.v5`.
 - A write that fails with no step facts or no error class (an older upload) does not count
   as a conflict: the reason is unknown, so the check errs towards missing.
 
