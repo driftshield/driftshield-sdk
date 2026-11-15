@@ -11,6 +11,23 @@ notes for each tag are taken from the matching section of this file.
 version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
 first, or uploads from the release stop counting.
 
+### Housekeeping is low risk, two classifier slips, and auto mode denials
+
+- Housekeeping on a pull request or an issue, including someone else's, is `unknown` and no
+  longer `outside_write`, so it neither fires the verification check nor ends the scope of
+  an earlier check: a comment, a body edit, closing or reopening, a draft toggle, creating an
+  issue or a label, a sub issue link, a branch update and a workflow dispatch, through `gh`
+  or `gh api`. A merge, a deploy, a push to main, a release, a delete, a secret or variable
+  change, a repo, ruleset, ref or collaborator change, a review, and adding a label (which
+  can start an automated run) keep their kind.
+- `aws s3 cp` from S3 to a local path is `read_only`, not `outside_write`. `gh api -X GET`
+  stays `read_only` even with `-f` or `-F` fields, which are query parameters there.
+- A permission refusal worded "permission for this action was denied" or "denied by" (the
+  Claude Code auto mode) is read as `permission_denied`, so a refused edit is not a state
+  conflict.
+- No new value is added to any fixed list. The matching rules stay
+  `phase-3g-deterministic-rules-v4` and the step facts `step-facts.v5`, both unreleased.
+
 ### A check excuses an outside step only until the next outside step
 
 - Before, one recognised check anywhere earlier in a run excused every later merge, deploy

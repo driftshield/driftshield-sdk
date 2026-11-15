@@ -345,3 +345,66 @@ def test_a_check_in_the_same_command_line_survives_the_redacted_copy(
 def test_redaction_still_changes_nothing_but_the_facts():
     raw = _run(["git status", "gh pr merge 1"])
     assert redact(raw.transcript).payload == raw.redacted_transcript
+
+
+# --------------------------------------------------------------------------- #
+# Housekeeping on pull requests and issues neither fires nor ends the scope
+# --------------------------------------------------------------------------- #
+
+HOUSEKEEPING = [
+    "gh pr comment 3 --body hi",
+    "gh issue comment 3 --body hi",
+    "gh pr edit 3 --body x",
+    "gh pr ready 3",
+    "gh pr close 3",
+    "gh issue close 3",
+    "gh issue create --title t",
+    "gh label create bug",
+    "gh pr update-branch 3",
+    "gh workflow run ci.yml",
+    "gh api -X POST repos/o/r/issues/3/comments -f body=x",
+    "gh api -X PATCH repos/o/r/issues/3 -f state=closed",
+]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_does_not_end_the_scope_of_an_earlier_check(command: str):
+    # The housekeeping step itself follows the check, and the merge after it is still covered.
+    assert _checked_before(["git status", command, "gh pr merge 3"]) == [False, True, True]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_does_not_give_the_next_merge_a_check(command: str):
+    assert _checked_before([command, "gh pr merge 3"]) == [False, False]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_alone_never_fires_verification_failure(command: str):
+    run = _run([command])
+    assert _unconfirmed(run) == 0
+    assert not _fires(run)
+
+
+def test_a_real_merge_after_housekeeping_still_fires():
+    run = _run(["gh pr create --title t", "gh pr comment 3 --body hi", "gh pr merge 3"])
+    assert _unconfirmed(run) == 1
+    assert _fires(run)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr edit 3 --add-label go",
+        "gh issue create --title t --label go",
+        "gh api -X POST repos/o/r/issues/3/labels -f labels[]=go",
+        "gh pr review 3 --approve",
+        "gh secret set X --body 1",
+        "gh variable set X --body 1",
+        "gh release create v1",
+        "gh api -X DELETE repos/o/r/git/refs/heads/x",
+        "gh api -X PATCH repos/o/r -f private=true",
+    ],
+)
+def test_a_write_that_is_not_housekeeping_still_fires_and_ends_the_scope(command: str):
+    run = _run([command])
+    assert _unconfirmed(run) == 1

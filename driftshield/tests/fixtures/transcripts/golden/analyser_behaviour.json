@@ -5,6 +5,7 @@
    "404 Not Found": "not_found",
    "409 Conflict": "conflict",
    "<tool_use_error>String to replace not found in file.\nString: def f():\n    # TODO: handle timeout, conflict and permission denied\n</tool_use_error>": "precondition_failed",
+   "Action denied by policy: pushing to main": "permission_denied",
    "CONFLICT (content): Merge conflict in a.py": "conflict",
    "Claude requested permissions to write to a.py, but you haven't granted it yet.": "permission_denied",
    "Command failed\n$ cat notes.md\nthe doc says: permission denied happens when the file already exists\n": "other",
@@ -15,6 +16,7 @@
    "ENOENT: no such file or directory, open 'reports/totals.md'": "not_found",
    "EPERM: operation not permitted, unlink 'x'": "permission_denied",
    "ETIMEDOUT: connect": "timeout",
+   "Edit was denied by the auto mode classifier.": "permission_denied",
    "Error: 404": "not_found",
    "Error: No changes to make: old_string and new_string are exactly the same.": "precondition_failed",
    "Error: bad state at line 404": "other",
@@ -40,6 +42,7 @@
    "HTTP 409: version mismatch": "conflict",
    "HTTP/1.1 409 Conflict": "conflict",
    "HTTP/2 404": "not_found",
+   "Permission for this action was denied. Reason: the edit overwrites a file.": "permission_denied",
    "Permission to use Edit has been denied.": "permission_denied",
    "Response status 404": "not_found",
    "String to replace not found in file.\nString: foo": "precondition_failed",
@@ -49,6 +52,7 @@
    "bash: ./run.sh: Permission denied": "permission_denied",
    "bash: frobnicate: command not found": "not_found",
    "cat: x.txt: No such file or directory": "not_found",
+   "permission for this action was denied": "permission_denied",
    "request failed with status 409": "conflict",
    "something went wrong": "other",
    "status code: 409": "conflict",
@@ -581,6 +585,11 @@
    "[\"cd x; git status; gh pr merge 3\"]": [
     true
    ],
+   "[\"gh pr merge 1\", \"gh issue comment 2 --body x\", \"gh pr merge 3\"]": [
+    false,
+    false,
+    false
+   ],
    "[\"gh pr merge 1\", \"gh pr merge 2\"]": [
     false,
     false
@@ -595,6 +604,16 @@
    ],
    "[\"git status && gh pr merge 3\"]": [
     true
+   ],
+   "[\"git status\", \"gh pr comment 3 --body hi\", \"gh pr merge 3\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"git status\", \"gh pr edit 3 --add-label go\", \"gh pr merge 3\"]": [
+    false,
+    true,
+    false
    ],
    "[\"git status\", \"gh pr merge 1\", \"gh pr merge 2\"]": [
     false,
@@ -4778,6 +4797,10 @@
     "read_only",
     "outside_service"
    ],
+   "aws --profile p s3 cp s3://bucket/key ./out.txt": [
+    "read_only",
+    "outside_service"
+   ],
    "aws --profile p s3 rm s3://bucket/key": [
     "delete",
     "outside_service"
@@ -4794,7 +4817,39 @@
     "outside_write",
     "outside_service"
    ],
+   "aws s3 cp out.txt s3://bucket/key": [
+    "outside_write",
+    "outside_service"
+   ],
    "aws s3 cp out.txt s3://bucket/out.txt": [
+    "outside_write",
+    "outside_service"
+   ],
+   "aws s3 cp s3://bucket/dir out/ --recursive": [
+    "read_only",
+    "outside_service"
+   ],
+   "aws s3 cp s3://bucket/key -": [
+    "read_only",
+    "outside_service"
+   ],
+   "aws s3 cp s3://bucket/key out.txt": [
+    "read_only",
+    "outside_service"
+   ],
+   "aws s3 cp s3://bucket/key s3://other/key": [
+    "outside_write",
+    "outside_service"
+   ],
+   "aws s3 mv s3://bucket/key out.txt": [
+    "outside_write",
+    "outside_service"
+   ],
+   "aws s3 rm s3://bucket/key": [
+    "delete",
+    "outside_service"
+   ],
+   "aws s3 sync s3://bucket/dir out/": [
     "outside_write",
     "outside_service"
    ],
@@ -5214,11 +5269,55 @@
     "unknown",
     "unknown"
    ],
+   "gh -R other/repo issue comment 9 --body hi": [
+    "unknown",
+    "unknown"
+   ],
    "gh -R owner/repo pr merge 3": [
     "merge",
     "outside_service"
    ],
+   "gh api --method GET repos/o/r/issues -f labels=bug": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api --method POST /repos/o/r/pulls/3/comments -f body=x -f path=a": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X DELETE repos/o/r": [
+    "delete",
+    "outside_service"
+   ],
+   "gh api -X DELETE repos/o/r/git/refs/heads/x": [
+    "delete",
+    "outside_service"
+   ],
+   "gh api -X DELETE repos/o/r/git/refs/tags/v1": [
+    "delete",
+    "outside_service"
+   ],
+   "gh api -X DELETE repos/o/r/issues/comments/9": [
+    "delete",
+    "outside_service"
+   ],
+   "gh api -X DELETE repos/o/r/releases/9": [
+    "delete",
+    "outside_service"
+   ],
+   "gh api -X GET repos/o/r/issues --input q.json": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X GET repos/o/r/issues -f state=open": [
+    "read_only",
+    "outside_service"
+   ],
    "gh api -X GET repos/o/r/issues/5/comments --jq '.[].body'": [
+    "read_only",
+    "outside_service"
+   ],
+   "gh api -X GET repos/o/r/pulls -F per_page=5 --jq '.[].number'": [
     "read_only",
     "outside_service"
    ],
@@ -5226,21 +5325,101 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api -X PATCH repos/o/r -f private=true": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PATCH repos/o/r/issues/3 -f labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PATCH repos/o/r/issues/3 -f state=closed": [
+    "unknown",
+    "unknown"
+   ],
    "gh api -X PATCH repos/o/r/issues/5 -F state=closed --jq .id": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X PATCH repos/o/r/issues/comments/55 -f body=x": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X PATCH repos/o/r/pulls/3 -F draft=true": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X PATCH repos/o/r/pulls/3 -f body=x": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/actions/variables -f name=X -f value=1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/deployments -f ref=main": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/x -f sha=1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/hooks -f url=u": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t -f labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues/3/comments --input body.json": [
     "outside_write",
     "outside_service"
    ],
    "gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
    ],
    "gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/issues/3/comments -f body=x": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/issues/3/comments/extra -f body=x": [
     "outside_write",
     "outside_service"
    ],
-   "gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id": [
+   "gh api -X POST repos/o/r/issues/3/labels -f labels[]=go": [
     "outside_write",
     "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues/3/sub_issues -F sub_issue_id=9": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X POST repos/o/r/labels -f name=bug": [
+    "unknown",
+    "unknown"
    ],
    "gh api -X POST repos/o/r/merges -f base=main -f head=x": [
     "merge",
@@ -5251,16 +5430,44 @@
     "unknown"
    ],
    "gh api -X POST repos/o/r/pulls/3/comments -f body=x": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
    ],
    "gh api -X POST repos/o/r/pulls/3/merge": [
     "merge",
     "outside_service"
    ],
+   "gh api -X POST repos/o/r/releases -f tag_name=v1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/rulesets -f name=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/{owner}/{repo}/issues/3/comments -f body=x": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api -X PUT repos/o/r/actions/secrets/X -f value=1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PUT repos/o/r/branches/main/protection -f x=1": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X PUT repos/o/r/collaborators/bob -f permission=admin": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api -X PUT repos/o/r/pulls/3/merge": [
     "merge",
     "outside_service"
+   ],
+   "gh api -X PUT repos/o/r/pulls/3/update-branch": [
+    "unknown",
+    "unknown"
    ],
    "gh api graphql -F query='mutation { mergePullRequest(input: {}) { x } }'": [
     "merge",
@@ -5270,13 +5477,45 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api graphql -f query='mutation { addComment(input: {a:1}) { x } deleteRef(input: {refId: \"y\"}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"y\"}) { x } }'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelableId: \"x\"}) { x } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"x\"}) { x } }'": [
+    "unknown",
+    "unknown"
+   ],
    "gh api graphql -f query='mutation { createPullRequest(input: {}) { x } }'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { deleteRef(input: {refId: \"y\"}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: \"x\"}) { x } }'": [
     "unknown",
     "unknown"
    ],
    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: 1}) { x } }'": [
     "merge",
     "outside_service"
+   ],
+   "gh api repos/o/r/issues -f state=open": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api repos/o/r/issues/3/comments -f body=x": [
+    "unknown",
+    "unknown"
    ],
    "gh api repos/o/r/issues/5/comments --jq '.[].body'": [
     "read_only",
@@ -5287,8 +5526,8 @@
     "outside_service"
    ],
    "gh api repos/o/r/issues/5/comments -f body=x --jq .id": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
    ],
    "gh api repos/o/r/issues/5/comments | jq '.[].body' | head -5": [
     "read_only",
@@ -5310,36 +5549,116 @@
     "read_only",
     "outside_service"
    ],
+   "gh issue close 3": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue comment 3 --body hi": [
+    "unknown",
+    "unknown"
+   ],
    "gh issue create --title help": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue create --title help --label go": [
     "outside_write",
     "outside_service"
    ],
    "gh issue create --title t": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue create --title t --body b": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue create --title t --label go": [
     "outside_write",
     "outside_service"
+   ],
+   "gh issue delete 3 --yes": [
+    "delete",
+    "outside_service"
+   ],
+   "gh issue edit 3 --add-label=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue edit 3 --title t": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue reopen 3": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue transfer 3 o/other": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh label create bug --color f00": [
+    "unknown",
+    "unknown"
+   ],
+   "gh label delete bug": [
+    "delete",
+    "outside_service"
+   ],
+   "gh label edit bug --color 0f0": [
+    "unknown",
+    "unknown"
    ],
    "gh pr checks 12": [
     "read_only",
     "outside_service"
    ],
+   "gh pr close 3": [
+    "unknown",
+    "unknown"
+   ],
    "gh pr comment 12 --body hi": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
    ],
    "gh pr comment 3 --body -h": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
    ],
    "gh pr comment 3 --body help": [
-    "outside_write",
-    "outside_service"
+    "unknown",
+    "unknown"
+   ],
+   "gh pr comment 3 --body hi": [
+    "unknown",
+    "unknown"
    ],
    "gh pr create --title t --body b": [
     "unknown",
     "unknown"
    ],
+   "gh pr edit 3 --add-label go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr edit 3 --body x": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr edit 3 --remove-label wip": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr edit 3 --title t --base dev": [
+    "unknown",
+    "unknown"
+   ],
    "gh pr list --json number -q '.[].number'": [
     "read_only",
+    "outside_service"
+   ],
+   "gh pr lock 3": [
+    "outside_write",
     "outside_service"
    ],
    "gh pr merge --help": [
@@ -5350,9 +5669,41 @@
     "merge",
     "outside_service"
    ],
+   "gh pr merge 3": [
+    "merge",
+    "outside_service"
+   ],
    "gh pr merge 3 --subject -h": [
     "merge",
     "outside_service"
+   ],
+   "gh pr ready 3": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr ready 3 --undo": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr reopen 3": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr review 3 --approve": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr review 3 --approve --body -h": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr review 3 --approve --body help": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr update-branch 3": [
+    "unknown",
+    "unknown"
    ],
    "gh pr view 1 --json comments | jq '.comments[].body'": [
     "read_only",
@@ -5406,9 +5757,41 @@
     "deploy",
     "outside_service"
    ],
+   "gh release create v1": [
+    "deploy",
+    "outside_service"
+   ],
    "gh release create v1.0.0": [
     "deploy",
     "outside_service"
+   ],
+   "gh release delete v1 --yes": [
+    "delete",
+    "outside_service"
+   ],
+   "gh repo delete o/r --yes": [
+    "delete",
+    "outside_service"
+   ],
+   "gh repo fork o/r": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh run rerun 9": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh secret set TOKEN --body x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh variable set NAME --body x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh workflow run ci.yml": [
+    "unknown",
+    "unknown"
    ],
    "git -C help push origin main": [
     "git_push",

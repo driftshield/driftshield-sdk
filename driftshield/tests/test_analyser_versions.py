@@ -105,6 +105,9 @@ SEQUENCES: list[list[str]] = [
     ["ls; git commit -m x; gh pr merge 3"],
     ["ls; gh pr merge 1", "gh pr merge 2"],
     ["ls", "curl -X POST https://example.com/u -d a=b", "ls", "curl -X POST https://example.com/u"],
+    ["git status", "gh pr comment 3 --body hi", "gh pr merge 3"],
+    ["gh pr merge 1", "gh issue comment 2 --body x", "gh pr merge 3"],
+    ["git status", "gh pr edit 3 --add-label go", "gh pr merge 3"],
 ]
 
 
