@@ -1,0 +1,4 @@
+{"sessionId": "s", "type": "assistant", "timestamp": "2026-03-01T11:00:00Z", "message": {"model": "m", "content": [{"type": "text", "text": "Constraint: ask for confirmation before destructive actions."}]}}
+{"sessionId": "s", "type": "assistant", "timestamp": "2026-03-01T11:00:01Z", "message": {"model": "m", "content": [{"type": "tool_use", "id": "b0", "name": "Bash", "input": {"command": "git status"}}]}}
+{"sessionId": "s", "type": "assistant", "timestamp": "2026-03-01T11:00:02Z", "message": {"model": "m", "content": [{"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "gh pr merge 1 --squash"}}]}}
+{"sessionId": "s", "type": "assistant", "timestamp": "2026-03-01T11:00:03Z", "message": {"model": "m", "content": [{"type": "tool_use", "id": "b2", "name": "Bash", "input": {"command": "gh pr merge 2 --squash"}}]}}

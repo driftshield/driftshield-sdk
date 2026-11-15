@@ -3,6 +3,26 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+**Do not release until intel accepts `phase-3g-deterministic-rules-v4`.** This change moves
+the matching rules version from `phase-3g-deterministic-rules-v3` to
+`phase-3g-deterministic-rules-v4`. Intel must list v4 as a known version first, or uploads
+from the release stop counting.
+
+### A check excuses an outside step only until the next outside step
+
+- Before, one recognised check anywhere earlier in a run excused every later merge, deploy
+  or push to main, so the verification failure check rarely fired on long sessions. Now a
+  check counts only if it came after the previous outside step, or after the start of the run
+  for the first one, or earlier in the same command line (`cd x; git status; gh pr merge 3`).
+  `git status`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A check between two
+  merges excuses only the second. A confirmation step before an outside step still counts.
+- A step that stays in the agent's own space (a local delete or commit) does not start a new
+  scope, and a failed outside step does.
+- The step facts version is now `step-facts.v5` (it was `v4`): `checked_before` changed. The
+  matching rules version is now `phase-3g-deterministic-rules-v4`.
+
 ## 0.3.3 - 2026-11-14
 
 ### Findings you can trust: local analysis works out step facts, and state conflict needs a real conflict

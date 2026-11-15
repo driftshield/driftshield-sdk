@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from driftshield.core.analysis.session import AnalysisResult
+from driftshield.step_facts import is_outside_step
 
 MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 # RULESET_VERSION must change whenever the firing behaviour of any rule changes:
@@ -18,7 +19,10 @@ MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 # v3: the state conflict rules fire only on a write the system rejected after an earlier
 #     read, never on failure wording or a failed read alone; a failed unconfirmed outside
 #     step now counts for verification failure.
-RULESET_VERSION = "phase-3g-deterministic-rules-v3"
+# v4: a check counts as excusing an outside step only if it came after the previous outside
+#     step (or after the start of the run for the first one), so one early check no longer
+#     excuses every later merge or deploy (0.3.4).
+RULESET_VERSION = "phase-3g-deterministic-rules-v4"
 
 
 @dataclass(frozen=True)
@@ -638,15 +642,7 @@ def _is_outside_step(event: dict[str, Any]) -> bool:
     facts = _step_facts(event)
     if facts is None:
         return False
-    kind = facts.get("command_kind")
-    target = facts.get("target_kind")
-    if kind == "git_push":
-        return target == "main_branch"
-    if kind == "merge":
-        return target != "own_checkout"
-    if kind == "delete":
-        return target == "outside_service"
-    return kind in {"deploy", "outside_write"}
+    return is_outside_step(facts.get("command_kind"), facts.get("target_kind"))
 
 
 def _outside_step_confirmed(event: dict[str, Any], confirmations: list[dict[str, Any]]) -> bool:
