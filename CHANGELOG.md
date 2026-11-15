@@ -16,15 +16,16 @@ first, or uploads from the release stop counting.
 - Housekeeping on a pull request or an issue, including someone else's, is `unknown` and no
   longer `outside_write`, so it neither fires the verification check nor ends the scope of
   an earlier check: a comment, a body edit, closing or reopening, a draft toggle, creating an
-  issue or a label, a sub issue link, a branch update and a workflow dispatch, through `gh`
+  issue or a label, a sub issue link and a branch update, through `gh`
   or `gh api`. A merge, a deploy, a push to main, a release, a delete, a secret or variable
-  change, a repo, ruleset, ref or collaborator change, a review, and adding a label (which
-  can start an automated run) keep their kind.
+  change, a repo, ruleset, ref or collaborator change, a review, a workflow dispatch and
+  adding a label in any written form (both can start an automated run) keep their kind.
 - `aws s3 cp` from S3 to a local path is `read_only`, not `outside_write`. `gh api -X GET`
   stays `read_only` even with `-f` or `-F` fields, which are query parameters there.
-- A permission refusal worded "permission for this action was denied" or "denied by" (the
-  Claude Code auto mode) is read as `permission_denied`, so a refused edit is not a state
-  conflict.
+- A permission refusal worded "permission for this action was denied" or "denied by the
+  auto mode classifier" (the Claude Code auto mode) is read as `permission_denied`, so a
+  refused edit is not a state conflict. A remote or hook rejection that only says "denied
+  by" is not a permission refusal.
 - No new value is added to any fixed list. The matching rules stay
   `phase-3g-deterministic-rules-v4` and the step facts `step-facts.v5`, both unreleased.
 

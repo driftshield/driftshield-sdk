@@ -863,12 +863,46 @@ _GH_HOUSEKEEPING = frozenset(
         ("label", "create"),
         ("label", "edit"),
         ("pr", "update-branch"),
-        ("workflow", "run"),  # workflow dispatch
     }
 )
+# A workflow dispatch (``gh workflow run``, ``POST .../dispatches``, a repository dispatch)
+# starts a run that can deploy, so it is not housekeeping either and keeps ``outside_write``.
+#
 # Adding a label can start an automated run and the SDK cannot tell which label does, so a
 # label added through ``edit`` or ``create`` is never housekeeping. Removing one is.
-_GH_LABEL_ADD_FLAGS = frozenset({"--add-label", "--label", "-l"})
+_GH_LABEL_ADD_LONG_FLAGS = frozenset({"--add-label", "--label"})
+_LABEL_FIELD = re.compile(r"labels(?:\[\])?=")
+
+
+def _adds_label_flag(rest: list[str]) -> bool:
+    """True when a ``gh`` subcommand adds a label, in any attached form.
+
+    ``--add-label x``, ``--add-label=x``, ``--label=x``, ``-l x``, ``-lx`` and a group such as
+    ``-tl x`` all count. Any single dash group containing the letter ``l`` counts, which is
+    wider than the real flag: a false hit only leaves a call as ``outside_write``.
+    """
+    for token in rest:
+        if token.split("=", 1)[0] in _GH_LABEL_ADD_LONG_FLAGS:
+            return True
+        if (
+            token.startswith("-")
+            and not token.startswith("--")
+            and "l" in token[1:].split("=", 1)[0]
+        ):
+            return True
+    return False
+
+
+def _adds_label_field(rest: list[str]) -> bool:
+    """True when a ``gh api`` call carries a ``labels`` field, however the flag is written.
+
+    ``-f labels[]=go``, ``-F labels=x``, ``--field=labels=x``, ``--raw-field=labels[]=go`` and
+    ``-flabels[]=go`` all count. Any token with ``labels=`` or ``labels[]=`` in it counts, so
+    a stray hit only leaves a call as ``outside_write``.
+    """
+    return any(_LABEL_FIELD.search(token) for token in rest)
+
+
 _ID = r"(?:\d+|\{\w+\})"
 _REPO = r"repos/[^/]+/[^/]+"
 _GH_API_HOUSEKEEPING: dict[str, tuple[re.Pattern[str], ...]] = {
@@ -880,7 +914,6 @@ _GH_API_HOUSEKEEPING: dict[str, tuple[re.Pattern[str], ...]] = {
             rf"{_REPO}/issues",  # issue create
             rf"{_REPO}/labels",  # label create (defines a label, adds none)
             rf"{_REPO}/issues/{_ID}/sub_issues",  # sub issue link
-            rf"{_REPO}/actions/workflows/[^/]+/dispatches",  # workflow dispatch
         )
     ),
     "PATCH": tuple(
@@ -956,7 +989,7 @@ def _gh_api_is_housekeeping(method: str, rest: list[str]) -> bool:
 
     A field that adds labels, or a request body read from a file, is never housekeeping.
     """
-    if _has_flag(rest, "--input") or any(re.match(r"labels(?:\[\])?=", t) for t in rest):
+    if _has_flag(rest, "--input") or _adds_label_field(rest):
         return False
     endpoint = _gh_api_endpoint(rest)
     if endpoint == "graphql":
@@ -1015,7 +1048,7 @@ def _gh(rest: list[str]) -> _Result:
     if action in _GH_READ_ACTIONS:
         return "read_only", "outside_service"
     if (group, action) in _GH_HOUSEKEEPING:
-        if _GH_LABEL_ADD_FLAGS & {t.split("=", 1)[0] for t in rest}:
+        if _adds_label_flag(rest):
             return "outside_write", "outside_service"
         return _UNKNOWN
     if action in _GH_WRITE_ACTIONS:
@@ -2045,7 +2078,7 @@ _ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "user denied",
             "requires approval",
             "permission for this action was denied",
-            "denied by",
+            "denied by the auto mode",
         ),
     ),
     (

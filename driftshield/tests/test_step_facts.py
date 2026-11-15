@@ -465,7 +465,6 @@ CLASSIFICATION_TABLE = [
     ("gh label create bug --color f00", "unknown", "unknown"),
     ("gh label edit bug --color 0f0", "unknown", "unknown"),
     ("gh pr update-branch 3", "unknown", "unknown"),
-    ("gh workflow run ci.yml", "unknown", "unknown"),
     ("gh -R other/repo issue comment 9 --body hi", "unknown", "unknown"),
     ("gh api -X POST repos/o/r/issues/3/comments -f body=x", "unknown", "unknown"),
     ("gh api repos/o/r/issues/3/comments -f body=x", "unknown", "unknown"),
@@ -479,11 +478,6 @@ CLASSIFICATION_TABLE = [
     ("gh api -X POST repos/o/r/labels -f name=bug", "unknown", "unknown"),
     ("gh api -X POST repos/o/r/issues/3/sub_issues -F sub_issue_id=9", "unknown", "unknown"),
     ("gh api -X PUT repos/o/r/pulls/3/update-branch", "unknown", "unknown"),
-    (
-        "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
-        "unknown",
-        "unknown",
-    ),
     (
         "gh api graphql -f query='mutation { addComment("
         'input: {subjectId: "x", body: "y"}) { x } }\'',
@@ -518,6 +512,78 @@ CLASSIFICATION_TABLE = [
         "outside_write",
         "outside_service",
     ),
+    # a workflow dispatch starts a run that can deploy, so it stays outside
+    ("gh workflow run ci.yml", "outside_write", "outside_service"),
+    ("gh workflow run deploy.yml -f env=prod", "outside_write", "outside_service"),
+    ("gh workflow enable ci.yml", "outside_write", "outside_service"),
+    ("gh workflow disable ci.yml", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/actions/workflows/123/dispatches -f ref=main",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+        "outside_write",
+        "outside_service",
+    ),
+    # a label added is caught in every attached form, for gh api
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field=labels[]=go",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field labels=go",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --field=labels=x",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --field labels[]=x",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t -flabels[]=go",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X POST repos/o/r/issues -f title=t -Flabels=x", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t -F labels[]=x",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X POST repos/o/r/issues -f title=t -f labels=x", "outside_write", "outside_service"),
+    ("gh api -X PATCH repos/o/r/issues/3 --field=labels[]=go", "outside_write", "outside_service"),
+    ("gh api -X PATCH repos/o/r/pulls/3 -f labels[]=go", "outside_write", "outside_service"),
+    # and for the gh subcommands
+    ("gh issue create -t t -lgo", "outside_write", "outside_service"),
+    ("gh issue create -t t -l go", "outside_write", "outside_service"),
+    ("gh issue create -t t --label go", "outside_write", "outside_service"),
+    ("gh issue create -t t --label=go", "outside_write", "outside_service"),
+    ("gh issue create -t t --add-label=go", "outside_write", "outside_service"),
+    ("gh pr edit 3 -lgo", "outside_write", "outside_service"),
+    ("gh pr edit 3 -l go", "outside_write", "outside_service"),
+    ("gh pr edit 3 --add-label go", "outside_write", "outside_service"),
+    ("gh pr edit 3 --add-label=go", "outside_write", "outside_service"),
+    ("gh issue edit 3 -tl go", "outside_write", "outside_service"),
+    ("gh issue edit 3 --title t --add-label go", "outside_write", "outside_service"),
+    # removing a label, editing other fields, and creating without a label are housekeeping
+    ("gh issue edit 3 --title t -b body", "unknown", "unknown"),
+    ("gh issue edit 3 --body x --milestone 2", "unknown", "unknown"),
+    ("gh pr edit 3 --remove-label wip", "unknown", "unknown"),
+    ("gh issue create -t t -b body", "unknown", "unknown"),
     # not housekeeping: reviews, locks, merges, releases, secrets, variables, repos, rulesets, refs
     ("gh pr review 3 --approve", "outside_write", "outside_service"),
     ("gh pr lock 3", "outside_write", "outside_service"),

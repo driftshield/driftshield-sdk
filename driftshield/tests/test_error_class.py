@@ -54,7 +54,18 @@ ERROR_TABLE = [
     ),
     ("permission for this action was denied", "permission_denied"),
     ("Edit was denied by the auto mode classifier.", "permission_denied"),
-    ("Action denied by policy: pushing to main", "permission_denied"),
+    ("Write was denied by the auto mode classifier", "permission_denied"),
+    # "denied by" alone is not a permission refusal: a remote, a hook or a rule is not the user
+    ("remote: error: push declined: update denied by pre-receive hook", "other"),
+    ("! [remote rejected] main -> main (denied by protected branch rules)", "other"),
+    ("error: merge denied by CODEOWNERS review rules", "other"),
+    ("Action denied by policy: pushing to main", "other"),
+    ("Merge conflict in a.py: denied by upstream", "conflict"),
+    (
+        "! [remote rejected] main -> main (denied by hook: stale info, file already exists)",
+        "conflict",
+    ),
+    ("denied by hook: HTTP/1.1 409 Conflict", "conflict"),
     # a real conflict
     ("CONFLICT (content): Merge conflict in a.py", "conflict"),
     ("EEXIST: file already exists, mkdir 'out'", "conflict"),

@@ -361,7 +361,6 @@ HOUSEKEEPING = [
     "gh issue create --title t",
     "gh label create bug",
     "gh pr update-branch 3",
-    "gh workflow run ci.yml",
     "gh api -X POST repos/o/r/issues/3/comments -f body=x",
     "gh api -X PATCH repos/o/r/issues/3 -f state=closed",
 ]
@@ -394,6 +393,11 @@ def test_a_real_merge_after_housekeeping_still_fires():
 @pytest.mark.parametrize(
     "command",
     [
+        "gh workflow run ci.yml",
+        "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
+        "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+        "gh issue create -t t -lgo",
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field=labels[]=go",
         "gh pr edit 3 --add-label go",
         "gh issue create --title t --label go",
         "gh api -X POST repos/o/r/issues/3/labels -f labels[]=go",

@@ -2,10 +2,12 @@
  "error_classes": {
   "step-facts.v5": {
    "": "other",
+   "! [remote rejected] main -> main (denied by hook: stale info, file already exists)": "conflict",
+   "! [remote rejected] main -> main (denied by protected branch rules)": "other",
    "404 Not Found": "not_found",
    "409 Conflict": "conflict",
    "<tool_use_error>String to replace not found in file.\nString: def f():\n    # TODO: handle timeout, conflict and permission denied\n</tool_use_error>": "precondition_failed",
-   "Action denied by policy: pushing to main": "permission_denied",
+   "Action denied by policy: pushing to main": "other",
    "CONFLICT (content): Merge conflict in a.py": "conflict",
    "Claude requested permissions to write to a.py, but you haven't granted it yet.": "permission_denied",
    "Command failed\n$ cat notes.md\nthe doc says: permission denied happens when the file already exists\n": "other",
@@ -42,17 +44,22 @@
    "HTTP 409: version mismatch": "conflict",
    "HTTP/1.1 409 Conflict": "conflict",
    "HTTP/2 404": "not_found",
+   "Merge conflict in a.py: denied by upstream": "conflict",
    "Permission for this action was denied. Reason: the edit overwrites a file.": "permission_denied",
    "Permission to use Edit has been denied.": "permission_denied",
    "Response status 404": "not_found",
    "String to replace not found in file.\nString: foo": "precondition_failed",
    "The user doesn't want to proceed with this tool use. The tool use was rejected.": "permission_denied",
    "Traceback (most recent call last):\n  File \"app.py\", line 404, in handler\n    raise_conflict()  # not found, timeout, stale\nValueError: bad input\n": "other",
+   "Write was denied by the auto mode classifier": "permission_denied",
    "apply_patch verification failed: Failed to find expected lines in a.py": "precondition_failed",
    "bash: ./run.sh: Permission denied": "permission_denied",
    "bash: frobnicate: command not found": "not_found",
    "cat: x.txt: No such file or directory": "not_found",
+   "denied by hook: HTTP/1.1 409 Conflict": "conflict",
+   "error: merge denied by CODEOWNERS review rules": "other",
    "permission for this action was denied": "permission_denied",
+   "remote: error: push declined: update denied by pre-receive hook": "other",
    "request failed with status 409": "conflict",
    "something went wrong": "other",
    "status code: 409": "conflict",
@@ -5333,6 +5340,10 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api -X PATCH repos/o/r/issues/3 --field=labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api -X PATCH repos/o/r/issues/3 -f labels[]=go": [
     "outside_write",
     "outside_service"
@@ -5357,15 +5368,27 @@
     "unknown",
     "unknown"
    ],
+   "gh api -X PATCH repos/o/r/pulls/3 -f labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api -X POST repos/o/r/actions/variables -f name=X -f value=1": [
     "outside_write",
     "outside_service"
    ],
+   "gh api -X POST repos/o/r/actions/workflows/123/dispatches -f ref=main": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main": [
-    "unknown",
-    "unknown"
+    "outside_write",
+    "outside_service"
    ],
    "gh api -X POST repos/o/r/deployments -f ref=main": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/dispatches -f event_type=deploy": [
     "outside_write",
     "outside_service"
    ],
@@ -5381,7 +5404,39 @@
     "unknown",
     "unknown"
    ],
+   "gh api -X POST repos/o/r/issues -f title=t --field labels[]=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t --field=labels=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t --raw-field labels=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t --raw-field=labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t -F labels[]=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t -Flabels=x": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t -f labels=x": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api -X POST repos/o/r/issues -f title=t -f labels[]=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api -X POST repos/o/r/issues -f title=t -flabels[]=go": [
     "outside_write",
     "outside_service"
    ],
@@ -5577,6 +5632,30 @@
     "outside_write",
     "outside_service"
    ],
+   "gh issue create -t t --add-label=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue create -t t --label go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue create -t t --label=go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue create -t t -b body": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue create -t t -l go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue create -t t -lgo": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh issue delete 3 --yes": [
     "delete",
     "outside_service"
@@ -5585,9 +5664,25 @@
     "outside_write",
     "outside_service"
    ],
+   "gh issue edit 3 --body x --milestone 2": [
+    "unknown",
+    "unknown"
+   ],
    "gh issue edit 3 --title t": [
     "unknown",
     "unknown"
+   ],
+   "gh issue edit 3 --title t --add-label go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue edit 3 --title t -b body": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue edit 3 -tl go": [
+    "outside_write",
+    "outside_service"
    ],
    "gh issue reopen 3": [
     "unknown",
@@ -5641,6 +5736,10 @@
     "outside_write",
     "outside_service"
    ],
+   "gh pr edit 3 --add-label=go": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh pr edit 3 --body x": [
     "unknown",
     "unknown"
@@ -5652,6 +5751,14 @@
    "gh pr edit 3 --title t --base dev": [
     "unknown",
     "unknown"
+   ],
+   "gh pr edit 3 -l go": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr edit 3 -lgo": [
+    "outside_write",
+    "outside_service"
    ],
    "gh pr list --json number -q '.[].number'": [
     "read_only",
@@ -5789,9 +5896,21 @@
     "outside_write",
     "outside_service"
    ],
+   "gh workflow disable ci.yml": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh workflow enable ci.yml": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh workflow run ci.yml": [
-    "unknown",
-    "unknown"
+    "outside_write",
+    "outside_service"
+   ],
+   "gh workflow run deploy.yml -f env=prod": [
+    "outside_write",
+    "outside_service"
    ],
    "git -C help push origin main": [
     "git_push",
