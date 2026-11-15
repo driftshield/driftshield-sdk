@@ -590,7 +590,22 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
         elif token not in {"(", ")", "{", "}", "!"}:
             segments[-1].append(token)
         index += 1
-    return [segment for segment in segments if segment], opaque
+    cleaned = [_without_leading_keywords(segment) for segment in segments]
+    return [segment for segment in cleaned if segment], opaque
+
+
+# Words that open a command inside a loop or a conditional. ``do git push origin main`` is
+# the command ``git push origin main``, so the write inside a loop body or a condition is
+# found as its own write kind. The loop and conditional words on their own (``for``,
+# ``done``, ``fi``) stay unknown commands, so a loop is never a check.
+_LEADING_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "while", "until"})
+
+
+def _without_leading_keywords(segment: list[str]) -> list[str]:
+    start = 0
+    while start < len(segment) and segment[start] in _LEADING_KEYWORDS:
+        start += 1
+    return segment[start:]
 
 
 def _strip_prefixes(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
@@ -2231,10 +2246,15 @@ def compute_step_facts(
     step whose command is visible never keeps facts from the input: they are
     recomputed.
     """
+    from driftshield.step_facts_pr import command_pr_reads, command_pr_refs, merge_tied_check
+
     facts_by_node: dict[int, dict[str, Any]] = {}
     # call id -> (facts, call block, is a shell step)
     pending: dict[str, tuple[dict[str, Any], dict[str, Any], bool]] = {}
     seen_check = False
+    # Pull requests whose state, checks, reviews or comments were read since the previous
+    # outside step on them. Only a merge reads this, and only for its own pull request.
+    pr_reads: set[tuple[str, str]] = set()
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
@@ -2255,16 +2275,32 @@ def compute_step_facts(
                 # the command line it was worked out from can no longer be read, so recomputing
                 # would lose a check that ran earlier in the same command line and the redacted
                 # copy would disagree with the first analysis.
+                outside = is_outside_step(facts["command_kind"], facts["target_kind"])
                 if not hidden:
-                    facts["checked_before"] = seen_check or (
-                        command is not None
-                        and facts["command_kind"] in _RISK_ORDER
-                        and _check_earlier_in_command(command)
+                    # A merge is checked only by a read of that same pull request: the
+                    # scoped check rule below is for every other outside step.
+                    tied = (
+                        merge_tied_check(command, frozenset(pr_reads))
+                        if outside and command is not None
+                        else None
                     )
-                if is_outside_step(facts["command_kind"], facts["target_kind"]):
+                    if tied is not None:
+                        facts["checked_before"] = tied
+                    else:
+                        facts["checked_before"] = seen_check or (
+                            command is not None
+                            and facts["command_kind"] in _RISK_ORDER
+                            and _check_earlier_in_command(command)
+                        )
+                if outside:
                     seen_check = False
-                elif facts["command_kind"] in _CHECK_KINDS:
-                    seen_check = True
+                    if command is not None:
+                        pr_reads -= command_pr_refs(command)
+                else:
+                    if facts["command_kind"] in _CHECK_KINDS:
+                        seen_check = True
+                    if command is not None and not hidden:
+                        pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True
             else:
