@@ -20,6 +20,11 @@ first, or uploads from the release stop counting.
   or `gh api`. A merge, a deploy, a push to main, a release, a delete, a secret or variable
   change, a repo, ruleset, ref or collaborator change, a review, a workflow dispatch and
   adding a label in any written form (both can start an automated run) keep their kind.
+  A flag that deletes makes the call a `delete`: `gh pr close --delete-branch` (or `-d`, also
+  combined as `-dc msg`) deletes the remote head branch, and `gh pr comment` or
+  `gh issue comment` with `--delete-last` deletes a comment. Taking a project, milestone,
+  assignee or reviewer off (`--remove-project`, `--remove-milestone`, `--remove-assignee`,
+  `--remove-reviewer`) is `outside_write`; `--remove-label` stays housekeeping.
 - `aws s3 cp` from S3 to a local path is `read_only`, not `outside_write`. `gh api -X GET`
   stays `read_only` even with `-f` or `-F` fields, which are query parameters there.
 - A permission refusal worded "permission for this action was denied" or "denied by the

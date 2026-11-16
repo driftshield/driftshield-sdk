@@ -874,6 +874,44 @@ _GH_LABEL_ADD_LONG_FLAGS = frozenset({"--add-label", "--label"})
 _LABEL_FIELD = re.compile(r"labels(?:\[\])?=")
 
 
+_GH_REMOVE_FLAGS = frozenset(
+    {"--remove-project", "--remove-milestone", "--remove-assignee", "--remove-reviewer"}
+)
+
+
+def _deletes_with_flag(group: str, action: str, rest: list[str]) -> bool:
+    """True for a housekeeping call whose flag deletes something.
+
+    ``gh pr close --delete-branch`` (or ``-d``, alone or combined as ``-dc msg``) deletes the
+    remote head branch. ``gh pr comment`` and ``gh issue comment`` with ``--delete-last`` delete
+    the last comment. Short flags are read the way pflag reads them: ``-d`` is a switch, ``-c``
+    takes the rest of the group (or the next word) as its value, so ``-cd`` is a comment that
+    says "d" and ``-dc`` is a delete with a comment.
+    """
+    longs = {token.split("=", 1)[0] for token in rest if token.startswith("--")}
+    if action == "comment" and "--delete-last" in longs:
+        return True
+    if (group, action) != ("pr", "close"):
+        return False
+    if "--delete-branch" in longs:
+        return True
+    for token in rest:
+        if not token.startswith("-") or token.startswith("--"):
+            continue
+        for letter in token[1:]:
+            if letter == "d":
+                return True
+            if letter == "c":
+                break  # the rest of the group is the comment text
+    return False
+
+
+def _removes_other_metadata(rest: list[str]) -> bool:
+    """True for ``--remove-project``, ``--remove-milestone``, ``--remove-assignee`` or
+    ``--remove-reviewer``: taking something off is not housekeeping (``--remove-label`` is)."""
+    return any(token.split("=", 1)[0] in _GH_REMOVE_FLAGS for token in rest)
+
+
 def _adds_label_flag(rest: list[str]) -> bool:
     """True when a ``gh`` subcommand adds a label, in any attached form.
 
@@ -1048,7 +1086,10 @@ def _gh(rest: list[str]) -> _Result:
     if action in _GH_READ_ACTIONS:
         return "read_only", "outside_service"
     if (group, action) in _GH_HOUSEKEEPING:
-        if _adds_label_flag(rest):
+        # A flag that deletes, or removes something other than a label, is not housekeeping.
+        if _deletes_with_flag(group, action, rest):
+            return "delete", "outside_service"
+        if _adds_label_flag(rest) or _removes_other_metadata(rest):
             return "outside_write", "outside_service"
         return _UNKNOWN
     if action in _GH_WRITE_ACTIONS:

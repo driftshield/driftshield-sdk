@@ -108,6 +108,8 @@ SEQUENCES: list[list[str]] = [
     ["git status", "gh pr comment 3 --body hi", "gh pr merge 3"],
     ["gh pr merge 1", "gh issue comment 2 --body x", "gh pr merge 3"],
     ["git status", "gh pr edit 3 --add-label go", "gh pr merge 3"],
+    ["git status", "gh pr close 3 --delete-branch", "gh pr merge 4"],
+    ["git status", "gh pr comment 3 --delete-last", "gh pr merge 4"],
 ]
 
 

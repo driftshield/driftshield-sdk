@@ -612,10 +612,20 @@
    "[\"git status && gh pr merge 3\"]": [
     true
    ],
+   "[\"git status\", \"gh pr close 3 --delete-branch\", \"gh pr merge 4\"]": [
+    false,
+    true,
+    false
+   ],
    "[\"git status\", \"gh pr comment 3 --body hi\", \"gh pr merge 3\"]": [
     false,
     true,
     true
+   ],
+   "[\"git status\", \"gh pr comment 3 --delete-last\", \"gh pr merge 4\"]": [
+    false,
+    true,
+    false
    ],
    "[\"git status\", \"gh pr edit 3 --add-label go\", \"gh pr merge 3\"]": [
     false,
@@ -5276,6 +5286,10 @@
     "unknown",
     "unknown"
    ],
+   "gh -R o/r pr close 3 -d": [
+    "delete",
+    "outside_service"
+   ],
    "gh -R other/repo issue comment 9 --body hi": [
     "unknown",
     "unknown"
@@ -5608,7 +5622,27 @@
     "unknown",
     "unknown"
    ],
+   "gh issue close 3 --reason completed": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue close 3 -c bye": [
+    "unknown",
+    "unknown"
+   ],
    "gh issue comment 3 --body hi": [
+    "unknown",
+    "unknown"
+   ],
+   "gh issue comment 3 --delete-last": [
+    "delete",
+    "outside_service"
+   ],
+   "gh issue comment 3 --delete-last --yes": [
+    "delete",
+    "outside_service"
+   ],
+   "gh issue comment 3 --edit-last --body x": [
     "unknown",
     "unknown"
    ],
@@ -5668,6 +5702,18 @@
     "unknown",
     "unknown"
    ],
+   "gh issue edit 3 --remove-assignee bob": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue edit 3 --remove-milestone": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh issue edit 3 --remove-project Roadmap": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh issue edit 3 --title t": [
     "unknown",
     "unknown"
@@ -5696,6 +5742,10 @@
     "unknown",
     "unknown"
    ],
+   "gh label create bug --force": [
+    "unknown",
+    "unknown"
+   ],
    "gh label delete bug": [
     "delete",
     "outside_service"
@@ -5711,6 +5761,54 @@
    "gh pr close 3": [
     "unknown",
     "unknown"
+   ],
+   "gh pr close 3 --comment bye --delete-branch": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 --comment delete-branch": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr close 3 --delete-branch": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 --delete-branch --comment bye": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 --delete-branch=true": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 -c bye": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr close 3 -c bye -d": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 -cd": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr close 3 -d": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 -d -c bye": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 -dc bye": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr close 3 -dcbye": [
+    "delete",
+    "outside_service"
    ],
    "gh pr comment 12 --body hi": [
     "unknown",
@@ -5728,6 +5826,22 @@
     "unknown",
     "unknown"
    ],
+   "gh pr comment 3 --delete-last": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr comment 3 --delete-last --yes": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr comment 3 --delete-last=true": [
+    "delete",
+    "outside_service"
+   ],
+   "gh pr comment 3 --edit-last --body x": [
+    "unknown",
+    "unknown"
+   ],
    "gh pr create --title t --body b": [
     "unknown",
     "unknown"
@@ -5740,6 +5854,10 @@
     "outside_write",
     "outside_service"
    ],
+   "gh pr edit 3 --base dev": [
+    "unknown",
+    "unknown"
+   ],
    "gh pr edit 3 --body x": [
     "unknown",
     "unknown"
@@ -5748,9 +5866,21 @@
     "unknown",
     "unknown"
    ],
+   "gh pr edit 3 --remove-project=Roadmap": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh pr edit 3 --remove-reviewer bob": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh pr edit 3 --title t --base dev": [
     "unknown",
     "unknown"
+   ],
+   "gh pr edit 3 --title t --remove-assignee bob": [
+    "outside_write",
+    "outside_service"
    ],
    "gh pr edit 3 -l go": [
     "outside_write",
@@ -5809,6 +5939,10 @@
     "outside_service"
    ],
    "gh pr update-branch 3": [
+    "unknown",
+    "unknown"
+   ],
+   "gh pr update-branch 3 --rebase": [
     "unknown",
     "unknown"
    ],

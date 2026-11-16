@@ -393,6 +393,11 @@ def test_a_real_merge_after_housekeeping_still_fires():
 @pytest.mark.parametrize(
     "command",
     [
+        "gh pr close 3 --delete-branch",
+        "gh pr close 3 -dc bye",
+        "gh pr comment 3 --delete-last",
+        "gh issue edit 3 --remove-project Roadmap",
+        "gh pr edit 3 --remove-reviewer bob",
         "gh workflow run ci.yml",
         "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
         "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
