@@ -68,7 +68,10 @@ first, or uploads from the release stop counting.
   read of any pull request: the next merge is unchecked until its pull request is read again.
   Only a `gh api graphql` mutation does this: a plain read that asks for those fields
   (`gh pr view 6 --json headRefName,baseRefName`) keeps every other read. A head or base
-  change the reader cannot parse clears every read.
+  change (`gh pr edit --base`, `gh pr update-branch`, a `gh api` update-branch or base field)
+  that names no pull request or that the reader cannot parse clears every read. A base flag on
+  a command that changes no pull request (`gh pr list --base main`, `gh pr create --base
+  main`) keeps every read.
 - A merge is never left to the scoped check rule: a merge statement the reader calls unsafe
   (`PATH=./evil gh pr merge 5`, a `$(...)` in the body), a merge inside a substitution or a
   merge step with no statement it can read as one is unchecked, even after an unrelated step.

@@ -757,6 +757,7 @@ def test_the_function_never_returns_none_for_a_step_the_classifier_calls_a_merge
         "gh pr update-branch $N",
         "gh pr edit --base 'x",
         "gh pr update-branch",
+        "env gh pr update-branch 5",
     ],
 )
 def test_a_head_or_base_change_that_names_no_pull_request_clears_every_read(command: str):
@@ -766,3 +767,26 @@ def test_a_head_or_base_change_that_names_no_pull_request_clears_every_read(comm
 
 def test_a_non_gh_command_with_a_base_flag_does_not_clear_reads():
     assert _flags(["gh pr view 5", "git diff --base x", "gh pr merge 5"])[-1] is True
+
+
+# A base flag on a gh command that changes no pull request keeps every read
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr list --base main",
+        "gh pr list -B main",
+        "gh pr create --base main --title t --body b",
+        "gh pr create -B main --fill",
+        "gh pr view 6 --json baseRefName",
+        "gh pr checks 6",
+        "gh pr view 6 && gh pr list --base main",
+        "gh pr edit 6 --body 'use --base release'",
+    ],
+)
+def test_a_base_flag_that_changes_no_pull_request_keeps_an_earlier_read(command: str):
+    assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is True, command
+
+
+def test_a_list_or_create_next_to_a_real_base_change_still_clears_that_read():
+    flags = _flags(["gh pr view 5", "gh pr list --base main && gh pr edit 5 -B x", "gh pr merge 5"])
+    assert flags[-1] is False

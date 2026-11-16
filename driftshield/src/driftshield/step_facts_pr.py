@@ -566,34 +566,66 @@ def head_change_clears_all_reads(command: str) -> bool:
 def clear_reads_for_head_change(reads: set[PrRef], command: str) -> set[PrRef]:
     """``reads`` after a command that may change what a pull request would merge.
 
-    A ``gh api graphql`` mutation clears every read (it names the pull request by node id). A
-    ``gh`` command with ``update-branch`` or a base change clears the reads of the pull requests
-    it names. If it changes the head or base but no pull request can be named from it (an
-    unbalanced quote, a form the reader cannot parse), every read is cleared: a read that may
-    be stale is never trusted.
+    A ``gh api graphql`` mutation clears every read (it names the pull request by node id).
+    ``gh pr update-branch N``, ``gh pr edit N --base X`` (or ``-B``) and ``gh api`` with an
+    ``update-branch`` path or a ``base`` field clear the reads of the pull requests they name.
+    One of those forms that names no pull request, or that sits in a command line the reader
+    cannot parse, clears every read: a read that may be stale is never trusted. Other ``gh``
+    commands with a base flag (``gh pr create --base main``, ``gh pr list --base main``)
+    change no pull request and keep every read.
     """
     if head_change_clears_all_reads(command):
         return set()
     if not _HEAD_CHANGING.search(command):
         return reads
-    named = command_pr_refs(command)
-    if named and _items(command) is not None:
-        return clear_reads(reads, named)
-    return set() if re.search(r"\bgh\b", command) else reads
-
-
-def head_changing_refs(command: str) -> set[PrRef]:
-    """The pull requests a command that can change what gets merged names, else none.
-
-    ``gh pr update-branch N`` adds a commit to the head, ``gh pr edit N --base X`` (and ``-B``,
-    or ``gh api`` with a ``base`` field or an ``update-branch`` path) changes the branch it
-    merges into. Both are housekeeping, so neither ends the scope of an outside step, but a
-    read of the pull request taken before them no longer describes what a merge would do, so
-    it is cleared. Every pull request the command names is cleared when it contains one.
-    """
-    if not _HEAD_CHANGING.search(command):
+    tokens = _tokenise(command)
+    if tokens is None:
+        return set() if _LOOSE_HEAD_CHANGE.search(command) else reads
+    named: set[PrRef] = set()
+    unnamed = False
+    segments = _segments(tokens)[0]
+    for segment in segments:
+        if not _changes_head_or_base(segment):
+            continue
+        target = gh_pr_target(segment)
+        if target is None:
+            unnamed = True
+        else:
+            named.add(target[0])
+    if not named and not unnamed:
+        # No segment reads as a change. One may still hide behind a wrapper (``env gh ...``),
+        # where ``gh`` is not the first word: then the text decides.
+        wrapped = any("gh" in segment[1:] for segment in segments)
+        return set() if wrapped and _LOOSE_HEAD_CHANGE.search(command) else reads
+    if unnamed or _items(command) is None:
         return set()
-    return command_pr_refs(command)
+    return clear_reads(reads, named)
+
+
+# A head or base change in text the reader cannot split into ``gh`` segments.
+_LOOSE_HEAD_CHANGE = re.compile(
+    r"\bgh\b.*(update-branch|\bpr\s+edit\b.*(--base|(?<!\w)-B)|\bapi\b.*\bbase=)", re.S
+)
+
+
+def _changes_head_or_base(segment: list[str]) -> bool:
+    """True for ``gh pr update-branch``, ``gh pr edit`` with a base flag, or a ``gh api`` call
+    with an ``update-branch`` path or a ``base`` field."""
+    if not segment or segment[0] != "gh":
+        return False
+    positional, _ = _split_flags(segment[1:])
+    if len(positional) >= 2 and positional[0] == "pr":
+        if positional[1] == "update-branch":
+            return True
+        return positional[1] == "edit" and any(
+            token in {"--base", "-B"}
+            or token.startswith("--base=")
+            or (token.startswith("-B") and not token.startswith("--"))
+            for token in segment[2:]
+        )
+    if positional and positional[0] == "api":
+        return any("update-branch" in token or re.search(r"\bbase=", token) for token in segment)
+    return False
 
 
 def command_pr_reads(command: str) -> set[PrRef]:

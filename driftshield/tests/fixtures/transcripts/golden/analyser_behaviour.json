@@ -659,12 +659,22 @@
     true,
     false
    ],
+   "[\"gh pr view 5\", \"gh pr create --base main --fill\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    true
+   ],
    "[\"gh pr view 5\", \"gh pr edit 5 --base release\", \"gh pr merge 5\"]": [
     false,
     true,
     false
    ],
    "[\"gh pr view 5\", \"gh pr edit 5 --body x\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"gh pr view 5\", \"gh pr list --base main\", \"gh pr merge 5\"]": [
     false,
     true,
     true

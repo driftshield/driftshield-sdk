@@ -132,6 +132,9 @@ SEQUENCES: list[list[str]] = [
     ["gh pr view 5", 'gh pr merge 5 --body "$(python3 x.py)"'],
     # A plain read that asks for the branch names keeps every other read.
     ["gh pr view 5", "gh pr view 6 --json headRefName,baseRefName", "gh pr merge 5"],
+    # A base flag on a command that changes no pull request keeps the read.
+    ["gh pr view 5", "gh pr list --base main", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr create --base main --fill", "gh pr merge 5"],
     # A merge is checked only by a read of the same pull request.
     ["gh pr view 1", "gh pr merge 1"],
     ["gh pr view 2", "gh pr merge 1"],
