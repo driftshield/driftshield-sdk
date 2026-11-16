@@ -51,8 +51,12 @@ def _flags(commands: list[str], failed: set[int] | None = None) -> list[bool]:
 
 def _line(timestamp: str, item: dict[str, Any]) -> str:
     return json.dumps(
-        {"sessionId": "s", "type": "assistant", "timestamp": timestamp,
-         "message": {"model": "m", "content": [item]}}
+        {
+            "sessionId": "s",
+            "type": "assistant",
+            "timestamp": timestamp,
+            "message": {"model": "m", "content": [item]},
+        }
     )
 
 
@@ -62,11 +66,18 @@ def _fires(commands: list[str]) -> bool:
         lines.append(
             _line(
                 f"2026-03-01T11:00:{index + 1:02d}Z",
-                {"type": "tool_use", "id": f"b{index}", "name": "Bash", "input": {"command": command}},
+                {
+                    "type": "tool_use",
+                    "id": f"b{index}",
+                    "name": "Bash",
+                    "input": {"command": command},
+                },
             )
         )
     run = analyse_run("\n".join(lines).encode())
-    match = build_deterministic_match(canonical_analysis=run.canonical_analysis, result=run.analysis)
+    match = build_deterministic_match(
+        canonical_analysis=run.canonical_analysis, result=run.analysis
+    )
     return bool(match["extracted_features"]["unconfirmed_outside_event_ids"])
 
 
@@ -87,7 +98,10 @@ def _fires(commands: list[str]) -> bool:
         (["gh", "api", "repos/o/r/pulls/5/reviews"], (("o/r", "5"), "api:pulls/reviews")),
         (["gh", "api", "-X", "PUT", "repos/o/r/pulls/5/merge"], (("o/r", "5"), "api:pulls/merge")),
         (["gh", "api", "repos/{owner}/{repo}/pulls/5"], (("", "5"), "api:pulls/")),
-        (["gh", "api", "repos/o/r/issues/5/comments?per_page=5"], (("o/r", "5"), "api:issues/comments")),
+        (
+            ["gh", "api", "repos/o/r/issues/5/comments?per_page=5"],
+            (("o/r", "5"), "api:issues/comments"),
+        ),
     ],
 )
 def test_the_pull_request_a_gh_command_names(tokens, expected):
@@ -118,7 +132,9 @@ def test_a_command_that_names_no_literal_pull_request_has_no_target(tokens):
 def test_a_read_of_the_same_pull_request_checks_its_merge():
     assert _flags(["gh pr view 1", "gh pr merge 1"]) == [False, True]
     assert _flags(["gh pr checks 1", "gh pr merge 1"]) == [False, True]
-    assert _flags(["gh api repos/o/r/pulls/1/reviews", "gh api -X PUT repos/o/r/pulls/1/merge"]) == [
+    assert _flags(
+        ["gh api repos/o/r/pulls/1/reviews", "gh api -X PUT repos/o/r/pulls/1/merge"]
+    ) == [
         False,
         True,
     ]
@@ -127,7 +143,15 @@ def test_a_read_of_the_same_pull_request_checks_its_merge():
 
 @pytest.mark.parametrize(
     "unrelated",
-    ["git log -1", "git status", "ls", "pytest -q", "npm run build", "aws s3 ls s3://bucket", "cat README.md"],
+    [
+        "git log -1",
+        "git status",
+        "ls",
+        "pytest -q",
+        "npm run build",
+        "aws s3 ls s3://bucket",
+        "cat README.md",
+    ],
 )
 def test_an_unrelated_read_never_clears_a_merge(unrelated):
     assert _flags([unrelated, "gh pr merge 1"]) == [False, False]
@@ -147,10 +171,17 @@ def test_a_read_counts_only_until_the_next_outside_step_on_that_pull_request():
     # A merge of another pull request does not use up the read of this one.
     # (the second read is not an outside step, so its own flag is the scoped one.)
     assert _flags(["gh pr view 1", "gh pr view 2", "gh pr merge 2", "gh pr merge 1"]) == [
-        False, True, True, True,
+        False,
+        True,
+        True,
+        True,
     ]
     # A failed merge still ends the scope.
-    assert _flags(["gh pr view 1", "gh pr merge 1", "gh pr merge 1"], failed={1}) == [False, True, False]
+    assert _flags(["gh pr view 1", "gh pr merge 1", "gh pr merge 1"], failed={1}) == [
+        False,
+        True,
+        False,
+    ]
 
 
 def test_a_pull_request_created_then_merged_with_no_read_is_not_checked():
@@ -350,8 +381,10 @@ def test_a_dangerous_part_in_a_substitution_or_loop_never_lets_a_read_check_a_me
 def test_every_pull_request_a_command_names_is_cleared_by_an_outside_step_on_it():
     assert command_pr_refs("gh pr merge 5 && gh pr comment 6 -b x") == {("", "5"), ("", "6")}
     assert command_pr_refs("git push origin main") == set()
-    # A comment on a pull request is an outside step on it, so it ends the scope of a read.
-    assert _flags(["gh pr view 5", "gh pr comment 5 -b ok", "gh pr merge 5"])[-1] is False
+    # A review on a pull request is an outside step on it, so it ends the scope of a read.
+    assert _flags(["gh pr view 5", "gh pr review 5 --approve -b ok", "gh pr merge 5"])[-1] is False
+    # A comment is housekeeping (low risk): it neither fires nor ends the scope of a read.
+    assert _flags(["gh pr view 5", "gh pr comment 5 -b ok", "gh pr merge 5"])[-1] is True
 
 
 @pytest.mark.parametrize(
@@ -382,7 +415,10 @@ def test_the_redacted_copy_gives_the_same_flags_as_the_first_analysis(commands):
 
 
 def test_nothing_but_the_boolean_leaves():
-    steps = [("gh pr view 12345", "c0", False), ("gh pr merge 12345 -R secret-org/secret-repo", "c1", False)]
+    steps = [
+        ("gh pr view 12345", "c0", False),
+        ("gh pr merge 12345 -R secret-org/secret-repo", "c1", False),
+    ]
     run = analyse_run(claude_code(steps), format="claude_code")
     dumped = json.dumps(run.redacted_transcript) + json.dumps(run.redaction_manifest)
     for fragment in ("12345", "secret-org", "secret-repo"):
@@ -393,7 +429,10 @@ def test_nothing_but_the_boolean_leaves():
         for block in record.get("message", {}).get("content", [])
         if isinstance(block, dict) and "step_facts" in block
     ]
-    assert all(set(f) == {"command_kind", "target_kind", "exit_status", "checked_before", "error_class"} for f in facts)
+    assert all(
+        set(f) == {"command_kind", "target_kind", "exit_status", "checked_before", "error_class"}
+        for f in facts
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -410,7 +449,7 @@ UNPARSEABLE_OUTSIDE = [
     "vercel --prod &",
     "git push origin main # ship it",
     "git push origin main > push.log",
-    "gh pr comment 5 -b done > out.txt",
+    "gh pr review 5 --approve -b done > out.txt",
     "{ vercel --prod; }",
     "if ls; then git push origin main; fi",
     "if [ -f x ]; then vercel --prod; fi",
@@ -433,7 +472,9 @@ def test_a_non_merge_outside_step_keeps_the_scoped_rule_whatever_its_command_loo
     assert _flags(["gh pr view 1", command]) == [False, True], command
 
 
-@pytest.mark.parametrize("kind", ["deploy", "git_push", "delete", "outside_write", "unknown", "read_only"])
+@pytest.mark.parametrize(
+    "kind", ["deploy", "git_push", "delete", "outside_write", "unknown", "read_only"]
+)
 def test_the_tie_does_not_apply_to_any_step_that_is_not_a_merge(kind):
     for command in ("vercel --prod", "ls; vercel --prod", "(vercel --prod)", "gh pr merge 5", ""):
         assert merge_tied_check(command, NONE, command_kind=kind) is None
@@ -441,7 +482,11 @@ def test_the_tie_does_not_apply_to_any_step_that_is_not_a_merge(kind):
 
 def test_a_merge_in_a_command_it_cannot_parse_is_not_checked():
     # The scoped rule would let a local read excuse it, so it stays unchecked.
-    for command in ("ls; (gh pr merge 5)", "ls && [ -f x ] && gh pr merge 5", "gh pr view 5; gh pr merge 5 > log"):
+    for command in (
+        "ls; (gh pr merge 5)",
+        "ls && [ -f x ] && gh pr merge 5",
+        "gh pr view 5; gh pr merge 5 > log",
+    ):
         assert classify_command(command)[0] == "merge", command
         assert _tied(command) is False, command
         assert _flags([command])[-1] is False, command
@@ -467,7 +512,9 @@ def test_a_write_in_an_if_block_is_found_as_its_kind_and_an_earlier_check_still_
 def test_a_stale_read_does_not_survive_a_merge_written_in_another_repository_form():
     assert _flags(["gh pr view 5", "gh pr merge 5 -R o/r", "gh pr merge 5"])[-1] is False
     assert _flags(["gh pr view 5 -R o/r", "gh pr merge 5", "gh pr merge 5 -R o/r"])[-1] is False
-    assert _flags(["gh pr view 5 -R o/r", "gh pr merge 5 -R o/r", "gh pr merge 5 -R o/r"])[-1] is False
+    assert (
+        _flags(["gh pr view 5 -R o/r", "gh pr merge 5 -R o/r", "gh pr merge 5 -R o/r"])[-1] is False
+    )
     assert _flags(["gh pr view 5", "gh pr merge 5", "gh pr merge 5"])[-1] is False
     # A merge of another number leaves it alone.
     assert _flags(["gh pr view 5", "gh pr merge 6 -R o/r", "gh pr merge 5"])[-1] is True

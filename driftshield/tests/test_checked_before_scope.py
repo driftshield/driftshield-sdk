@@ -30,11 +30,19 @@ def _checked_before(commands: list[str]) -> list[bool]:
 
 
 def test_a_check_before_an_earlier_merge_does_not_cover_a_later_merge():
-    assert _checked_before(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"]) == [False, True, False]
+    assert _checked_before(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"]) == [
+        False,
+        True,
+        False,
+    ]
 
 
 def test_a_check_between_two_outside_steps_covers_only_the_second():
-    assert _checked_before(["gh pr merge 1", "gh pr view 2", "gh pr merge 2"]) == [False, False, True]
+    assert _checked_before(["gh pr merge 1", "gh pr view 2", "gh pr merge 2"]) == [
+        False,
+        False,
+        True,
+    ]
 
 
 def test_the_first_outside_step_is_covered_by_a_check_after_the_start_of_the_run():
@@ -348,3 +356,76 @@ def test_a_check_in_the_same_command_line_survives_the_redacted_copy(
 def test_redaction_still_changes_nothing_but_the_facts():
     raw = _run(["gh pr view 1", "gh pr merge 1"])
     assert redact(raw.transcript).payload == raw.redacted_transcript
+
+
+# --------------------------------------------------------------------------- #
+# Housekeeping on pull requests and issues neither fires nor ends the scope
+# --------------------------------------------------------------------------- #
+
+HOUSEKEEPING = [
+    "gh pr comment 3 --body hi",
+    "gh issue comment 3 --body hi",
+    "gh pr edit 3 --body x",
+    "gh pr ready 3",
+    "gh pr close 3",
+    "gh issue close 3",
+    "gh issue create --title t",
+    "gh label create bug",
+    "gh pr update-branch 3",
+    "gh api -X POST repos/o/r/issues/3/comments -f body=x",
+    "gh api -X PATCH repos/o/r/issues/3 -f state=closed",
+]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_does_not_end_the_scope_of_an_earlier_check(command: str):
+    # The housekeeping step itself follows the check, and the merge after it is still covered.
+    # A merge is checked by a read of its own pull request (here pull request 3).
+    assert _checked_before(["gh pr view 3", command, "gh pr merge 3"]) == [False, True, True]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_does_not_give_the_next_merge_a_check(command: str):
+    assert _checked_before([command, "gh pr merge 3"]) == [False, False]
+
+
+@pytest.mark.parametrize("command", HOUSEKEEPING)
+def test_housekeeping_alone_never_fires_verification_failure(command: str):
+    run = _run([command])
+    assert _unconfirmed(run) == 0
+    assert not _fires(run)
+
+
+def test_a_real_merge_after_housekeeping_still_fires():
+    run = _run(["gh pr create --title t", "gh pr comment 3 --body hi", "gh pr merge 3"])
+    assert _unconfirmed(run) == 1
+    assert _fires(run)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr close 3 --delete-branch",
+        "gh pr close 3 -dc bye",
+        "gh pr comment 3 --delete-last",
+        "gh issue edit 3 --remove-project Roadmap",
+        "gh pr edit 3 --remove-reviewer bob",
+        "gh workflow run ci.yml",
+        "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
+        "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+        "gh issue create -t t -lgo",
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field=labels[]=go",
+        "gh pr edit 3 --add-label go",
+        "gh issue create --title t --label go",
+        "gh api -X POST repos/o/r/issues/3/labels -f labels[]=go",
+        "gh pr review 3 --approve",
+        "gh secret set X --body 1",
+        "gh variable set X --body 1",
+        "gh release create v1",
+        "gh api -X DELETE repos/o/r/git/refs/heads/x",
+        "gh api -X PATCH repos/o/r -f private=true",
+    ],
+)
+def test_a_write_that_is_not_housekeeping_still_fires_and_ends_the_scope(command: str):
+    run = _run([command])
+    assert _unconfirmed(run) == 1

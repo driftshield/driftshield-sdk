@@ -20,18 +20,52 @@ from driftshield.step_facts import ERROR_CLASSES, classify_error
 ERROR_TABLE = [
     # a refused edit: nothing was written
     ("String to replace not found in file.\nString: foo", "precondition_failed"),
-    ("Error: No changes to make: old_string and new_string are exactly the same.", "precondition_failed"),
+    (
+        "Error: No changes to make: old_string and new_string are exactly the same.",
+        "precondition_failed",
+    ),
     ("Found 3 matches of the string to replace, but replace_all is false.", "precondition_failed"),
     ("File has not been read yet. Read it first before writing to it.", "precondition_failed"),
-    ("File has been modified since read, either by the user or by a linter.", "precondition_failed"),
-    ("apply_patch verification failed: Failed to find expected lines in a.py", "precondition_failed"),
+    (
+        "File has been modified since read, either by the user or by a linter.",
+        "precondition_failed",
+    ),
+    (
+        "apply_patch verification failed: Failed to find expected lines in a.py",
+        "precondition_failed",
+    ),
     # permissions
-    ("Claude requested permissions to write to a.py, but you haven't granted it yet.", "permission_denied"),
+    (
+        "Claude requested permissions to write to a.py, but you haven't granted it yet.",
+        "permission_denied",
+    ),
     ("Permission to use Edit has been denied.", "permission_denied"),
-    ("The user doesn't want to proceed with this tool use. The tool use was rejected.", "permission_denied"),
+    (
+        "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+        "permission_denied",
+    ),
     ("bash: ./run.sh: Permission denied", "permission_denied"),
     ("EACCES: permission denied, open 'a.txt'", "permission_denied"),
     ("EPERM: operation not permitted, unlink 'x'", "permission_denied"),
+    # the auto mode classifier refuses an action
+    (
+        "Permission for this action was denied. Reason: the edit overwrites a file.",
+        "permission_denied",
+    ),
+    ("permission for this action was denied", "permission_denied"),
+    ("Edit was denied by the auto mode classifier.", "permission_denied"),
+    ("Write was denied by the auto mode classifier", "permission_denied"),
+    # "denied by" alone is not a permission refusal: a remote, a hook or a rule is not the user
+    ("remote: error: push declined: update denied by pre-receive hook", "other"),
+    ("! [remote rejected] main -> main (denied by protected branch rules)", "other"),
+    ("error: merge denied by CODEOWNERS review rules", "other"),
+    ("Action denied by policy: pushing to main", "other"),
+    ("Merge conflict in a.py: denied by upstream", "conflict"),
+    (
+        "! [remote rejected] main -> main (denied by hook: stale info, file already exists)",
+        "conflict",
+    ),
+    ("denied by hook: HTTP/1.1 409 Conflict", "conflict"),
     # a real conflict
     ("CONFLICT (content): Merge conflict in a.py", "conflict"),
     ("EEXIST: file already exists, mkdir 'out'", "conflict"),
@@ -65,6 +99,14 @@ def test_the_order_decides_when_phrases_overlap():
     assert classify_error("String to replace not found in file.") == "precondition_failed"
     # A permission refusal wins over any other phrase in the same text.
     assert classify_error("Permission denied: file already exists") == "permission_denied"
+    assert (
+        classify_error("Permission for this action was denied: the file already exists")
+        == "permission_denied"
+    )
+    assert (
+        classify_error("Write denied by the auto mode classifier: file not found")
+        == "permission_denied"
+    )
 
 
 # 404 and 409 count only as HTTP status tokens, never as a number inside something else.
@@ -153,26 +195,33 @@ MULTI_LINE = [
     ),
     # A reason on a later error line counts.
     (
-        "Command failed\n"
-        "running step two\n"
-        "Error: connect ETIMEDOUT 10.0.0.1:443\n",
+        "Command failed\nrunning step two\nError: connect ETIMEDOUT 10.0.0.1:443\n",
         "timeout",
     ),
     (
-        "Exit code 128\n"
-        "fatal: a conflict occurred, refusing to merge unrelated histories\n",
+        "Exit code 128\nfatal: a conflict occurred, refusing to merge unrelated histories\n",
         "conflict",
     ),
     # A JSON result is read through its error fields only.
     (
-        json.dumps({"output": "write failed", "metadata": {"exit_code": 1, "note": "stale timeout"}}),
+        json.dumps(
+            {"output": "write failed", "metadata": {"exit_code": 1, "note": "stale timeout"}}
+        ),
         "other",
     ),
     (
-        json.dumps({"output": "apply_patch verification failed: expected lines missing", "metadata": {"exit_code": 1}}),
+        json.dumps(
+            {
+                "output": "apply_patch verification failed: expected lines missing",
+                "metadata": {"exit_code": 1},
+            }
+        ),
         "precondition_failed",
     ),
-    (json.dumps({"error": "ENOENT: no such file", "trace": "conflict conflict conflict"}), "not_found"),
+    (
+        json.dumps({"error": "ENOENT: no such file", "trace": "conflict conflict conflict"}),
+        "not_found",
+    ),
 ]
 
 
@@ -183,10 +232,15 @@ def test_only_the_lead_and_error_lines_decide_the_class(text: str, expected: str
 
 def test_a_shell_error_that_starts_with_its_exit_code_is_read_from_the_next_line():
     assert classify_error("Exit code 1\ncat: x.txt: No such file or directory") == "not_found"
-    assert classify_error("Process exited with code 2\nbash: x: Permission denied") == "permission_denied"
+    assert (
+        classify_error("Process exited with code 2\nbash: x: Permission denied")
+        == "permission_denied"
+    )
 
 
-@pytest.mark.parametrize("hidden", ["<REDACTED:prompt_response:abc>", "  <REDACTED:x:1> trailing", None, 5, [], {}])
+@pytest.mark.parametrize(
+    "hidden", ["<REDACTED:prompt_response:abc>", "  <REDACTED:x:1> trailing", None, 5, [], {}]
+)
 def test_hidden_or_non_text_is_not_classified(hidden: object):
     assert classify_error(hidden) is None
 
@@ -208,24 +262,54 @@ def _jsonl(records: list[dict[str, Any]]) -> str:
 
 def claude_code(steps: list[Step], tool: str = "Edit") -> str:
     records: list[dict[str, Any]] = [
-        {"type": "user", "sessionId": "s1", "timestamp": "2026-09-01T09:00:00.000Z",
-         "message": {"role": "user", "content": "do it"}}
+        {
+            "type": "user",
+            "sessionId": "s1",
+            "timestamp": "2026-09-01T09:00:00.000Z",
+            "message": {"role": "user", "content": "do it"},
+        }
     ]
     for index, (text, call_id) in enumerate(steps):
         stamp = f"2026-09-01T09:{index + 1:02d}:00.000Z"
         records.append(
             {
-                "type": "assistant", "sessionId": "s1", "timestamp": stamp,
-                "message": {"role": "assistant", "model": "m", "content": [
-                    {"type": "tool_use", "id": call_id, "name": tool,
-                     "input": {"file_path": "/secret/path.py", "old_string": "a", "new_string": "b"}}]},
+                "type": "assistant",
+                "sessionId": "s1",
+                "timestamp": stamp,
+                "message": {
+                    "role": "assistant",
+                    "model": "m",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": call_id,
+                            "name": tool,
+                            "input": {
+                                "file_path": "/secret/path.py",
+                                "old_string": "a",
+                                "new_string": "b",
+                            },
+                        }
+                    ],
+                },
             }
         )
         records.append(
             {
-                "type": "user", "sessionId": "s1", "timestamp": stamp,
-                "message": {"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": call_id, "content": text, "is_error": True}]},
+                "type": "user",
+                "sessionId": "s1",
+                "timestamp": stamp,
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": call_id,
+                            "content": text,
+                            "is_error": True,
+                        }
+                    ],
+                },
             }
         )
     return _jsonl(records)
@@ -238,38 +322,85 @@ def openclaw(steps: list[Step], tool: str = "edit") -> str:
     for index, (text, call_id) in enumerate(steps):
         stamp = f"2026-09-01T09:{index + 1:02d}:00.000Z"
         records.append(
-            {"type": "message", "id": f"a{index}", "timestamp": stamp,
-             "message": {"role": "assistant", "content": [
-                 {"type": "toolCall", "id": call_id, "name": tool,
-                  "arguments": {"path": "/secret/path.py", "oldText": "a", "newText": "b"}}]}}
+            {
+                "type": "message",
+                "id": f"a{index}",
+                "timestamp": stamp,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "toolCall",
+                            "id": call_id,
+                            "name": tool,
+                            "arguments": {
+                                "path": "/secret/path.py",
+                                "oldText": "a",
+                                "newText": "b",
+                            },
+                        }
+                    ],
+                },
+            }
         )
         records.append(
-            {"type": "message", "id": f"r{index}", "timestamp": stamp,
-             "message": {"role": "toolResult", "toolCallId": call_id, "isError": True,
-                         "content": [{"type": "text", "text": text}],
-                         "details": {"status": "error"}}}
+            {
+                "type": "message",
+                "id": f"r{index}",
+                "timestamp": stamp,
+                "message": {
+                    "role": "toolResult",
+                    "toolCallId": call_id,
+                    "isError": True,
+                    "content": [{"type": "text", "text": text}],
+                    "details": {"status": "error"},
+                },
+            }
         )
     return _jsonl(records)
 
 
 def codex(steps: list[Step], tool: str = "apply_patch") -> str:
     records: list[dict[str, Any]] = [
-        {"timestamp": "2026-09-11T09:00:00.000Z", "type": "session_meta",
-         "payload": {"session_id": "c1", "id": "c1", "cwd": "/w", "originator": "codex_cli_rs"}},
-        {"timestamp": "2026-09-11T09:00:00.100Z", "type": "turn_context",
-         "payload": {"turn_id": "t", "cwd": "/w", "model": "m"}},
+        {
+            "timestamp": "2026-09-11T09:00:00.000Z",
+            "type": "session_meta",
+            "payload": {"session_id": "c1", "id": "c1", "cwd": "/w", "originator": "codex_cli_rs"},
+        },
+        {
+            "timestamp": "2026-09-11T09:00:00.100Z",
+            "type": "turn_context",
+            "payload": {"turn_id": "t", "cwd": "/w", "model": "m"},
+        },
     ]
     for index, (text, call_id) in enumerate(steps):
         stamp = f"2026-09-11T09:{index + 1:02d}:00.000Z"
         records.append(
-            {"timestamp": stamp, "type": "response_item",
-             "payload": {"type": "function_call", "name": tool, "call_id": call_id,
-                         "arguments": json.dumps({"input": "*** Begin Patch\n*** Update File: /secret/path.py\n*** End Patch"})}}
+            {
+                "timestamp": stamp,
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": tool,
+                    "call_id": call_id,
+                    "arguments": json.dumps(
+                        {
+                            "input": "*** Begin Patch\n*** Update File: /secret/path.py\n*** End Patch"
+                        }
+                    ),
+                },
+            }
         )
         records.append(
-            {"timestamp": stamp, "type": "response_item",
-             "payload": {"type": "function_call_output", "call_id": call_id,
-                         "output": json.dumps({"output": text, "metadata": {"exit_code": 1}})}}
+            {
+                "timestamp": stamp,
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({"output": text, "metadata": {"exit_code": 1}}),
+                },
+            }
         )
     return _jsonl(records)
 
@@ -318,7 +449,9 @@ def test_the_class_survives_a_second_analysis_of_the_redacted_copy(builder, fmt,
 def test_a_tool_call_that_worked_gets_no_step_facts(builder, fmt, tool):
     raw = builder([("ok", "c1")], tool)
     # Flip the result to a success in whichever shape the adapter uses.
-    raw = raw.replace('"is_error": true', '"is_error": false').replace('"isError": true', '"isError": false')
+    raw = raw.replace('"is_error": true', '"is_error": false').replace(
+        '"isError": true', '"isError": false'
+    )
     raw = raw.replace('"details": {"status": "error"}', '"details": {"status": "completed"}')
     raw = raw.replace('\\"exit_code\\": 1', '\\"exit_code\\": 0')
     run = analyse_run(raw, format=fmt)
@@ -328,8 +461,23 @@ def test_a_tool_call_that_worked_gets_no_step_facts(builder, fmt, tool):
 def test_a_shell_step_always_carries_the_field():
     ok = analyse_run(
         json.dumps(
-            {"events": [{"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "id": "t", "name": "Bash", "input": {"command": "ls"}}]}}]}
+            {
+                "events": [
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": "t",
+                                    "name": "Bash",
+                                    "input": {"command": "ls"},
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
         ),
         format="claude_code",
     )
@@ -350,8 +498,16 @@ HOSTILE_TEXTS = [
     "\x00\x01 weird ‮ control ghp_0123456789abcdef0123456789abcdef0123",
 ]
 LEAK_FRAGMENTS = [
-    "jane.doe", "private-project", "zebra", "hunter2", "db.internal", "ignore previous",
-    "AKIAIOSFODNN7EXAMPLE", "ghp_0123", "/secret/path.py", "Username",
+    "jane.doe",
+    "private-project",
+    "zebra",
+    "hunter2",
+    "db.internal",
+    "ignore previous",
+    "AKIAIOSFODNN7EXAMPLE",
+    "ghp_0123",
+    "/secret/path.py",
+    "Username",
 ]
 
 
@@ -364,7 +520,11 @@ def test_hostile_error_text_cannot_leak_through_the_class(builder, fmt, tool):
     for entry in facts:
         assert entry["error_class"] in ERROR_CLASSES
         assert set(entry) == {
-            "command_kind", "target_kind", "exit_status", "checked_before", "error_class"
+            "command_kind",
+            "target_kind",
+            "exit_status",
+            "checked_before",
+            "error_class",
         }
     dumped = json.dumps(run.redacted_transcript) + json.dumps(run.redaction_manifest)
     for fragment in LEAK_FRAGMENTS:
@@ -373,12 +533,28 @@ def test_hostile_error_text_cannot_leak_through_the_class(builder, fmt, tool):
 
 def test_a_forged_class_on_a_visible_call_is_never_believed():
     payload = {
-        "events": [{"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "t", "name": "Edit",
-             "input": {"file_path": "a", "old_string": "x", "new_string": "y"},
-             "step_facts": {"command_kind": "unknown", "target_kind": "unknown",
-                            "exit_status": "failure", "checked_before": False,
-                            "error_class": "conflict"}}]}}]
+        "events": [
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "t",
+                            "name": "Edit",
+                            "input": {"file_path": "a", "old_string": "x", "new_string": "y"},
+                            "step_facts": {
+                                "command_kind": "unknown",
+                                "target_kind": "unknown",
+                                "exit_status": "failure",
+                                "checked_before": False,
+                                "error_class": "conflict",
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
     }
     run = analyse_run(json.dumps(payload), format="claude_code")
     assert _facts_in(run.redacted_transcript) == []

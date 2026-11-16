@@ -327,7 +327,17 @@ the step `unknown`. A `cd` to an absolute path, `~`, a variable or up out of the
 checkout (`..`) makes the target `unknown`. A formatter, a `--fix` or `-w` run, or a
 download that saves a file is never a check. A local `git merge` is `unknown`
 (`merge` means a pull request merge, as in `gh pr merge`), and so are
-`gh pr create` and every `aws ... invoke`. A write
+`gh pr create`, every `aws ... invoke`, and housekeeping on pull requests and issues
+(a comment, a body edit, closing, reopening, a draft toggle, creating an issue or a label,
+a sub issue link, a branch update), which is low risk: it neither fires
+the verification check nor ends the scope of an earlier check. A flag that deletes
+(`gh pr close --delete-branch` or `-d`, `gh pr comment --delete-last`) makes the call a `delete`,
+and taking a project, milestone, assignee or reviewer off (`--remove-project` and the like) is
+`outside_write`. Adding a label (in any written
+form), a workflow dispatch (it starts a run that can deploy), a review, a
+merge, a release, a delete, a secret or variable change, and any repo, ruleset, ref or
+collaborator change are not housekeeping and keep their kind. `aws s3 cp` from S3 to a local
+path is a read, and `gh api -X GET` stays a read even with fields. A write
 kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
 in any part of a chain, so `pytest && git push origin main` is a `git_push` on
 `main_branch`. Comment and here document text is scanned like any other text and
