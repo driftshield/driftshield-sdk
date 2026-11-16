@@ -999,7 +999,6 @@ _GRAPHQL_HOUSEKEEPING = frozenset(
         "updatePullRequestBranch",
     }
 )
-_GRAPHQL_FIELD = re.compile(r"\b([a-z]\w*)\s*\(\s*input\s*:")
 
 
 _GH_API_VALUE_FLAGS = frozenset(
@@ -1037,6 +1036,94 @@ def _gh_api_endpoint(rest: list[str]) -> str:
     return ""
 
 
+def _strip_graphql_noise(query: str) -> str | None:
+    """``query`` without comments, commas and string contents, read in a single pass.
+
+    A ``#`` inside a string is text and a quote inside a comment is text, so strings and
+    comments are told apart as the text is read, not by two passes that could disagree. A
+    string becomes ``""`` and a comment a space. ``None`` when a string is not closed.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(query)
+    while index < length:
+        char = query[index]
+        if char == "#":
+            newline = query.find("\n", index)
+            index = length if newline == -1 else newline
+            out.append(" ")
+        elif query.startswith('"""', index):
+            end = query.find('"""', index + 3)
+            while end != -1 and query[end - 1] == "\\":  # an escaped triple quote
+                end = query.find('"""', end + 3)
+            if end == -1:
+                return None
+            out.append('""')
+            index = end + 3
+        elif char == '"':
+            index += 1
+            while index < length and query[index] != '"':
+                if query[index] == "\n":
+                    return None  # a plain string cannot span lines
+                index += 2 if query[index] == "\\" else 1
+            if index >= length:
+                return None
+            out.append('""')
+            index += 1
+        elif char == ",":
+            out.append(" ")
+            index += 1
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
+def _graphql_mutation_fields(query: str) -> set[str] | None:
+    """The top level fields every operation of a GraphQL document selects, or ``None``.
+
+    Commas and ``#`` comments are ignorable in GraphQL, so they are removed first, then
+    string literals and argument lists, so only the selection sets are left. The fields are
+    the names at depth one of a brace group (aliases and fragment spreads are skipped, so an
+    alias cannot hide the field behind it). ``None`` when the text is unbalanced or has
+    no ``mutation``: the caller then treats the call as not housekeeping.
+    """
+    text = _strip_graphql_noise(query)
+    if text is None:
+        return None
+    if not re.search(r"\bmutation\b", text):
+        return None
+    depth = 0
+    stripped: list[str] = []
+    for char in text:  # drop (...) argument lists, however nested
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0:
+            stripped.append(char)
+    if depth != 0:
+        return None
+    body = "".join(stripped)
+    names: set[str] = set()
+    brace = 0
+    for match in re.finditer(r"\{|\}|\.\.\.\s*(?:on\s+)?\w*|\b[A-Za-z_]\w*\b(?!\s*:)", body):
+        token = match.group(0)
+        if token == "{":
+            brace += 1
+        elif token == "}":
+            brace -= 1
+            if brace < 0:
+                return None
+        elif brace == 1 and not token.startswith("..."):
+            names.add(token)
+    if brace != 0:
+        return None
+    return names
+
+
 def _gh_api_is_housekeeping(method: str, rest: list[str]) -> bool:
     """A ``gh api`` write on the housekeeping allowlist: method and path (or mutation) match.
 
@@ -1049,7 +1136,12 @@ def _gh_api_is_housekeeping(method: str, rest: list[str]) -> bool:
         queries = [t.split("=", 1)[1] for t in rest if t.startswith("query=")]
         if not queries or any("mutation" not in query for query in queries):
             return False
-        names = {name for query in queries for name in _GRAPHQL_FIELD.findall(query)}
+        names: set[str] = set()
+        for query in queries:
+            found = _graphql_mutation_fields(query)
+            if found is None:
+                return False  # a query this reader cannot place is not housekeeping
+            names |= found
         return bool(names) and names <= _GRAPHQL_HOUSEKEEPING
     return any(pattern.fullmatch(endpoint) for pattern in _GH_API_HOUSEKEEPING.get(method, ()))
 
@@ -2481,6 +2573,7 @@ def compute_step_facts(
         clear_reads,
         command_pr_reads,
         command_pr_refs,
+        clear_reads_for_head_change,
         merge_tied_check,
     )
 
@@ -2538,6 +2631,7 @@ def compute_step_facts(
                     if facts["command_kind"] in _CHECK_KINDS:
                         seen_check = True
                     if command is not None and not hidden:
+                        pr_reads = clear_reads_for_head_change(pr_reads, command)
                         pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True

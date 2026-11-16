@@ -371,7 +371,6 @@ HOUSEKEEPING = [
     "gh issue close 3",
     "gh issue create --title t",
     "gh label create bug",
-    "gh pr update-branch 3",
     "gh api -X POST repos/o/r/issues/3/comments -f body=x",
     "gh api -X PATCH repos/o/r/issues/3 -f state=closed",
 ]

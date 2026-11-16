@@ -43,7 +43,7 @@ _VALUE_FLAGS = frozenset(
 _NUMBER = re.compile(r"\d+")
 _PR_URL = re.compile(r"https?://[^/\s]+/([^/\s]+/[^/\s]+)/pull/(\d+)(?:[/?#].*)?$")
 _PR_SHORT = re.compile(r"([\w.-]+/[\w.-]+)#(\d+)$")
-_API_PATH = re.compile(r"/?repos/([^/]+)/([^/]+)/(pulls|issues)/(\d+)(?:/([A-Za-z_]+))?/?$")
+_API_PATH = re.compile(r"/?repos/([^/]+)/([^/]+)/(pulls|issues)/(\d+)(?:/([A-Za-z_-]+))?/?$")
 # What counts as a read of a pull request's state, checks, reviews or comments.
 _READ_KINDS = frozenset(
     {"pr:view", "pr:checks", "api:pulls/", "api:pulls/reviews", "api:pulls/comments"}
@@ -434,6 +434,7 @@ def _analyse_loop(statements: list[_Statement]) -> _Analysis:
 class _Item:
     analysis: _Analysis
     operator: str
+    text: str = ""
 
 
 def _items(command: str) -> list[_Item] | None:
@@ -448,12 +449,24 @@ def _items(command: str) -> list[_Item] | None:
             end = _loop_end(statements, index)
             if end is None:
                 return None
-            items.append(_Item(_analyse_loop(statements[index : end + 1]), statements[end].operator))
+            items.append(
+                _Item(
+                    _analyse_loop(statements[index : end + 1]),
+                    statements[end].operator,
+                    " ".join(st.text for st in statements[index : end + 1]),
+                )
+            )
             index = end + 1
             continue
         if word in _STRAY_WORDS:
             return None
-        items.append(_Item(_analyse_simple(statements[index].text, strict=False), statements[index].operator))
+        items.append(
+            _Item(
+                _analyse_simple(statements[index].text, strict=False),
+                statements[index].operator,
+                statements[index].text,
+            )
+        )
         index += 1
     return items
 
@@ -466,41 +479,152 @@ def _items(command: str) -> list[_Item] | None:
 def merge_tied_check(
     command: str, reads_before: frozenset[PrRef], *, command_kind: str
 ) -> bool | None:
-    """Whether the first write part of ``command``, a merge, was checked by a read of its PR.
+    """How a merge in ``command`` was checked, decided by the write parts of the step.
 
-    Applies only to a step whose command kind is ``merge``. For any other outside step (a
-    deploy, a push to main, a delete, an outside write) the answer is ``None`` without reading
-    the command, so those steps keep the scoped rule exactly as before, whatever their command
-    looks like (a redirect, a subshell, brackets, ``&``, an ``if`` block).
+    The tie applies to every merge among the write parts, whatever the step's command kind is
+    (a merge chained with a deploy is a ``deploy``, but the merge inside it is still tied).
+    ``False`` when any merge was not checked by a read of its own pull request: it names no
+    literal number, or no read of that number came before it (in an earlier step, or earlier
+    in this command line, in a statement, a safe ``$(...)`` or a safe loop), or something
+    unsafe ran before it. ``True`` when every write part is a merge and all were checked.
+    ``None`` when the step has no merge to tie, or when every merge was checked but another
+    write part remains: the caller applies the scoped check rule to that part.
 
-    ``reads_before`` are the pull requests read since the previous outside step on them. The
-    answer is ``True`` only if the first write part is a merge naming a literal pull request
-    number and that pull request was read before it (in an earlier step, or earlier in this
-    command line, in a statement, a safe ``$(...)`` or a safe loop). ``False`` when it is a
-    merge that was not, or when something unsafe runs before it. ``None`` when the first write
-    part is not a merge, so the caller applies the scoped rule for other outside steps.
+    A step with no merge is never read here beyond finding that out, so deploys, pushes to
+    main, deletes and outside writes keep the scoped rule whatever their command looks like (a
+    redirect, a subshell, brackets, ``&``, an ``if`` block). A command this reader cannot parse
+    is ``False`` only when it mentions a merge at all.
     """
-    if command_kind != "merge":
-        return None
     items = _items(command)
     if items is None:
         # A merge in a command this reader cannot parse is not checked: the scoped rule
         # would let a local read excuse it.
-        return False
+        if command_kind == "merge" or re.search(r"\bmerge", command):
+            return False
+        return None
     reads = set(reads_before)
     group: set[PrRef] = set()
+    unsafe_seen = False
+    merge_seen = False
+    other_write = False
     for item in items:
         analysis = item.analysis
         if analysis.state == "unsafe":
-            return False
+            if re.search(r"(?<![\w-])merge(?![\w-])", item.text):
+                # An unsafe statement that mentions a merge may itself be the merge
+                # (``PATH=./evil gh pr merge 5``, a body with ``$(...)``): it is not checked.
+                return False
+            unsafe_seen = True
+            continue
         if analysis.state == "risk":
             if analysis.kind != "merge":
-                return None
-            return analysis.ref is not None and analysis.ref in (reads | analysis.sub_reads)
+                other_write = True
+                continue
+            merge_seen = True
+            checked = (
+                not unsafe_seen
+                and analysis.ref is not None
+                and analysis.ref in (reads | analysis.sub_reads)
+            )
+            if not checked:
+                return False
+            reads.discard(analysis.ref)  # a merge ends the scope of the reads of that pull request
+            continue
         group |= analysis.reads
         if item.operator != "|":
             reads |= group  # a read piped into a later part runs with it, not before it
             group = set()
+    if not merge_seen:
+        # The classifier called the step a merge but no statement read as one (a merge inside
+        # a substitution, for instance): not checked, never the scoped rule.
+        return False if command_kind == "merge" else None
+    return None if other_write else True
+
+
+_HEAD_CHANGING = re.compile(r"update-branch|--base\b|(?<!\w)-B\b|\bbase=")
+# GraphQL names a pull request by node id, so the number cannot be read. A mutation that moves
+# the base or updates the head branch clears every earlier read.
+_HEAD_CHANGING_GRAPHQL = re.compile(r"baseRefName|headRefName|updatePullRequestBranch")
+
+
+def head_change_clears_all_reads(command: str) -> bool:
+    """True for a ``gh api graphql`` mutation that changes the base or the head of a pull request.
+
+    Only a mutation counts: a plain read that asks for ``baseRefName`` or ``headRefName`` changes
+    nothing, so it leaves every read in place.
+
+    The pull request is not named by number, so which read it invalidates is unknown: all of
+    them are cleared.
+    """
+    return bool(
+        re.search(r"\bgraphql\b", command)
+        and re.search(r"\bmutation\b", command)
+        and _HEAD_CHANGING_GRAPHQL.search(command)
+    )
+
+
+def clear_reads_for_head_change(reads: set[PrRef], command: str) -> set[PrRef]:
+    """``reads`` after a command that may change what a pull request would merge.
+
+    A ``gh api graphql`` mutation clears every read (it names the pull request by node id).
+    ``gh pr update-branch N``, ``gh pr edit N --base X`` (or ``-B``) and ``gh api`` with an
+    ``update-branch`` path or a ``base`` field clear the reads of the pull requests they name.
+    One of those forms that names no pull request, or that sits in a command line the reader
+    cannot parse, clears every read: a read that may be stale is never trusted. Other ``gh``
+    commands with a base flag (``gh pr create --base main``, ``gh pr list --base main``)
+    change no pull request and keep every read.
+    """
+    if head_change_clears_all_reads(command):
+        return set()
+    if not _HEAD_CHANGING.search(command):
+        return reads
+    tokens = _tokenise(command)
+    if tokens is None:
+        return set() if _LOOSE_HEAD_CHANGE.search(command) else reads
+    named: set[PrRef] = set()
+    unnamed = False
+    segments = _segments(tokens)[0]
+    for segment in segments:
+        if not _changes_head_or_base(segment):
+            continue
+        target = gh_pr_target(segment)
+        if target is None:
+            unnamed = True
+        else:
+            named.add(target[0])
+    if not named and not unnamed:
+        # No segment reads as a change. One may still hide behind a wrapper (``env gh ...``),
+        # where ``gh`` is not the first word: then the text decides.
+        wrapped = any("gh" in segment[1:] for segment in segments)
+        return set() if wrapped and _LOOSE_HEAD_CHANGE.search(command) else reads
+    if unnamed or _items(command) is None:
+        return set()
+    return clear_reads(reads, named)
+
+
+# A head or base change in text the reader cannot split into ``gh`` segments.
+_LOOSE_HEAD_CHANGE = re.compile(
+    r"\bgh\b.*(update-branch|\bpr\s+edit\b.*(--base|(?<!\w)-B)|\bapi\b.*\bbase=)", re.S
+)
+
+
+def _changes_head_or_base(segment: list[str]) -> bool:
+    """True for ``gh pr update-branch``, ``gh pr edit`` with a base flag, or a ``gh api`` call
+    with an ``update-branch`` path or a ``base`` field."""
+    if not segment or segment[0] != "gh":
+        return False
+    positional, _ = _split_flags(segment[1:])
+    if len(positional) >= 2 and positional[0] == "pr":
+        if positional[1] == "update-branch":
+            return True
+        return positional[1] == "edit" and any(
+            token in {"--base", "-B"}
+            or token.startswith("--base=")
+            or (token.startswith("-B") and not token.startswith("--"))
+            for token in segment[2:]
+        )
+    if positional and positional[0] == "api":
+        return any("update-branch" in token or re.search(r"\bbase=", token) for token in segment)
     return False
 
 
