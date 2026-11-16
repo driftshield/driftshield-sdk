@@ -110,6 +110,26 @@ SEQUENCES: list[list[str]] = [
     ["git status", "gh pr edit 3 --add-label go", "gh pr merge 3"],
     ["git status", "gh pr close 3 --delete-branch", "gh pr merge 4"],
     ["git status", "gh pr comment 3 --delete-last", "gh pr merge 4"],
+    # A merge is checked only by a read of the same pull request.
+    ["gh pr view 1", "gh pr merge 1"],
+    ["gh pr view 2", "gh pr merge 1"],
+    ["gh pr merge 1", "gh pr view 2", "gh pr merge 2"],
+    ["gh pr view 1", "gh pr merge 1", "gh pr merge 1"],
+    ["gh pr view 5 -R o/r", "gh pr merge 5"],
+    ["gh api repos/o/r/pulls/5/reviews", "gh api -X PUT repos/o/r/pulls/5/merge"],
+    ["gh pr create --title t --body b", "gh pr merge 3"],
+    ["gh pr create --title t --body b", "aws s3 ls s3://bucket", "gh pr merge 3"],
+    ["until gh pr checks 5 | grep -q pass; do sleep 5; done; gh pr merge 5"],
+    ["for i in 1 2; do gh pr view 5; sleep 1; done", "gh pr merge 5"],
+    [
+        "sha=$(gh pr view 5 --json headRefOid -q .headRefOid); gh pr merge 5 --match-head-commit $sha"
+    ],
+    ["gh pr merge 5 --match-head-commit $(gh pr view 5 --json headRefOid -q .headRefOid)"],
+    ["gh pr merge 5 --match-head-commit $(gh pr view 6 --json headRefOid -q .headRefOid)"],
+    ["while ! gh pr view 3 --json state; do git push origin main; done; gh pr merge 3"],
+    ["gh pr view 5", "gh pr merge 5 -R o/r", "gh pr merge 5"],
+    ["ls", "if true; then git push origin main; fi"],
+    ["ls", "(cd app && vercel --prod)"],
 ]
 
 
