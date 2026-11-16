@@ -2573,8 +2573,7 @@ def compute_step_facts(
         clear_reads,
         command_pr_reads,
         command_pr_refs,
-        head_change_clears_all_reads,
-        head_changing_refs,
+        clear_reads_for_head_change,
         merge_tied_check,
     )
 
@@ -2632,9 +2631,7 @@ def compute_step_facts(
                     if facts["command_kind"] in _CHECK_KINDS:
                         seen_check = True
                     if command is not None and not hidden:
-                        pr_reads = clear_reads(pr_reads, head_changing_refs(command))
-                        if head_change_clears_all_reads(command):
-                            pr_reads = set()
+                        pr_reads = clear_reads_for_head_change(pr_reads, command)
                         pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True

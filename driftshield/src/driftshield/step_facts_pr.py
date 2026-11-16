@@ -434,6 +434,7 @@ def _analyse_loop(statements: list[_Statement]) -> _Analysis:
 class _Item:
     analysis: _Analysis
     operator: str
+    text: str = ""
 
 
 def _items(command: str) -> list[_Item] | None:
@@ -448,12 +449,24 @@ def _items(command: str) -> list[_Item] | None:
             end = _loop_end(statements, index)
             if end is None:
                 return None
-            items.append(_Item(_analyse_loop(statements[index : end + 1]), statements[end].operator))
+            items.append(
+                _Item(
+                    _analyse_loop(statements[index : end + 1]),
+                    statements[end].operator,
+                    " ".join(st.text for st in statements[index : end + 1]),
+                )
+            )
             index = end + 1
             continue
         if word in _STRAY_WORDS:
             return None
-        items.append(_Item(_analyse_simple(statements[index].text, strict=False), statements[index].operator))
+        items.append(
+            _Item(
+                _analyse_simple(statements[index].text, strict=False),
+                statements[index].operator,
+                statements[index].text,
+            )
+        )
         index += 1
     return items
 
@@ -497,6 +510,10 @@ def merge_tied_check(
     for item in items:
         analysis = item.analysis
         if analysis.state == "unsafe":
+            if re.search(r"(?<![\w-])merge(?![\w-])", item.text):
+                # An unsafe statement that mentions a merge may itself be the merge
+                # (``PATH=./evil gh pr merge 5``, a body with ``$(...)``): it is not checked.
+                return False
             unsafe_seen = True
             continue
         if analysis.state == "risk":
@@ -518,7 +535,9 @@ def merge_tied_check(
             reads |= group  # a read piped into a later part runs with it, not before it
             group = set()
     if not merge_seen:
-        return None
+        # The classifier called the step a merge but no statement read as one (a merge inside
+        # a substitution, for instance): not checked, never the scoped rule.
+        return False if command_kind == "merge" else None
     return None if other_write else True
 
 
@@ -529,12 +548,38 @@ _HEAD_CHANGING_GRAPHQL = re.compile(r"baseRefName|headRefName|updatePullRequestB
 
 
 def head_change_clears_all_reads(command: str) -> bool:
-    """True for a GraphQL mutation that changes the base or the head of a pull request by node id.
+    """True for a ``gh api graphql`` mutation that changes the base or the head of a pull request.
+
+    Only a mutation counts: a plain read that asks for ``baseRefName`` or ``headRefName`` changes
+    nothing, so it leaves every read in place.
 
     The pull request is not named by number, so which read it invalidates is unknown: all of
     them are cleared.
     """
-    return bool(_HEAD_CHANGING_GRAPHQL.search(command))
+    return bool(
+        re.search(r"\bgraphql\b", command)
+        and re.search(r"\bmutation\b", command)
+        and _HEAD_CHANGING_GRAPHQL.search(command)
+    )
+
+
+def clear_reads_for_head_change(reads: set[PrRef], command: str) -> set[PrRef]:
+    """``reads`` after a command that may change what a pull request would merge.
+
+    A ``gh api graphql`` mutation clears every read (it names the pull request by node id). A
+    ``gh`` command with ``update-branch`` or a base change clears the reads of the pull requests
+    it names. If it changes the head or base but no pull request can be named from it (an
+    unbalanced quote, a form the reader cannot parse), every read is cleared: a read that may
+    be stale is never trusted.
+    """
+    if head_change_clears_all_reads(command):
+        return set()
+    if not _HEAD_CHANGING.search(command):
+        return reads
+    named = command_pr_refs(command)
+    if named and _items(command) is not None:
+        return clear_reads(reads, named)
+    return set() if re.search(r"\bgh\b", command) else reads
 
 
 def head_changing_refs(command: str) -> set[PrRef]:

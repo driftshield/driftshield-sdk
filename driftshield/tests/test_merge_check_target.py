@@ -659,3 +659,110 @@ def test_a_graphql_update_that_changes_neither_keeps_the_reads():
         '{pullRequestId: "X", title: "t"}) { clientMutationId } }\''
     )
     assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is True
+
+
+def test_a_plain_read_that_asks_for_the_branch_names_keeps_the_reads():
+    for read in (
+        "gh pr view 6 --json headRefName,baseRefName",
+        "gh pr view 6 --json baseRefName -q .baseRefName",
+        "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") "
+        "{ pullRequest(number: 6) { baseRefName headRefName } } }'",
+    ):
+        assert _flags(["gh pr view 5", read, "gh pr merge 5"])[-1] is True, read
+
+
+# --------------------------------------------------------------------------- #
+# An unsafe statement that is itself the merge is not checked
+# --------------------------------------------------------------------------- #
+
+UNSAFE_MERGES = [
+    "PATH=./evil gh pr merge 5",
+    "FOO=1 gh pr merge 5",
+    'gh pr merge 5 --body "$(python3 x.py)"',
+    "gh pr merge 5 --body `date`",
+    "gh pr merge 5 > log.txt",
+    "(gh pr merge 5)",
+    "gh pr merge $(echo 5)",
+]
+
+
+@pytest.mark.parametrize("command", UNSAFE_MERGES)
+def test_a_merge_the_reader_calls_unsafe_is_not_checked_by_an_unrelated_read(command: str):
+    assert _flags(["ls", command])[-1] is False
+    assert _flags(["git status", command])[-1] is False
+    assert _flags(["pytest -q", f"vercel --prod && {command}"])[-1] is False
+
+
+@pytest.mark.parametrize("command", UNSAFE_MERGES)
+def test_an_unsafe_merge_is_not_checked_even_after_a_read_of_its_pull_request(command: str):
+    assert _flags(["gh pr view 5", command])[-1] is False
+
+
+def test_an_unsafe_statement_that_is_not_a_merge_keeps_the_scoped_rule():
+    assert _flags(["ls", "PATH=./x vercel --prod"]) == [False, True]
+    assert _flags(["ls", 'vercel --prod --meta "$(whoami)"']) == [False, True]
+    assert _flags(["ls", 'vercel --prod --meta "$(git merge-base a b)"']) == [False, True]
+
+
+def test_a_second_unsafe_merge_after_a_tied_one_is_not_checked():
+    assert _flags(["gh pr view 5", "gh pr merge 5 && FOO=1 gh pr merge 6"])[-1] is False
+
+
+# --------------------------------------------------------------------------- #
+# The sweep: no odd or unparseable merge falls back to the scoped rule
+# --------------------------------------------------------------------------- #
+
+ODD_MERGES = [
+    "echo $(gh pr merge 5)",
+    "echo `gh pr merge 5`",
+    "x=$(gh pr merge 5)",
+    "for i in 1 2; do gh pr merge 5; done",
+    "while true; do gh pr merge 5; done",
+    "if true; then gh pr merge 5; fi",
+    "gh pr merge 5 &",
+    "gh pr merge 5 # now",
+    "gh pr merge 5 <<EOF\nx\nEOF",
+    "gh pr merge",
+    "gh pr merge $N",
+    "gh pr merge --auto",
+    "gh pr merge https://github.com/o/r/pull/x",
+    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { x } }'",
+    "gh api -X PUT repos/o/r/pulls/5/merge --input body.json",
+    "gh api -X POST repos/o/r/merges -f base=main -f head=x",
+    "{ gh pr merge 5; }",
+    "[ -f x ] && gh pr merge 5",
+]
+
+
+@pytest.mark.parametrize("command", ODD_MERGES)
+def test_an_odd_or_unparseable_merge_is_never_checked_by_an_unrelated_read(command: str):
+    assert classify_command(command)[0] == "merge", command
+    for first in ("ls", "git status", "pytest -q"):
+        assert _flags([first, command])[-1] is False, (first, command)
+    # Chained with another write it is still not checked.
+    assert _flags(["ls", f"vercel --prod; {command}"])[-1] is False, command
+    assert _flags(["ls", f"{command}; vercel --prod"])[-1] is False, command
+
+
+def test_the_function_never_returns_none_for_a_step_the_classifier_calls_a_merge():
+    for command in ODD_MERGES + UNSAFE_MERGES + ["", "gh pr merge 5", "ls"]:
+        assert merge_tied_check(command, NONE, command_kind="merge") is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "(gh pr update-branch 5",
+        "gh pr update-branch 5 'unbalanced",
+        "gh pr update-branch $N",
+        "gh pr edit --base 'x",
+        "gh pr update-branch",
+    ],
+)
+def test_a_head_or_base_change_that_names_no_pull_request_clears_every_read(command: str):
+    assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is False
+    assert _flags(["gh pr view 5", "gh pr view 6", command, "gh pr merge 6"])[-1] is False
+
+
+def test_a_non_gh_command_with_a_base_flag_does_not_clear_reads():
+    assert _flags(["gh pr view 5", "git diff --base x", "gh pr merge 5"])[-1] is True

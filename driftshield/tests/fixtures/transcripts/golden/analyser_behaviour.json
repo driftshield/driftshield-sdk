@@ -673,6 +673,10 @@
     false,
     true
    ],
+   "[\"gh pr view 5\", \"gh pr merge 5 --body \\\"$(python3 x.py)\\\"\"]": [
+    false,
+    false
+   ],
    "[\"gh pr view 5\", \"gh pr merge 5 -R o/r\", \"gh pr merge 5\"]": [
     false,
     false,
@@ -684,6 +688,11 @@
     false
    ],
    "[\"gh pr view 5\", \"gh pr update-branch 6\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"gh pr view 5\", \"gh pr view 6 --json headRefName,baseRefName\", \"gh pr merge 5\"]": [
     false,
     true,
     true
@@ -742,6 +751,10 @@
    "[\"ls\", \"(cd app && vercel --prod)\"]": [
     false,
     true
+   ],
+   "[\"ls\", \"PATH=./evil gh pr merge 5\"]": [
+    false,
+    false
    ],
    "[\"ls\", \"curl -X POST https://example.com/u -d a=b\", \"ls\", \"curl -X POST https://example.com/u\"]": [
     false,

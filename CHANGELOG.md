@@ -66,6 +66,12 @@ first, or uploads from the release stop counting.
 - A GraphQL mutation that moves the base or the head of a pull request (`baseRefName`,
   `headRefName`, `updatePullRequestBranch`) names it by node id, so it clears every earlier
   read of any pull request: the next merge is unchecked until its pull request is read again.
+  Only a `gh api graphql` mutation does this: a plain read that asks for those fields
+  (`gh pr view 6 --json headRefName,baseRefName`) keeps every other read. A head or base
+  change the reader cannot parse clears every read.
+- A merge is never left to the scoped check rule: a merge statement the reader calls unsafe
+  (`PATH=./evil gh pr merge 5`, a `$(...)` in the body), a merge inside a substitution or a
+  merge step with no statement it can read as one is unchecked, even after an unrelated step.
 - No value is added to any fixed list. Rules stay `phase-3g-deterministic-rules-v4` and step
   facts `step-facts.v5`, both unreleased.
 
