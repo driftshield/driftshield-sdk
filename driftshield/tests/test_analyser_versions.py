@@ -110,6 +110,17 @@ SEQUENCES: list[list[str]] = [
     ["git status", "gh pr edit 3 --add-label go", "gh pr merge 3"],
     ["git status", "gh pr close 3 --delete-branch", "gh pr merge 4"],
     ["git status", "gh pr comment 3 --delete-last", "gh pr merge 4"],
+    # A merge chained with another write is decided by the write parts, not the step's kind.
+    ["ls", "gh pr merge 5 && vercel --prod"],
+    ["gh pr view 5", "gh pr merge 5 && vercel --prod"],
+    ["ls", "vercel --prod && gh pr merge 5"],
+    ["pytest -q", "gh pr merge 5; vercel --prod"],
+    ["ls", "gh pr merge 5 && git push origin main"],
+    # Housekeeping that changes the head or the base clears an earlier read of that pull request.
+    ["gh pr view 5", "gh pr update-branch 5", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr edit 5 --base release", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr edit 5 --body x", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr update-branch 6", "gh pr merge 5"],
     # A merge is checked only by a read of the same pull request.
     ["gh pr view 1", "gh pr merge 1"],
     ["gh pr view 2", "gh pr merge 1"],

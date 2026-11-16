@@ -46,6 +46,25 @@ first, or uploads from the release stop counting.
   scope, and a failed outside step does.
 - `checked_before` changed, which is part of step facts `v5` (see above).
 
+### Three narrow bypasses closed
+
+- A merge chained with another write is checked by a read of its own pull request, whatever
+  the step's kind is. `gh pr merge 5 && vercel --prod` after `ls` is unchecked (it was a
+  deploy, so any earlier read excused it). Every merge among the write parts must be tied to
+  its own pull request, also when it comes after the other write
+  (`vercel --prod && gh pr merge 5`); the other write keeps the scoped rule. A step with no
+  merge is read no further than that.
+- `gh pr update-branch N` and `gh pr edit N --base X` (also `-B`, `gh api` `update-branch` and
+  a `base` field) can change what gets merged, so they clear an earlier read of pull
+  request N: a merge after them is unchecked until the pull request is read again. They stay
+  housekeeping (they do not fire or end the scope of an outside step).
+- A GraphQL mutation cannot hide behind commas or `#` comments: the mutation fields are read
+  after removing them, an alias does not hide the field behind it, and a document the reader
+  cannot place (unbalanced, no mutation, only fragment spreads) is not housekeeping and keeps
+  `outside_write`.
+- No value is added to any fixed list. Rules stay `phase-3g-deterministic-rules-v4` and step
+  facts `step-facts.v5`, both unreleased.
+
 ### A merge is checked only by a read of its own pull request
 
 - A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) now counts as checked only when that

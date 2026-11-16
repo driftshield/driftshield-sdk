@@ -43,7 +43,7 @@ _VALUE_FLAGS = frozenset(
 _NUMBER = re.compile(r"\d+")
 _PR_URL = re.compile(r"https?://[^/\s]+/([^/\s]+/[^/\s]+)/pull/(\d+)(?:[/?#].*)?$")
 _PR_SHORT = re.compile(r"([\w.-]+/[\w.-]+)#(\d+)$")
-_API_PATH = re.compile(r"/?repos/([^/]+)/([^/]+)/(pulls|issues)/(\d+)(?:/([A-Za-z_]+))?/?$")
+_API_PATH = re.compile(r"/?repos/([^/]+)/([^/]+)/(pulls|issues)/(\d+)(?:/([A-Za-z_-]+))?/?$")
 # What counts as a read of a pull request's state, checks, reviews or comments.
 _READ_KINDS = frozenset(
     {"pr:view", "pr:checks", "api:pulls/", "api:pulls/reviews", "api:pulls/comments"}
@@ -466,42 +466,77 @@ def _items(command: str) -> list[_Item] | None:
 def merge_tied_check(
     command: str, reads_before: frozenset[PrRef], *, command_kind: str
 ) -> bool | None:
-    """Whether the first write part of ``command``, a merge, was checked by a read of its PR.
+    """How a merge in ``command`` was checked, decided by the write parts of the step.
 
-    Applies only to a step whose command kind is ``merge``. For any other outside step (a
-    deploy, a push to main, a delete, an outside write) the answer is ``None`` without reading
-    the command, so those steps keep the scoped rule exactly as before, whatever their command
-    looks like (a redirect, a subshell, brackets, ``&``, an ``if`` block).
+    The tie applies to every merge among the write parts, whatever the step's command kind is
+    (a merge chained with a deploy is a ``deploy``, but the merge inside it is still tied).
+    ``False`` when any merge was not checked by a read of its own pull request: it names no
+    literal number, or no read of that number came before it (in an earlier step, or earlier
+    in this command line, in a statement, a safe ``$(...)`` or a safe loop), or something
+    unsafe ran before it. ``True`` when every write part is a merge and all were checked.
+    ``None`` when the step has no merge to tie, or when every merge was checked but another
+    write part remains: the caller applies the scoped check rule to that part.
 
-    ``reads_before`` are the pull requests read since the previous outside step on them. The
-    answer is ``True`` only if the first write part is a merge naming a literal pull request
-    number and that pull request was read before it (in an earlier step, or earlier in this
-    command line, in a statement, a safe ``$(...)`` or a safe loop). ``False`` when it is a
-    merge that was not, or when something unsafe runs before it. ``None`` when the first write
-    part is not a merge, so the caller applies the scoped rule for other outside steps.
+    A step with no merge is never read here beyond finding that out, so deploys, pushes to
+    main, deletes and outside writes keep the scoped rule whatever their command looks like (a
+    redirect, a subshell, brackets, ``&``, an ``if`` block). A command this reader cannot parse
+    is ``False`` only when it mentions a merge at all.
     """
-    if command_kind != "merge":
-        return None
     items = _items(command)
     if items is None:
         # A merge in a command this reader cannot parse is not checked: the scoped rule
         # would let a local read excuse it.
-        return False
+        if command_kind == "merge" or re.search(r"\bmerge", command):
+            return False
+        return None
     reads = set(reads_before)
     group: set[PrRef] = set()
+    unsafe_seen = False
+    merge_seen = False
+    other_write = False
     for item in items:
         analysis = item.analysis
         if analysis.state == "unsafe":
-            return False
+            unsafe_seen = True
+            continue
         if analysis.state == "risk":
             if analysis.kind != "merge":
-                return None
-            return analysis.ref is not None and analysis.ref in (reads | analysis.sub_reads)
+                other_write = True
+                continue
+            merge_seen = True
+            checked = (
+                not unsafe_seen
+                and analysis.ref is not None
+                and analysis.ref in (reads | analysis.sub_reads)
+            )
+            if not checked:
+                return False
+            reads.discard(analysis.ref)  # a merge ends the scope of the reads of that pull request
+            continue
         group |= analysis.reads
         if item.operator != "|":
             reads |= group  # a read piped into a later part runs with it, not before it
             group = set()
-    return False
+    if not merge_seen:
+        return None
+    return None if other_write else True
+
+
+_HEAD_CHANGING = re.compile(r"update-branch|--base\b|(?<!\w)-B\b|\bbase=")
+
+
+def head_changing_refs(command: str) -> set[PrRef]:
+    """The pull requests a command that can change what gets merged names, else none.
+
+    ``gh pr update-branch N`` adds a commit to the head, ``gh pr edit N --base X`` (and ``-B``,
+    or ``gh api`` with a ``base`` field or an ``update-branch`` path) changes the branch it
+    merges into. Both are housekeeping, so neither ends the scope of an outside step, but a
+    read of the pull request taken before them no longer describes what a merge would do, so
+    it is cleared. Every pull request the command names is cleared when it contains one.
+    """
+    if not _HEAD_CHANGING.search(command):
+        return set()
+    return command_pr_refs(command)
 
 
 def command_pr_reads(command: str) -> set[PrRef]:

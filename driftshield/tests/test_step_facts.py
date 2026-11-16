@@ -579,6 +579,81 @@ CLASSIFICATION_TABLE = [
     ("gh pr edit 3 --add-label=go", "outside_write", "outside_service"),
     ("gh issue edit 3 -tl go", "outside_write", "outside_service"),
     ("gh issue edit 3 --title t --add-label go", "outside_write", "outside_service"),
+    # GraphQL ignores commas and # comments, so they cannot hide a mutation from the reader
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } deleteRef,(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x }, deleteRef\n(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } # note\n deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { del: deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } d: deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { ...F } fragment F on "
+        "Mutation { deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { ...F }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: 1 { x } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation A { addComment(input: {a: "
+        "1}) { x } } mutation B { deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } closeIssue,(input: {i: 2}) { y } }'",
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: "
+        "{body: \"deleteRef(input: x)\"}) { x } }'",
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } } # deleteRef(input: {r: 2})'",
+        "unknown",
+        "unknown",
+    ),
     # a flag that deletes is not housekeeping: closing with --delete-branch deletes the head branch
     ("gh pr close 3 --delete-branch", "delete", "outside_service"),
     ("gh pr close 3 --delete-branch=true", "delete", "outside_service"),

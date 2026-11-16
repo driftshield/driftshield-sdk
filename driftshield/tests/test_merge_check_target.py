@@ -476,7 +476,7 @@ def test_a_non_merge_outside_step_keeps_the_scoped_rule_whatever_its_command_loo
     "kind", ["deploy", "git_push", "delete", "outside_write", "unknown", "read_only"]
 )
 def test_the_tie_does_not_apply_to_any_step_that_is_not_a_merge(kind):
-    for command in ("vercel --prod", "ls; vercel --prod", "(vercel --prod)", "gh pr merge 5", ""):
+    for command in ("vercel --prod", "ls; vercel --prod", "(vercel --prod)", ""):
         assert merge_tied_check(command, NONE, command_kind=kind) is None
 
 
@@ -539,3 +539,95 @@ def test_the_unsafe_analysis_cannot_be_changed_by_a_caller():
     leaked = set(_UNSAFE.reads)
     leaked.add(("", "1"))
     assert not _UNSAFE.reads
+
+
+# --------------------------------------------------------------------------- #
+# A merge chained with another write is decided by the write parts, not the step's kind
+# --------------------------------------------------------------------------- #
+
+
+def test_a_merge_chained_with_a_deploy_is_not_checked_by_an_unrelated_read():
+    assert _flags(["ls", "gh pr merge 5 && vercel --prod"])[-1] is False
+    assert _flags(["pytest -q", "gh pr merge 5; vercel --prod"])[-1] is False
+    assert _flags(["git status", "gh pr merge 5 || vercel --prod"])[-1] is False
+    # A read of the same pull request still checks it, and the deploy keeps the scoped rule.
+    assert _flags(["gh pr view 5", "gh pr merge 5 && vercel --prod"])[-1] is True
+    # The deploy alone keeps the scoped rule.
+    assert _flags(["ls", "vercel --prod"]) == [False, True]
+
+
+def test_a_merge_after_another_write_in_the_same_step_is_still_tied():
+    assert _flags(["ls", "vercel --prod && gh pr merge 5"])[-1] is False
+    assert _flags(["ls", "git push origin main; gh pr merge 5"])[-1] is False
+    assert _flags(["gh pr view 5", "vercel --prod && gh pr merge 5"])[-1] is True
+    # Every merge among the write parts must be tied, to its own pull request.
+    assert _flags(["gh pr view 5", "gh pr merge 5 && gh pr merge 6 && vercel --prod"])[-1] is False
+    assert _flags(["gh pr view 5", "gh pr view 6", "gh pr merge 5; gh pr merge 6; vercel --prod"])[
+        -1
+    ] is True
+
+
+def test_a_merge_chained_with_a_push_or_a_delete_is_tied_too():
+    assert _flags(["ls", "gh pr merge 5 && git push origin main"])[-1] is False
+    assert _flags(["ls", "gh pr merge 5; gh api -X DELETE repos/o/r/git/refs/heads/x"])[-1] is False
+    assert _flags(["gh pr view 5", "gh pr merge 5 && git push origin main"])[-1] is True
+
+
+def test_the_merge_tie_in_a_chain_is_read_by_the_write_parts_of_the_step():
+    for command, reads, expected in (
+        ("gh pr merge 5 && vercel --prod", NONE, False),
+        ("gh pr merge 5 && vercel --prod", frozenset({("", "5")}), None),
+        ("vercel --prod && gh pr merge 5", frozenset({("", "5")}), None),
+        ("gh pr merge 5", frozenset({("", "5")}), True),
+        ("gh pr merge 5", NONE, False),
+        ("gh pr merge 5 && gh pr merge 5", frozenset({("", "5")}), False),
+        ("vercel --prod", NONE, None),
+    ):
+        assert merge_tied_check(command, reads, command_kind="deploy") == expected, command
+
+
+def test_a_chain_this_reader_cannot_parse_is_unchecked_only_if_it_mentions_a_merge():
+    assert merge_tied_check("(vercel --prod; gh pr merge 5)", NONE, command_kind="deploy") is False
+    assert merge_tied_check("(vercel --prod)", NONE, command_kind="deploy") is None
+
+
+# --------------------------------------------------------------------------- #
+# Housekeeping that changes what gets merged clears an earlier read of that pull request
+# --------------------------------------------------------------------------- #
+
+HEAD_CHANGING = [
+    "gh pr update-branch 5",
+    "gh pr update-branch 5 --rebase",
+    "gh pr edit 5 --base release",
+    "gh pr edit 5 -B release",
+    "gh pr edit 5 --title t --base=release",
+    "gh api -X PUT repos/o/r/pulls/5/update-branch",
+    "gh api -X PATCH repos/o/r/pulls/5 -f base=release",
+    "gh pr view 5 && gh pr update-branch 5",
+]
+
+
+@pytest.mark.parametrize("command", HEAD_CHANGING)
+def test_a_step_that_changes_the_head_or_base_clears_an_earlier_read(command: str):
+    assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is False
+
+
+@pytest.mark.parametrize("command", HEAD_CHANGING[:-1])
+def test_a_read_after_the_head_or_base_change_checks_the_merge_again(command: str):
+    assert _flags(["gh pr view 5", command, "gh pr view 5", "gh pr merge 5"])[-1] is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr edit 5 --body x",
+        "gh pr edit 5 --title t",
+        "gh pr comment 5 --body hi",
+        "gh pr ready 5",
+        "gh pr close 5",
+        "gh pr edit 6 --base release",
+        "gh pr update-branch 6",
+    ],
+)
+def test_other_housekeeping_or_another_pull_request_keeps_the_read(command: str):
+    assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is True

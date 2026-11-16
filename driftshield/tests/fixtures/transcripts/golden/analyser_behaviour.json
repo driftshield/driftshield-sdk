@@ -654,10 +654,34 @@
     false,
     false
    ],
+   "[\"gh pr view 5\", \"gh pr edit 5 --base release\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    false
+   ],
+   "[\"gh pr view 5\", \"gh pr edit 5 --body x\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    true
+   ],
+   "[\"gh pr view 5\", \"gh pr merge 5 && vercel --prod\"]": [
+    false,
+    true
+   ],
    "[\"gh pr view 5\", \"gh pr merge 5 -R o/r\", \"gh pr merge 5\"]": [
     false,
     false,
     false
+   ],
+   "[\"gh pr view 5\", \"gh pr update-branch 5\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    false
+   ],
+   "[\"gh pr view 5\", \"gh pr update-branch 6\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    true
    ],
    "[\"git status && gh pr merge 3\"]": [
     false
@@ -720,9 +744,21 @@
     false,
     true
    ],
+   "[\"ls\", \"gh pr merge 5 && git push origin main\"]": [
+    false,
+    false
+   ],
+   "[\"ls\", \"gh pr merge 5 && vercel --prod\"]": [
+    false,
+    false
+   ],
    "[\"ls\", \"if true; then git push origin main; fi\"]": [
     false,
     true
+   ],
+   "[\"ls\", \"vercel --prod && gh pr merge 5\"]": [
+    false,
+    false
    ],
    "[\"ls\"]": [
     false
@@ -732,6 +768,10 @@
     false
    ],
    "[\"ls; git commit -m x; gh pr merge 3\"]": [
+    false
+   ],
+   "[\"pytest -q\", \"gh pr merge 5; vercel --prod\"]": [
+    false,
     false
    ],
    "[\"sha=$(gh pr view 5 --json headRefOid -q .headRefOid); gh pr merge 5 --match-head-commit $sha\"]": [
@@ -5613,9 +5653,57 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api graphql -f query='mutation A { addComment(input: {a: 1}) { x } } mutation B { deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { ...F } fragment F on Mutation { deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { ...F }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1 { x } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } # note\n deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } closeIssue,(input: {i: 2}) { y } }'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } d: deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } deleteRef,(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } } # deleteRef(input: {r: 2})'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x }, deleteRef\n(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api graphql -f query='mutation { addComment(input: {a:1}) { x } deleteRef(input: {refId: \"y\"}) { y } }'": [
     "outside_write",
     "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"deleteRef(input: x)\"}) { x } }'": [
+    "unknown",
+    "unknown"
    ],
    "gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"y\"}) { x } }'": [
     "unknown",
@@ -5632,6 +5720,10 @@
    "gh api graphql -f query='mutation { createPullRequest(input: {}) { x } }'": [
     "unknown",
     "unknown"
+   ],
+   "gh api graphql -f query='mutation { del: deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
    ],
    "gh api graphql -f query='mutation { deleteRef(input: {refId: \"y\"}) { y } }'": [
     "outside_write",
