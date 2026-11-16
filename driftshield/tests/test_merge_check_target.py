@@ -631,3 +631,31 @@ def test_a_read_after_the_head_or_base_change_checks_the_merge_again(command: st
 )
 def test_other_housekeeping_or_another_pull_request_keeps_the_read(command: str):
     assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is True
+
+
+# A GraphQL mutation names a pull request by node id, so the number cannot be read: a mutation
+# that moves the base or the head clears every earlier read, whatever pull request it is on.
+GRAPHQL_HEAD_CHANGING = [
+    "gh api graphql -f query='mutation { updatePullRequest(input: "
+    '{pullRequestId: "X", baseRefName: "release"}) { clientMutationId } }\'',
+    "gh api graphql -f query='mutation { updatePullRequest(input: "
+    '{pullRequestId: "X", headRefName: "other"}) { clientMutationId } }\'',
+    "gh api graphql -f query='mutation { updatePullRequestBranch(input: "
+    '{pullRequestId: "X"}) { clientMutationId } }\'',
+]
+
+
+@pytest.mark.parametrize("command", GRAPHQL_HEAD_CHANGING)
+def test_a_graphql_head_or_base_change_clears_every_earlier_read(command: str):
+    assert _flags(["gh pr view 5", "gh pr view 6", command, "gh pr merge 5"])[-1] is False
+    assert _flags(["gh pr view 5", "gh pr view 6", command, "gh pr merge 6"])[-1] is False
+    # A read after it checks the merge again.
+    assert _flags(["gh pr view 5", command, "gh pr view 5", "gh pr merge 5"])[-1] is True
+
+
+def test_a_graphql_update_that_changes_neither_keeps_the_reads():
+    command = (
+        "gh api graphql -f query='mutation { updatePullRequest(input: "
+        '{pullRequestId: "X", title: "t"}) { clientMutationId } }\''
+    )
+    assert _flags(["gh pr view 5", command, "gh pr merge 5"])[-1] is True

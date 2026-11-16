@@ -121,6 +121,12 @@ SEQUENCES: list[list[str]] = [
     ["gh pr view 5", "gh pr edit 5 --base release", "gh pr merge 5"],
     ["gh pr view 5", "gh pr edit 5 --body x", "gh pr merge 5"],
     ["gh pr view 5", "gh pr update-branch 6", "gh pr merge 5"],
+    [
+        "gh pr view 5",
+        "gh api graphql -f query='mutation { updatePullRequest(input: "
+        '{pullRequestId: "X", baseRefName: "release"}) { clientMutationId } }\'',
+        "gh pr merge 5",
+    ],
     # A merge is checked only by a read of the same pull request.
     ["gh pr view 1", "gh pr merge 1"],
     ["gh pr view 2", "gh pr merge 1"],

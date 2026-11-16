@@ -654,6 +654,11 @@
     false,
     false
    ],
+   "[\"gh pr view 5\", \"gh api graphql -f query='mutation { updatePullRequest(input: {pullRequestId: \\\"X\\\", baseRefName: \\\"release\\\"}) { clientMutationId } }'\", \"gh pr merge 5\"]": [
+    false,
+    true,
+    false
+   ],
    "[\"gh pr view 5\", \"gh pr edit 5 --base release\", \"gh pr merge 5\"]": [
     false,
     true,
@@ -5669,6 +5674,10 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } # a \" quote\n deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } # note\n deleteRef(input: {r: 2}) { y } }'": [
     "outside_write",
     "outside_service"
@@ -5701,13 +5710,49 @@
     "outside_write",
     "outside_service"
    ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"\"\"# note\"\"\"}) { x } deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"\"\"oops}) { x } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"#\"}) { x }\n deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"#\"}) { x } deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"\\\"#\"}) { x } deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"a # b\"}) { x } deleteRef(input: {r: 2}) { y } }'": [
+    "outside_write",
+    "outside_service"
+   ],
    "gh api graphql -f query='mutation { addComment(input: {body: \"deleteRef(input: x)\"}) { x } }'": [
+    "unknown",
+    "unknown"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"oops}) { x } }'": [
+    "outside_write",
+    "outside_service"
+   ],
+   "gh api graphql -f query='mutation { addComment(input: {body: \"see #12\"}) { x } }'": [
     "unknown",
     "unknown"
    ],
    "gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"y\"}) { x } }'": [
     "unknown",
     "unknown"
+   ],
+   "gh api graphql -f query='mutation { addComment(input:{body:\"#\"}) {id}\n deleteRef(input:{r:2}) {id} }'": [
+    "outside_write",
+    "outside_service"
    ],
    "gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelableId: \"x\"}) { x } }'": [
     "outside_write",

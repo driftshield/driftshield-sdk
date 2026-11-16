@@ -999,7 +999,6 @@ _GRAPHQL_HOUSEKEEPING = frozenset(
         "updatePullRequestBranch",
     }
 )
-_GRAPHQL_FIELD = re.compile(r"\b([a-z]\w*)\s*\(\s*input\s*:")
 
 
 _GH_API_VALUE_FLAGS = frozenset(
@@ -1037,6 +1036,49 @@ def _gh_api_endpoint(rest: list[str]) -> str:
     return ""
 
 
+def _strip_graphql_noise(query: str) -> str | None:
+    """``query`` without comments, commas and string contents, read in a single pass.
+
+    A ``#`` inside a string is text and a quote inside a comment is text, so strings and
+    comments are told apart as the text is read, not by two passes that could disagree. A
+    string becomes ``""`` and a comment a space. ``None`` when a string is not closed.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(query)
+    while index < length:
+        char = query[index]
+        if char == "#":
+            newline = query.find("\n", index)
+            index = length if newline == -1 else newline
+            out.append(" ")
+        elif query.startswith('"""', index):
+            end = query.find('"""', index + 3)
+            while end != -1 and query[end - 1] == "\\":  # an escaped triple quote
+                end = query.find('"""', end + 3)
+            if end == -1:
+                return None
+            out.append('""')
+            index = end + 3
+        elif char == '"':
+            index += 1
+            while index < length and query[index] != '"':
+                if query[index] == "\n":
+                    return None  # a plain string cannot span lines
+                index += 2 if query[index] == "\\" else 1
+            if index >= length:
+                return None
+            out.append('""')
+            index += 1
+        elif char == ",":
+            out.append(" ")
+            index += 1
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
 def _graphql_mutation_fields(query: str) -> set[str] | None:
     """The top level fields every operation of a GraphQL document selects, or ``None``.
 
@@ -1046,8 +1088,9 @@ def _graphql_mutation_fields(query: str) -> set[str] | None:
     alias cannot hide the field behind it). ``None`` when the text is unbalanced or has
     no ``mutation``: the caller then treats the call as not housekeeping.
     """
-    text = re.sub(r"#[^\n]*", " ", query).replace(",", " ")
-    text = re.sub(r'"""(?:.|\n)*?"""|"(?:\\.|[^"\\])*"', '""', text)
+    text = _strip_graphql_noise(query)
+    if text is None:
+        return None
     if not re.search(r"\bmutation\b", text):
         return None
     depth = 0
@@ -2530,6 +2573,7 @@ def compute_step_facts(
         clear_reads,
         command_pr_reads,
         command_pr_refs,
+        head_change_clears_all_reads,
         head_changing_refs,
         merge_tied_check,
     )
@@ -2589,6 +2633,8 @@ def compute_step_facts(
                         seen_check = True
                     if command is not None and not hidden:
                         pr_reads = clear_reads(pr_reads, head_changing_refs(command))
+                        if head_change_clears_all_reads(command):
+                            pr_reads = set()
                         pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True

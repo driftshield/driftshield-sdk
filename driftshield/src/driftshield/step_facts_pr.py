@@ -523,6 +523,18 @@ def merge_tied_check(
 
 
 _HEAD_CHANGING = re.compile(r"update-branch|--base\b|(?<!\w)-B\b|\bbase=")
+# GraphQL names a pull request by node id, so the number cannot be read. A mutation that moves
+# the base or updates the head branch clears every earlier read.
+_HEAD_CHANGING_GRAPHQL = re.compile(r"baseRefName|headRefName|updatePullRequestBranch")
+
+
+def head_change_clears_all_reads(command: str) -> bool:
+    """True for a GraphQL mutation that changes the base or the head of a pull request by node id.
+
+    The pull request is not named by number, so which read it invalidates is unknown: all of
+    them are cleared.
+    """
+    return bool(_HEAD_CHANGING_GRAPHQL.search(command))
 
 
 def head_changing_refs(command: str) -> set[PrRef]:

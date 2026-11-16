@@ -58,10 +58,14 @@ first, or uploads from the release stop counting.
   a `base` field) can change what gets merged, so they clear an earlier read of pull
   request N: a merge after them is unchecked until the pull request is read again. They stay
   housekeeping (they do not fire or end the scope of an outside step).
-- A GraphQL mutation cannot hide behind commas or `#` comments: the mutation fields are read
-  after removing them, an alias does not hide the field behind it, and a document the reader
-  cannot place (unbalanced, no mutation, only fragment spreads) is not housekeeping and keeps
-  `outside_write`.
+- A GraphQL mutation cannot hide behind commas or `#` comments: strings and comments are
+  told apart in one pass (a `#` inside a string is text, and a quote inside a comment is
+  text), the mutation fields are read after removing them, an alias does not hide the field
+  behind it, and a document the reader cannot place (unbalanced, an unterminated string, no
+  mutation, only fragment spreads) is not housekeeping and keeps `outside_write`.
+- A GraphQL mutation that moves the base or the head of a pull request (`baseRefName`,
+  `headRefName`, `updatePullRequestBranch`) names it by node id, so it clears every earlier
+  read of any pull request: the next merge is unchecked until its pull request is read again.
 - No value is added to any fixed list. Rules stay `phase-3g-deterministic-rules-v4` and step
   facts `step-facts.v5`, both unreleased.
 
