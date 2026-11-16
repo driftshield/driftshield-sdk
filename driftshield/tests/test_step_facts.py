@@ -96,8 +96,8 @@ CLASSIFICATION_TABLE = [
     # outside_write
     ("curl -X POST https://api.example.com/x -d a=b", "outside_write", "outside_service"),
     ("curl --data @file https://api.example.com/x", "outside_write", "outside_service"),
-    ("gh pr comment 12 --body hi", "outside_write", "outside_service"),
-    ("gh issue create --title t", "outside_write", "outside_service"),
+    ("gh pr comment 12 --body hi", "unknown", "unknown"),
+    ("gh issue create --title t", "unknown", "unknown"),
     ("gh api -X PATCH repos/o/r -f a=b", "outside_write", "outside_service"),
     ("ssh host systemctl restart app", "outside_write", "outside_service"),
     ("aws s3 cp out.txt s3://bucket/out.txt", "outside_write", "outside_service"),
@@ -243,16 +243,8 @@ CLASSIFICATION_TABLE = [
     ("git fetch origin", "unknown", "unknown"),
     ("fd -x rm", "unknown", "unknown"),
     # only the endpoint or the graphql query field makes a gh api call a merge
-    (
-        "gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest",
-        "outside_write",
-        "outside_service",
-    ),
-    (
-        "gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge",
-        "outside_write",
-        "outside_service",
-    ),
+    ("gh api -X POST repos/o/r/issues/3/comments -f body=mergePullRequest", "unknown", "unknown"),
+    ("gh api -X POST repos/o/r/issues/3/comments -f body=see/pulls/3/merge", "unknown", "unknown"),
     (
         "gh api graphql -f body=mergePullRequest -f query='query { x }'",
         "outside_write",
@@ -269,7 +261,7 @@ CLASSIFICATION_TABLE = [
     ("gh api repos/o/r/pulls/3/merge", "read_only", "outside_service"),
     # opening a pull request and invoking a function or model are not writes to count
     ("gh pr create --title t --body b", "unknown", "unknown"),
-    ("gh issue create --title t", "outside_write", "outside_service"),
+    ("gh issue create --title t", "unknown", "unknown"),
     ("aws lambda invoke --function-name f out.json", "unknown", "unknown"),
     (
         "aws --profile p --region eu-west-1 lambda invoke --function-name f o.json",
@@ -301,17 +293,9 @@ CLASSIFICATION_TABLE = [
         "outside_service",
     ),
     ("gh api -X GET repos/o/r/issues/5/comments --jq '.[].body'", "read_only", "outside_service"),
-    (
-        "gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id",
-        "outside_write",
-        "outside_service",
-    ),
-    ("gh api repos/o/r/issues/5/comments -f body=x --jq .id", "outside_write", "outside_service"),
-    (
-        "gh api -X PATCH repos/o/r/issues/5 -F state=closed --jq .id",
-        "outside_write",
-        "outside_service",
-    ),
+    ("gh api -X POST repos/o/r/issues/5/comments -f body=x --jq .id", "unknown", "unknown"),
+    ("gh api repos/o/r/issues/5/comments -f body=x --jq .id", "unknown", "unknown"),
+    ("gh api -X PATCH repos/o/r/issues/5 -F state=closed --jq .id", "unknown", "unknown"),
     # jq that reads another file, loads modules or runs a program from a file is not a filter
     ("jq --rawfile a f.txt .x", "unknown", "unknown"),
     ("jq --slurpfile a f.json .x", "unknown", "unknown"),
@@ -434,9 +418,9 @@ CLASSIFICATION_TABLE = [
     ("git -C help push origin main", "git_push", "main_branch"),
     ("git -c help=1 push origin main", "git_push", "main_branch"),
     ("git push help main", "git_push", "main_branch"),
-    ("gh pr comment 3 --body -h", "outside_write", "outside_service"),
-    ("gh pr comment 3 --body help", "outside_write", "outside_service"),
-    ("gh issue create --title help", "outside_write", "outside_service"),
+    ("gh pr review 3 --approve --body -h", "outside_write", "outside_service"),
+    ("gh pr review 3 --approve --body help", "outside_write", "outside_service"),
+    ("gh issue create --title help --label go", "outside_write", "outside_service"),
     ("gh pr merge 3 --subject -h", "merge", "outside_service"),
     ("vercel deploy --token help --prod", "deploy", "outside_service"),
     ("vercel --token help --prod", "deploy", "outside_service"),
@@ -462,8 +446,401 @@ CLASSIFICATION_TABLE = [
         "unknown",
     ),
     ("gh api repos/o/r/pulls --jq '.[].number'", "read_only", "outside_service"),
-    ("gh api -X POST repos/o/r/pulls/3/comments -f body=x", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/pulls/3/comments -f body=x", "unknown", "unknown"),
     ("gh api -X POST repos/o/r/pulls/3/merge", "merge", "outside_service"),
+    # PR and issue housekeeping is low risk: unknown, it neither fires nor ends a check scope
+    ("gh pr comment 3 --body hi", "unknown", "unknown"),
+    ("gh issue comment 3 --body hi", "unknown", "unknown"),
+    ("gh pr edit 3 --body x", "unknown", "unknown"),
+    ("gh pr edit 3 --title t --base dev", "unknown", "unknown"),
+    ("gh pr edit 3 --remove-label wip", "unknown", "unknown"),
+    ("gh issue edit 3 --title t", "unknown", "unknown"),
+    ("gh pr ready 3", "unknown", "unknown"),
+    ("gh pr ready 3 --undo", "unknown", "unknown"),
+    ("gh pr close 3", "unknown", "unknown"),
+    ("gh issue close 3", "unknown", "unknown"),
+    ("gh pr reopen 3", "unknown", "unknown"),
+    ("gh issue reopen 3", "unknown", "unknown"),
+    ("gh issue create --title t --body b", "unknown", "unknown"),
+    ("gh label create bug --color f00", "unknown", "unknown"),
+    ("gh label edit bug --color 0f0", "unknown", "unknown"),
+    ("gh pr update-branch 3", "unknown", "unknown"),
+    ("gh -R other/repo issue comment 9 --body hi", "unknown", "unknown"),
+    ("gh api -X POST repos/o/r/issues/3/comments -f body=x", "unknown", "unknown"),
+    ("gh api repos/o/r/issues/3/comments -f body=x", "unknown", "unknown"),
+    ("gh api -X POST repos/{owner}/{repo}/issues/3/comments -f body=x", "unknown", "unknown"),
+    ("gh api --method POST /repos/o/r/pulls/3/comments -f body=x -f path=a", "unknown", "unknown"),
+    ("gh api -X POST repos/o/r/issues -f title=t", "unknown", "unknown"),
+    ("gh api -X PATCH repos/o/r/issues/3 -f state=closed", "unknown", "unknown"),
+    ("gh api -X PATCH repos/o/r/pulls/3 -F draft=true", "unknown", "unknown"),
+    ("gh api -X PATCH repos/o/r/pulls/3 -f body=x", "unknown", "unknown"),
+    ("gh api -X PATCH repos/o/r/issues/comments/55 -f body=x", "unknown", "unknown"),
+    ("gh api -X POST repos/o/r/labels -f name=bug", "unknown", "unknown"),
+    ("gh api -X POST repos/o/r/issues/3/sub_issues -F sub_issue_id=9", "unknown", "unknown"),
+    ("gh api -X PUT repos/o/r/pulls/3/update-branch", "unknown", "unknown"),
+    (
+        "gh api graphql -f query='mutation { addComment("
+        'input: {subjectId: "x", body: "y"}) { x } }\'',
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"x\"}) { x } }'",
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { markPullRequestReadyForReview("
+        'input: {pullRequestId: "x"}) { x } }\'',
+        "unknown",
+        "unknown",
+    ),
+    # not housekeeping: a label added can start a run, so it stays outside
+    ("gh pr edit 3 --add-label go", "outside_write", "outside_service"),
+    ("gh issue edit 3 --add-label=go", "outside_write", "outside_service"),
+    ("gh issue create --title t --label go", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/issues/3/labels -f labels[]=go", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t -f labels[]=go",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X PATCH repos/o/r/issues/3 -f labels[]=go", "outside_write", "outside_service"),
+    (
+        "gh api graphql -f query='mutation { addLabelsToLabelable("
+        'input: {labelableId: "x"}) { x } }\'',
+        "outside_write",
+        "outside_service",
+    ),
+    # a workflow dispatch starts a run that can deploy, so it stays outside
+    ("gh workflow run ci.yml", "outside_write", "outside_service"),
+    ("gh workflow run deploy.yml -f env=prod", "outside_write", "outside_service"),
+    ("gh workflow enable ci.yml", "outside_write", "outside_service"),
+    ("gh workflow disable ci.yml", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/actions/workflows/123/dispatches -f ref=main",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+        "outside_write",
+        "outside_service",
+    ),
+    # a label added is caught in every attached form, for gh api
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field=labels[]=go",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --raw-field labels=go",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --field=labels=x",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t --field labels[]=x",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t -flabels[]=go",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X POST repos/o/r/issues -f title=t -Flabels=x", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/issues -f title=t -F labels[]=x",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X POST repos/o/r/issues -f title=t -f labels=x", "outside_write", "outside_service"),
+    ("gh api -X PATCH repos/o/r/issues/3 --field=labels[]=go", "outside_write", "outside_service"),
+    ("gh api -X PATCH repos/o/r/pulls/3 -f labels[]=go", "outside_write", "outside_service"),
+    # and for the gh subcommands
+    ("gh issue create -t t -lgo", "outside_write", "outside_service"),
+    ("gh issue create -t t -l go", "outside_write", "outside_service"),
+    ("gh issue create -t t --label go", "outside_write", "outside_service"),
+    ("gh issue create -t t --label=go", "outside_write", "outside_service"),
+    ("gh issue create -t t --add-label=go", "outside_write", "outside_service"),
+    ("gh pr edit 3 -lgo", "outside_write", "outside_service"),
+    ("gh pr edit 3 -l go", "outside_write", "outside_service"),
+    ("gh pr edit 3 --add-label go", "outside_write", "outside_service"),
+    ("gh pr edit 3 --add-label=go", "outside_write", "outside_service"),
+    ("gh issue edit 3 -tl go", "outside_write", "outside_service"),
+    ("gh issue edit 3 --title t --add-label go", "outside_write", "outside_service"),
+    # GraphQL ignores commas and # comments, so they cannot hide a mutation from the reader
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } deleteRef,(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x }, deleteRef\n(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } # note\n deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { del: deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } d: deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { ...F } fragment F on "
+        "Mutation { deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { ...F }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: 1 { x } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation A { addComment(input: {a: "
+        "1}) { x } } mutation B { deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } closeIssue,(input: {i: 2}) { y } }'",
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: "
+        "{body: \"deleteRef(input: x)\"}) { x } }'",
+        "unknown",
+        "unknown",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: "
+        "1}) { x } } # deleteRef(input: {r: 2})'",
+        "unknown",
+        "unknown",
+    ),
+    # a # inside a string is text, never a comment: a real field after it is still read
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"#\"}) { x }\n "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"#\"}) { x } "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input:{body:\"#\"}) {id}\n "
+        "deleteRef(input:{r:2}) {id} }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"a # b\"}) { x } "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"\"\"# note\"\"\"}) { x } "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    # an escaped quote does not end a string, and a quote inside a comment is text
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"\\\"#\"}) { x } "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a: 1}) { x } # a \" quote\n "
+        "deleteRef(input: {r: 2}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    # an unterminated string fails closed
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"oops}) { x } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"\"\"oops}) { x } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    # a # that only sits inside a string, with only allowed mutations, is still housekeeping
+    (
+        "gh api graphql -f query='mutation { addComment(input: {body: \"see #12\"}) { x } }'",
+        "unknown",
+        "unknown",
+    ),
+    # a flag that deletes is not housekeeping: closing with --delete-branch deletes the head branch
+    ("gh pr close 3 --delete-branch", "delete", "outside_service"),
+    ("gh pr close 3 --delete-branch=true", "delete", "outside_service"),
+    ("gh pr close 3 -d", "delete", "outside_service"),
+    ("gh pr close 3 -d -c bye", "delete", "outside_service"),
+    ("gh pr close 3 -dc bye", "delete", "outside_service"),
+    ("gh pr close 3 -dcbye", "delete", "outside_service"),
+    ("gh pr close 3 -c bye -d", "delete", "outside_service"),
+    ("gh pr close 3 --comment bye --delete-branch", "delete", "outside_service"),
+    ("gh pr close 3 --delete-branch --comment bye", "delete", "outside_service"),
+    ("gh -R o/r pr close 3 -d", "delete", "outside_service"),
+    ("gh pr comment 3 --delete-last", "delete", "outside_service"),
+    ("gh pr comment 3 --delete-last --yes", "delete", "outside_service"),
+    ("gh pr comment 3 --delete-last=true", "delete", "outside_service"),
+    ("gh issue comment 3 --delete-last", "delete", "outside_service"),
+    ("gh issue comment 3 --delete-last --yes", "delete", "outside_service"),
+    # closing and commenting without a delete flag stay housekeeping (-cd is a comment saying d)
+    ("gh pr close 3", "unknown", "unknown"),
+    ("gh pr close 3 -c bye", "unknown", "unknown"),
+    ("gh pr close 3 -cd", "unknown", "unknown"),
+    ("gh pr close 3 --comment delete-branch", "unknown", "unknown"),
+    ("gh issue close 3 -c bye", "unknown", "unknown"),
+    ("gh pr comment 3 --edit-last --body x", "unknown", "unknown"),
+    ("gh issue comment 3 --edit-last --body x", "unknown", "unknown"),
+    # the sweep: no other housekeeping flag deletes or merges into the base branch
+    ("gh pr update-branch 3 --rebase", "unknown", "unknown"),
+    ("gh pr edit 3 --base dev", "unknown", "unknown"),
+    ("gh issue close 3 --reason completed", "unknown", "unknown"),
+    ("gh label create bug --force", "unknown", "unknown"),
+    # taking a project, milestone, assignee or reviewer off is not housekeeping either
+    ("gh issue edit 3 --remove-project Roadmap", "outside_write", "outside_service"),
+    ("gh issue edit 3 --remove-milestone", "outside_write", "outside_service"),
+    ("gh issue edit 3 --remove-assignee bob", "outside_write", "outside_service"),
+    ("gh pr edit 3 --remove-reviewer bob", "outside_write", "outside_service"),
+    ("gh pr edit 3 --remove-project=Roadmap", "outside_write", "outside_service"),
+    ("gh pr edit 3 --title t --remove-assignee bob", "outside_write", "outside_service"),
+    # removing a label, editing other fields, and creating without a label are housekeeping
+    ("gh issue edit 3 --title t -b body", "unknown", "unknown"),
+    ("gh issue edit 3 --body x --milestone 2", "unknown", "unknown"),
+    ("gh pr edit 3 --remove-label wip", "unknown", "unknown"),
+    ("gh issue create -t t -b body", "unknown", "unknown"),
+    # not housekeeping: reviews, locks, merges, releases, secrets, variables, repos, rulesets, refs
+    ("gh pr review 3 --approve", "outside_write", "outside_service"),
+    ("gh pr lock 3", "outside_write", "outside_service"),
+    ("gh issue transfer 3 o/other", "outside_write", "outside_service"),
+    ("gh run rerun 9", "outside_write", "outside_service"),
+    ("gh secret set TOKEN --body x", "outside_write", "outside_service"),
+    ("gh variable set NAME --body x", "outside_write", "outside_service"),
+    ("gh pr merge 3", "merge", "outside_service"),
+    ("gh release create v1", "deploy", "outside_service"),
+    ("gh repo fork o/r", "outside_write", "outside_service"),
+    ("gh repo delete o/r --yes", "delete", "outside_service"),
+    ("gh label delete bug", "delete", "outside_service"),
+    ("gh issue delete 3 --yes", "delete", "outside_service"),
+    ("gh release delete v1 --yes", "delete", "outside_service"),
+    ("gh api -X DELETE repos/o/r/git/refs/heads/x", "delete", "outside_service"),
+    ("gh api -X DELETE repos/o/r/git/refs/tags/v1", "delete", "outside_service"),
+    ("gh api -X DELETE repos/o/r/releases/9", "delete", "outside_service"),
+    ("gh api -X DELETE repos/o/r", "delete", "outside_service"),
+    ("gh api -X DELETE repos/o/r/issues/comments/9", "delete", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/x -f sha=1",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=1", "outside_write", "outside_service"),
+    ("gh api -X PATCH repos/o/r -f private=true", "outside_write", "outside_service"),
+    ("gh api -X PUT repos/o/r/actions/secrets/X -f value=1", "outside_write", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/actions/variables -f name=X -f value=1",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X POST repos/o/r/rulesets -f name=x", "outside_write", "outside_service"),
+    (
+        "gh api -X PUT repos/o/r/collaborators/bob -f permission=admin",
+        "outside_write",
+        "outside_service",
+    ),
+    ("gh api -X PUT repos/o/r/branches/main/protection -f x=1", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/releases -f tag_name=v1", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/deployments -f ref=main", "outside_write", "outside_service"),
+    ("gh api -X POST repos/o/r/hooks -f url=u", "outside_write", "outside_service"),
+    ("gh api -X PUT repos/o/r/pulls/3/merge", "merge", "outside_service"),
+    ("gh api -X POST repos/o/r/merges -f base=main -f head=x", "merge", "outside_service"),
+    (
+        "gh api -X POST repos/o/r/issues/3/comments --input body.json",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api -X POST repos/o/r/issues/3/comments/extra -f body=x",
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { addComment(input: {a:1}) { x } "
+        'deleteRef(input: {refId: "y"}) { y } }\'',
+        "outside_write",
+        "outside_service",
+    ),
+    (
+        "gh api graphql -f query='mutation { deleteRef(input: {refId: \"y\"}) { y } }'",
+        "outside_write",
+        "outside_service",
+    ),
+    # gh api -X GET stays a read even with fields: they are query parameters
+    ("gh api -X GET repos/o/r/issues -f state=open", "read_only", "outside_service"),
+    (
+        "gh api -X GET repos/o/r/pulls -F per_page=5 --jq '.[].number'",
+        "read_only",
+        "outside_service",
+    ),
+    ("gh api --method GET repos/o/r/issues -f labels=bug", "read_only", "outside_service"),
+    ("gh api repos/o/r/issues -f state=open", "unknown", "unknown"),
+    ("gh api -X GET repos/o/r/issues --input q.json", "outside_write", "outside_service"),
+    # aws s3 cp from S3 to a local path or stdout is a read
+    ("aws s3 cp s3://bucket/key out.txt", "read_only", "outside_service"),
+    ("aws s3 cp s3://bucket/key -", "read_only", "outside_service"),
+    ("aws s3 cp s3://bucket/dir out/ --recursive", "read_only", "outside_service"),
+    ("aws --profile p s3 cp s3://bucket/key ./out.txt", "read_only", "outside_service"),
+    ("aws s3 cp s3://bucket/key s3://other/key", "outside_write", "outside_service"),
+    ("aws s3 cp out.txt s3://bucket/key", "outside_write", "outside_service"),
+    ("aws s3 mv s3://bucket/key out.txt", "outside_write", "outside_service"),
+    ("aws s3 sync s3://bucket/dir out/", "outside_write", "outside_service"),
+    ("aws s3 rm s3://bucket/key", "delete", "outside_service"),
     # a plain chain of checks is a check
     ("cd repo && git status", "read_only", "own_checkout"),
     ("cd app && ls", "read_only", "own_checkout"),

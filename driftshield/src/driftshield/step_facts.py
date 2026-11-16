@@ -548,7 +548,7 @@ def _tokenise(command: str) -> list[str] | None:
         lexer.commenters = ""
         # shlex ends a word at these when punctuation_chars is on; they are plain
         # characters in refs and URLs (HEAD:main, user@host, a+b, 1,2).
-        lexer.wordchars += ":@%+,^"
+        lexer.wordchars += ":@%+,^[]{}"
         tokens: list[str] = []
         for token in lexer:
             if _PUNCTUATION_RUN.fullmatch(token):
@@ -566,6 +566,12 @@ def _operand_length(tokens: list[str], index: int) -> int:
     return 0 if following in _OPERATORS else 1
 
 
+def _drop_fd_digit(segment: list[str]) -> None:
+    """Drop a lone digit right before a redirect: it is the file descriptor, not an argument."""
+    if segment and len(segment[-1]) == 1 and segment[-1].isdigit():
+        segment.pop()
+
+
 def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
     """Split into simple commands. The flag is True for a write redirect or heredoc."""
     segments: list[list[str]] = [[]]
@@ -579,18 +585,35 @@ def _segments(tokens: list[str]) -> tuple[list[list[str]], bool]:
             opaque = True
             index += _operand_length(tokens, index)
         elif token in _REDIRECTS or re.fullmatch(r"\d?>>?", token):
+            _drop_fd_digit(segments[-1])
             target = tokens[index + 1] if index + 1 < len(tokens) else ""
             if target not in {"/dev/null", "&", "&1", "&2"}:
                 opaque = True
             index += _operand_length(tokens, index)
         elif token in {">&", "<", "<&", "2>&"}:
+            _drop_fd_digit(segments[-1])
             index += _operand_length(tokens, index)
         elif token == "(" and index > 0 and tokens[index - 1].endswith("$"):
             segments.append([])  # a command substitution: its words are their own command
         elif token not in {"(", ")", "{", "}", "!"}:
             segments[-1].append(token)
         index += 1
-    return [segment for segment in segments if segment], opaque
+    cleaned = [_without_leading_keywords(segment) for segment in segments]
+    return [segment for segment in cleaned if segment], opaque
+
+
+# Words that open a command inside a loop or a conditional. ``do git push origin main`` is
+# the command ``git push origin main``, so the write inside a loop body or a condition is
+# found as its own write kind. The loop and conditional words on their own (``for``,
+# ``done``, ``fi``) stay unknown commands, so a loop is never a check.
+_LEADING_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "while", "until"})
+
+
+def _without_leading_keywords(segment: list[str]) -> list[str]:
+    start = 0
+    while start < len(segment) and segment[start] in _LEADING_KEYWORDS:
+        start += 1
+    return segment[start:]
 
 
 def _strip_prefixes(tokens: list[str], seen_assignment: list[bool] | None = None) -> list[str]:
@@ -835,6 +858,294 @@ def _git(rest: list[str]) -> _Result:
     return _UNKNOWN
 
 
+# Housekeeping on pull requests and issues (someone else's too) is low risk: it neither fires
+# the verification check nor ends the scope of an earlier check. It is classified ``unknown``,
+# so no new value is needed in the fixed lists. This is an exact allowlist: every other
+# ``gh`` write (a merge, a review, a release, a delete, a secret or variable set, a repo or
+# ruleset change, a label added to start something) keeps its kind.
+_GH_HOUSEKEEPING = frozenset(
+    {
+        ("pr", "comment"),
+        ("issue", "comment"),
+        ("pr", "edit"),
+        ("issue", "edit"),
+        ("pr", "ready"),  # draft toggle, also ``--undo``
+        ("pr", "close"),
+        ("issue", "close"),
+        ("pr", "reopen"),
+        ("issue", "reopen"),
+        ("issue", "create"),
+        ("label", "create"),
+        ("label", "edit"),
+        ("pr", "update-branch"),
+    }
+)
+# A workflow dispatch (``gh workflow run``, ``POST .../dispatches``, a repository dispatch)
+# starts a run that can deploy, so it is not housekeeping either and keeps ``outside_write``.
+#
+# Adding a label can start an automated run and the SDK cannot tell which label does, so a
+# label added through ``edit`` or ``create`` is never housekeeping. Removing one is.
+_GH_LABEL_ADD_LONG_FLAGS = frozenset({"--add-label", "--label"})
+_LABEL_FIELD = re.compile(r"labels(?:\[\])?=")
+
+
+_GH_REMOVE_FLAGS = frozenset(
+    {"--remove-project", "--remove-milestone", "--remove-assignee", "--remove-reviewer"}
+)
+
+
+def _deletes_with_flag(group: str, action: str, rest: list[str]) -> bool:
+    """True for a housekeeping call whose flag deletes something.
+
+    ``gh pr close --delete-branch`` (or ``-d``, alone or combined as ``-dc msg``) deletes the
+    remote head branch. ``gh pr comment`` and ``gh issue comment`` with ``--delete-last`` delete
+    the last comment. Short flags are read the way pflag reads them: ``-d`` is a switch, ``-c``
+    takes the rest of the group (or the next word) as its value, so ``-cd`` is a comment that
+    says "d" and ``-dc`` is a delete with a comment.
+    """
+    longs = {token.split("=", 1)[0] for token in rest if token.startswith("--")}
+    if action == "comment" and "--delete-last" in longs:
+        return True
+    if (group, action) != ("pr", "close"):
+        return False
+    if "--delete-branch" in longs:
+        return True
+    for token in rest:
+        if not token.startswith("-") or token.startswith("--"):
+            continue
+        for letter in token[1:]:
+            if letter == "d":
+                return True
+            if letter == "c":
+                break  # the rest of the group is the comment text
+    return False
+
+
+def _removes_other_metadata(rest: list[str]) -> bool:
+    """True for ``--remove-project``, ``--remove-milestone``, ``--remove-assignee`` or
+    ``--remove-reviewer``: taking something off is not housekeeping (``--remove-label`` is)."""
+    return any(token.split("=", 1)[0] in _GH_REMOVE_FLAGS for token in rest)
+
+
+def _adds_label_flag(rest: list[str]) -> bool:
+    """True when a ``gh`` subcommand adds a label, in any attached form.
+
+    ``--add-label x``, ``--add-label=x``, ``--label=x``, ``-l x``, ``-lx`` and a group such as
+    ``-tl x`` all count. Any single dash group containing the letter ``l`` counts, which is
+    wider than the real flag: a false hit only leaves a call as ``outside_write``.
+    """
+    for token in rest:
+        if token.split("=", 1)[0] in _GH_LABEL_ADD_LONG_FLAGS:
+            return True
+        if (
+            token.startswith("-")
+            and not token.startswith("--")
+            and "l" in token[1:].split("=", 1)[0]
+        ):
+            return True
+    return False
+
+
+def _adds_label_field(rest: list[str]) -> bool:
+    """True when a ``gh api`` call carries a ``labels`` field, however the flag is written.
+
+    ``-f labels[]=go``, ``-F labels=x``, ``--field=labels=x``, ``--raw-field=labels[]=go`` and
+    ``-flabels[]=go`` all count. Any token with ``labels=`` or ``labels[]=`` in it counts, so
+    a stray hit only leaves a call as ``outside_write``.
+    """
+    return any(_LABEL_FIELD.search(token) for token in rest)
+
+
+_ID = r"(?:\d+|\{\w+\})"
+_REPO = r"repos/[^/]+/[^/]+"
+_GH_API_HOUSEKEEPING: dict[str, tuple[re.Pattern[str], ...]] = {
+    "POST": tuple(
+        re.compile(pattern)
+        for pattern in (
+            rf"{_REPO}/issues/{_ID}/comments",  # comment on an issue or a pull request
+            rf"{_REPO}/pulls/{_ID}/comments",
+            rf"{_REPO}/issues",  # issue create
+            rf"{_REPO}/labels",  # label create (defines a label, adds none)
+            rf"{_REPO}/issues/{_ID}/sub_issues",  # sub issue link
+        )
+    ),
+    "PATCH": tuple(
+        re.compile(pattern)
+        for pattern in (
+            rf"{_REPO}/issues/{_ID}",  # edit, close, reopen
+            rf"{_REPO}/pulls/{_ID}",  # edit, close, draft toggle
+            rf"{_REPO}/issues/comments/{_ID}",
+            rf"{_REPO}/labels/[^/]+",
+        )
+    ),
+    "PUT": (re.compile(rf"{_REPO}/pulls/{_ID}/update-branch"),),  # branch update
+}
+_GRAPHQL_HOUSEKEEPING = frozenset(
+    {
+        "addComment",
+        "updateIssue",
+        "updateIssueComment",
+        "updatePullRequest",
+        "closeIssue",
+        "reopenIssue",
+        "closePullRequest",
+        "reopenPullRequest",
+        "createIssue",
+        "createLabel",
+        "updateLabel",
+        "markPullRequestReadyForReview",
+        "convertPullRequestToDraft",
+        "addSubIssue",
+        "updatePullRequestBranch",
+    }
+)
+
+
+_GH_API_VALUE_FLAGS = frozenset(
+    {
+        "-X",
+        "--method",
+        "-H",
+        "--header",
+        "-q",
+        "--jq",
+        "-t",
+        "--template",
+        "--cache",
+        "--hostname",
+        "-f",
+        "-F",
+        "--field",
+        "--raw-field",
+        "--input",
+        "-p",
+        "--preview",
+    }
+)
+
+
+def _gh_api_endpoint(rest: list[str]) -> str:
+    """The ``gh api`` path without a leading slash or a query string, or ``""``.
+
+    The value of an option (``-X POST``, ``-f body=x``) is not the path, so values are skipped.
+    """
+    words = _positionals(_drop_value_flags(rest, _GH_API_VALUE_FLAGS))
+    for word in words[1:]:
+        if "=" not in word.split("?", 1)[0]:
+            return word.split("?", 1)[0].lstrip("/")
+    return ""
+
+
+def _strip_graphql_noise(query: str) -> str | None:
+    """``query`` without comments, commas and string contents, read in a single pass.
+
+    A ``#`` inside a string is text and a quote inside a comment is text, so strings and
+    comments are told apart as the text is read, not by two passes that could disagree. A
+    string becomes ``""`` and a comment a space. ``None`` when a string is not closed.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(query)
+    while index < length:
+        char = query[index]
+        if char == "#":
+            newline = query.find("\n", index)
+            index = length if newline == -1 else newline
+            out.append(" ")
+        elif query.startswith('"""', index):
+            end = query.find('"""', index + 3)
+            while end != -1 and query[end - 1] == "\\":  # an escaped triple quote
+                end = query.find('"""', end + 3)
+            if end == -1:
+                return None
+            out.append('""')
+            index = end + 3
+        elif char == '"':
+            index += 1
+            while index < length and query[index] != '"':
+                if query[index] == "\n":
+                    return None  # a plain string cannot span lines
+                index += 2 if query[index] == "\\" else 1
+            if index >= length:
+                return None
+            out.append('""')
+            index += 1
+        elif char == ",":
+            out.append(" ")
+            index += 1
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
+def _graphql_mutation_fields(query: str) -> set[str] | None:
+    """The top level fields every operation of a GraphQL document selects, or ``None``.
+
+    Commas and ``#`` comments are ignorable in GraphQL, so they are removed first, then
+    string literals and argument lists, so only the selection sets are left. The fields are
+    the names at depth one of a brace group (aliases and fragment spreads are skipped, so an
+    alias cannot hide the field behind it). ``None`` when the text is unbalanced or has
+    no ``mutation``: the caller then treats the call as not housekeeping.
+    """
+    text = _strip_graphql_noise(query)
+    if text is None:
+        return None
+    if not re.search(r"\bmutation\b", text):
+        return None
+    depth = 0
+    stripped: list[str] = []
+    for char in text:  # drop (...) argument lists, however nested
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0:
+            stripped.append(char)
+    if depth != 0:
+        return None
+    body = "".join(stripped)
+    names: set[str] = set()
+    brace = 0
+    for match in re.finditer(r"\{|\}|\.\.\.\s*(?:on\s+)?\w*|\b[A-Za-z_]\w*\b(?!\s*:)", body):
+        token = match.group(0)
+        if token == "{":
+            brace += 1
+        elif token == "}":
+            brace -= 1
+            if brace < 0:
+                return None
+        elif brace == 1 and not token.startswith("..."):
+            names.add(token)
+    if brace != 0:
+        return None
+    return names
+
+
+def _gh_api_is_housekeeping(method: str, rest: list[str]) -> bool:
+    """A ``gh api`` write on the housekeeping allowlist: method and path (or mutation) match.
+
+    A field that adds labels, or a request body read from a file, is never housekeeping.
+    """
+    if _has_flag(rest, "--input") or _adds_label_field(rest):
+        return False
+    endpoint = _gh_api_endpoint(rest)
+    if endpoint == "graphql":
+        queries = [t.split("=", 1)[1] for t in rest if t.startswith("query=")]
+        if not queries or any("mutation" not in query for query in queries):
+            return False
+        names: set[str] = set()
+        for query in queries:
+            found = _graphql_mutation_fields(query)
+            if found is None:
+                return False  # a query this reader cannot place is not housekeeping
+            names |= found
+        return bool(names) and names <= _GRAPHQL_HOUSEKEEPING
+    return any(pattern.fullmatch(endpoint) for pattern in _GH_API_HOUSEKEEPING.get(method, ()))
+
+
 def _gh(rest: list[str]) -> _Result:
     words = _positionals(rest)
     if not words:
@@ -842,23 +1153,27 @@ def _gh(rest: list[str]) -> _Result:
     group = words[0]
     action = words[1] if len(words) > 1 else ""
     if group == "api":
-        method = "GET"
+        explicit: str | None = None
         for index, token in enumerate(rest):
             if token in {"-X", "--method"} and index + 1 < len(rest):
-                method = rest[index + 1].upper()
+                explicit = rest[index + 1].upper()
             elif token.startswith("-X") and len(token) > 2:
-                method = token[2:].upper()
+                explicit = token[2:].upper()
             elif token.startswith("--method="):
-                method = token.split("=", 1)[1].upper()
-        if method == "DELETE":
+                explicit = token.split("=", 1)[1].upper()
+        if explicit == "DELETE":
             return "delete", "outside_service"
-        writes = method not in _HTTP_READ_METHODS or _has_flag(
-            rest, "-f", "-F", "--field", "--raw-field", "--input"
-        )
+        fields = _has_flag(rest, "-f", "-F", "--field", "--raw-field")
+        # Fields make a POST unless the method is given: with an explicit GET they are query
+        # parameters, so ``-X GET`` with ``-f`` or ``-F`` stays a read.
+        method = explicit or ("POST" if fields else "GET")
+        writes = method not in _HTTP_READ_METHODS or _has_flag(rest, "--input")
         if writes and _is_merge_request(rest):
             return "merge", "outside_service"
         if writes and _is_pull_request_create(rest):
             return _UNKNOWN  # opening a pull request for review, like ``gh pr create``
+        if writes and _gh_api_is_housekeeping(method, rest):
+            return _UNKNOWN  # housekeeping on pull requests and issues, see _GH_HOUSEKEEPING
         if writes:
             return "outside_write", "outside_service"
         return "read_only", "outside_service"
@@ -877,6 +1192,13 @@ def _gh(rest: list[str]) -> _Result:
         return "delete", "outside_service"
     if action in _GH_READ_ACTIONS:
         return "read_only", "outside_service"
+    if (group, action) in _GH_HOUSEKEEPING:
+        # A flag that deletes, or removes something other than a label, is not housekeeping.
+        if _deletes_with_flag(group, action, rest):
+            return "delete", "outside_service"
+        if _adds_label_flag(rest) or _removes_other_metadata(rest):
+            return "outside_write", "outside_service"
+        return _UNKNOWN
     if action in _GH_WRITE_ACTIONS:
         return "outside_write", "outside_service"
     return _UNKNOWN
@@ -1023,7 +1345,17 @@ def _aws(rest: list[str]) -> _Result:
             return "read_only", "outside_service"
         if operation in {"rm", "rb"}:
             return "delete", "outside_service"
-        if operation in {"cp", "mv", "sync", "mb", "presign"}:
+        if operation == "cp":
+            paths = [t for t in rest if not t.startswith("-") or t == "-"][2:]
+            # A download (S3 to a local path or to stdout) reads the service.
+            if (
+                len(paths) == 2
+                and paths[0].startswith("s3://")
+                and not paths[1].startswith("s3://")
+            ):
+                return "read_only", "outside_service"
+            return "outside_write", "outside_service"
+        if operation in {"mv", "sync", "mb", "presign"}:
             return "outside_write", "outside_service"
         return _UNKNOWN
     if operation.startswith("invoke"):
@@ -1893,6 +2225,8 @@ _ERROR_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "user rejected",
             "user denied",
             "requires approval",
+            "permission for this action was denied",
+            "denied by the auto mode",
         ),
     ),
     (
@@ -1990,7 +2324,11 @@ def _json_error_text(text: str) -> str | None:
                 name = str(key).lower()
                 if isinstance(value, str) and name in _JSON_ERROR_KEYS:
                     chunks.append(value)
-                elif name in _JSON_STATUS_KEYS and isinstance(value, (int, str)) and not isinstance(value, bool):
+                elif (
+                    name in _JSON_STATUS_KEYS
+                    and isinstance(value, (int, str))
+                    and not isinstance(value, bool)
+                ):
                     chunks.append(f"status {value}")
                 elif isinstance(value, (Mapping, list)):
                     walk(value, depth + 1)
@@ -2231,10 +2569,21 @@ def compute_step_facts(
     step whose command is visible never keeps facts from the input: they are
     recomputed.
     """
+    from driftshield.step_facts_pr import (
+        clear_reads,
+        command_pr_reads,
+        command_pr_refs,
+        clear_reads_for_head_change,
+        merge_tied_check,
+    )
+
     facts_by_node: dict[int, dict[str, Any]] = {}
     # call id -> (facts, call block, is a shell step)
     pending: dict[str, tuple[dict[str, Any], dict[str, Any], bool]] = {}
     seen_check = False
+    # Pull requests whose state, checks, reviews or comments were read since the previous
+    # outside step on them. Only a merge reads this, and only for its own pull request.
+    pr_reads: set[tuple[str, str]] = set()
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
@@ -2255,16 +2604,35 @@ def compute_step_facts(
                 # the command line it was worked out from can no longer be read, so recomputing
                 # would lose a check that ran earlier in the same command line and the redacted
                 # copy would disagree with the first analysis.
+                outside = is_outside_step(facts["command_kind"], facts["target_kind"])
                 if not hidden:
-                    facts["checked_before"] = seen_check or (
-                        command is not None
-                        and facts["command_kind"] in _RISK_ORDER
-                        and _check_earlier_in_command(command)
+                    # A merge is checked only by a read of that same pull request: the
+                    # scoped check rule below is for every other outside step.
+                    tied = (
+                        merge_tied_check(
+                            command, frozenset(pr_reads), command_kind=facts["command_kind"]
+                        )
+                        if outside and command is not None
+                        else None
                     )
-                if is_outside_step(facts["command_kind"], facts["target_kind"]):
+                    if tied is not None:
+                        facts["checked_before"] = tied
+                    else:
+                        facts["checked_before"] = seen_check or (
+                            command is not None
+                            and facts["command_kind"] in _RISK_ORDER
+                            and _check_earlier_in_command(command)
+                        )
+                if outside:
                     seen_check = False
-                elif facts["command_kind"] in _CHECK_KINDS:
-                    seen_check = True
+                    if command is not None:
+                        pr_reads = clear_reads(pr_reads, command_pr_refs(command))
+                else:
+                    if facts["command_kind"] in _CHECK_KINDS:
+                        seen_check = True
+                    if command is not None and not hidden:
+                        pr_reads = clear_reads_for_head_change(pr_reads, command)
+                        pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True
             else:
@@ -2272,7 +2640,9 @@ def compute_step_facts(
                 # error (below). Facts already on a call whose input is hidden were
                 # written by an earlier redaction and are kept after validation. On a
                 # call whose input is visible they are never believed.
-                facts = carried if carried is not None and _input_hidden(raw_input) else unknown_facts()
+                facts = (
+                    carried if carried is not None and _input_hidden(raw_input) else unknown_facts()
+                )
                 if facts is carried:
                     facts_by_node[id(node)] = facts
                 is_shell = False

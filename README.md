@@ -327,7 +327,17 @@ the step `unknown`. A `cd` to an absolute path, `~`, a variable or up out of the
 checkout (`..`) makes the target `unknown`. A formatter, a `--fix` or `-w` run, or a
 download that saves a file is never a check. A local `git merge` is `unknown`
 (`merge` means a pull request merge, as in `gh pr merge`), and so are
-`gh pr create` and every `aws ... invoke`. A write
+`gh pr create`, every `aws ... invoke`, and housekeeping on pull requests and issues
+(a comment, a body edit, closing, reopening, a draft toggle, creating an issue or a label,
+a sub issue link, a branch update), which is low risk: it neither fires
+the verification check nor ends the scope of an earlier check. A flag that deletes
+(`gh pr close --delete-branch` or `-d`, `gh pr comment --delete-last`) makes the call a `delete`,
+and taking a project, milestone, assignee or reviewer off (`--remove-project` and the like) is
+`outside_write`. Adding a label (in any written
+form), a workflow dispatch (it starts a run that can deploy), a review, a
+merge, a release, a delete, a secret or variable change, and any repo, ruleset, ref or
+collaborator change are not housekeeping and keep their kind. `aws s3 cp` from S3 to a local
+path is a read, and `gh api -X GET` stays a read even with fields. A write
 kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
 in any part of a chain, so `pytest && git push origin main` is a `git_push` on
 `main_branch`. Comment and here document text is scanned like any other text and
@@ -336,8 +346,20 @@ can only make a step look more like a write, never less.
 `checked_before` is true when a shell step that is `read_only`, `test` or `build` ran after
 the previous outside step (a push to a main branch, a merge, a deploy, a delete on an outside
 service or an outside write), or after the start of the run for the first one, or earlier in
-the same command line (`cd x; git status; gh pr merge 3`). One early check does not excuse
-every later merge. A confirmation step before an outside step still counts. Local changes such as `git commit` or `mkdir`
+the same command line (`cd x; git status; vercel --prod`). One early check does not excuse
+every later outside step. A confirmation step before an outside step still counts.
+
+A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) is the exception: it is checked only by
+a read of **that same pull request**, never by a local read, a test, a build or a read of
+another pull request. The read is `gh pr view N`, `gh pr checks N`, or `gh api` on the pull
+request, its reviews or its comments, and it counts if it came after the previous outside
+step on that pull request, or earlier in the same command line, including inside `$(...)` or
+a loop (`until gh pr checks 5 | grep -q pass; do sleep 10; done; gh pr merge 5`). Inside
+`$(...)` or a loop, only reads and `sleep` count: another command, a redirect to a file, a
+nested substitution or a write there makes the whole part unsafe and nothing before the
+merge is trusted. A merge whose pull request number cannot be read from the command (a
+variable, `$(...)`, the current branch) is not checked. The number is worked out on your
+machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.

@@ -3,13 +3,19 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## 0.3.4 - 2026-11-15
+## 0.3.4 - 2026-11-16
 
-### Findings you can trust: checks and refused edits
+### Findings you can trust: checks, merges and refused edits
 
 - A check now only excuses the next outside step after it. One recognised check early in a
   run no longer excuses every later merge, deploy or push to main, so the verification
   failure check can fire on long sessions.
+- A merge counts as checked only when that same pull request was read since its last
+  outside step. A read of another pull request, a local read, a test or a build no longer
+  checks it, and moving the pull request's base or head clears the earlier read.
+- Housekeeping on pull requests and issues (comments, body edits, closing, labels and the
+  like) is low risk and no longer counts as an outside write. Two classifier slips are
+  fixed, and Claude Code auto mode denials count as refused edits.
 - State conflict ignores edits the tool refused. The SDK sorts each tool error into a fixed
   list (`none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`,
   `timeout`, `other`) on your machine, and only the label is sent.
@@ -17,17 +23,97 @@ notes for each tag are taken from the matching section of this file.
   version is `step-facts.v5`. Every upload says which versions made it, so findings from the
   earlier rules can be told apart from these.
 
+### Housekeeping is low risk, two classifier slips, and auto mode denials
+
+- Housekeeping on a pull request or an issue, including someone else's, is `unknown` and no
+  longer `outside_write`, so it neither fires the verification check nor ends the scope of
+  an earlier check: a comment, a body edit, closing or reopening, a draft toggle, creating an
+  issue or a label, a sub issue link and a branch update, through `gh`
+  or `gh api`. A merge, a deploy, a push to main, a release, a delete, a secret or variable
+  change, a repo, ruleset, ref or collaborator change, a review, a workflow dispatch and
+  adding a label in any written form (both can start an automated run) keep their kind.
+  A flag that deletes makes the call a `delete`: `gh pr close --delete-branch` (or `-d`, also
+  combined as `-dc msg`) deletes the remote head branch, and `gh pr comment` or
+  `gh issue comment` with `--delete-last` deletes a comment. Taking a project, milestone,
+  assignee or reviewer off (`--remove-project`, `--remove-milestone`, `--remove-assignee`,
+  `--remove-reviewer`) is `outside_write`; `--remove-label` stays housekeeping.
+- `aws s3 cp` from S3 to a local path is `read_only`, not `outside_write`. `gh api -X GET`
+  stays `read_only` even with `-f` or `-F` fields, which are query parameters there.
+- A permission refusal worded "permission for this action was denied" or "denied by the
+  auto mode classifier" (the Claude Code auto mode) is read as `permission_denied`, so a
+  refused edit is not a state conflict. A remote or hook rejection that only says "denied
+  by" is not a permission refusal.
+- No new value is added to any fixed list.
+
 ### A check excuses an outside step only until the next outside step
 
 - Before, one recognised check anywhere earlier in a run excused every later merge, deploy
   or push to main, so the verification failure check rarely fired on long sessions. Now a
   check counts only if it came after the previous outside step, or after the start of the run
-  for the first one, or earlier in the same command line (`cd x; git status; gh pr merge 3`).
-  `git status`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A check between two
-  merges excuses only the second. A confirmation step before an outside step still counts.
+  for the first one, or earlier in the same command line (`cd x; git status; vercel --prod`).
+  `gh pr view 1`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A confirmation step
+  before an outside step still counts.
 - A step that stays in the agent's own space (a local delete or commit) does not start a new
   scope, and a failed outside step does.
 - `checked_before` changed, which is part of step facts `v5`.
+
+### Three narrow bypasses closed
+
+- A merge chained with another write is checked by a read of its own pull request, whatever
+  the step's kind is. `gh pr merge 5 && vercel --prod` after `ls` is unchecked (it was a
+  deploy, so any earlier read excused it). Every merge among the write parts must be tied to
+  its own pull request, also when it comes after the other write
+  (`vercel --prod && gh pr merge 5`); the other write keeps the scoped rule. A step with no
+  merge is read no further than that.
+- `gh pr update-branch N` and `gh pr edit N --base X` (also `-B`, `gh api` `update-branch` and
+  a `base` field) can change what gets merged, so they clear an earlier read of pull
+  request N: a merge after them is unchecked until the pull request is read again. They stay
+  housekeeping (they do not fire or end the scope of an outside step).
+- A GraphQL mutation cannot hide behind commas or `#` comments: strings and comments are
+  told apart in one pass (a `#` inside a string is text, and a quote inside a comment is
+  text), the mutation fields are read after removing them, an alias does not hide the field
+  behind it, and a document the reader cannot place (unbalanced, an unterminated string, no
+  mutation, only fragment spreads) is not housekeeping and keeps `outside_write`.
+- A GraphQL mutation that moves the base or the head of a pull request (`baseRefName`,
+  `headRefName`, `updatePullRequestBranch`) names it by node id, so it clears every earlier
+  read of any pull request: the next merge is unchecked until its pull request is read again.
+  Only a `gh api graphql` mutation does this: a plain read that asks for those fields
+  (`gh pr view 6 --json headRefName,baseRefName`) keeps every other read. A head or base
+  change (`gh pr edit --base`, `gh pr update-branch`, a `gh api` update-branch or base field)
+  that names no pull request or that the reader cannot parse clears every read. A base flag on
+  a command that changes no pull request (`gh pr list --base main`, `gh pr create --base
+  main`) keeps every read.
+- A merge is never left to the scoped check rule: a merge statement the reader calls unsafe
+  (`PATH=./evil gh pr merge 5`, a `$(...)` in the body), a merge inside a substitution or a
+  merge step with no statement it can read as one is unchecked, even after an unrelated step.
+- No value is added to any fixed list.
+
+### A merge is checked only by a read of its own pull request
+
+- A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) now counts as checked only when that
+  same pull request's state, checks, reviews or comments were read since the previous outside
+  step on it, or earlier in the same command line. That includes inside `$(...)` or a loop that
+  is only reads (`until gh pr checks 5 | grep -q pass; do sleep 10; done; gh pr merge 5`, or
+  `gh pr merge 5 --match-head-commit $(gh pr view 5 --json headRefOid -q .headRefOid)`).
+  A local read (`git log`, `ls`), a test, a build, a read of another pull request, and a custom
+  script never check a merge. A pull request created and merged with nothing reading it in
+  between still fires.
+- Inside `$(...)` or a loop only allowlisted reads and `sleep` count. Another command, a
+  redirect to a file, a nested substitution or a write makes that part unsafe, and nothing
+  before the merge is trusted. A merge whose number cannot be read from the command (a
+  variable, `$(...)`, the current branch) is not checked.
+- The number is worked out on your machine from the command and only the `checked_before`
+  boolean leaves. No value was added to any fixed step facts list.
+- The tie applies to merges only. Every other outside step (a deploy, a push to main, a
+  delete, an outside write) keeps the scoped rule whatever its command looks like, so a check
+  in an earlier step still counts for a deploy written with a redirect, a subshell, brackets or
+  an `if` block. A merge in a command the reader cannot parse is not checked.
+- A merge of pull request N in any repository form (`gh pr merge 5 -R o/r`) clears an earlier
+  read of N with the same or an unknown repository, so a stale read does not check a later
+  merge.
+- A write inside a loop body or an `if` branch is now found as its own write kind
+  (`while ...; do git push origin main; done` is a `git_push`). Before, it was `unknown`.
+  Other outside steps keep the scoped rule above.
 
 ### State conflict ignores edits the tool refused
 

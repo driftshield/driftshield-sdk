@@ -105,6 +105,56 @@ SEQUENCES: list[list[str]] = [
     ["ls; git commit -m x; gh pr merge 3"],
     ["ls; gh pr merge 1", "gh pr merge 2"],
     ["ls", "curl -X POST https://example.com/u -d a=b", "ls", "curl -X POST https://example.com/u"],
+    ["git status", "gh pr comment 3 --body hi", "gh pr merge 3"],
+    ["gh pr merge 1", "gh issue comment 2 --body x", "gh pr merge 3"],
+    ["git status", "gh pr edit 3 --add-label go", "gh pr merge 3"],
+    ["git status", "gh pr close 3 --delete-branch", "gh pr merge 4"],
+    ["git status", "gh pr comment 3 --delete-last", "gh pr merge 4"],
+    # A merge chained with another write is decided by the write parts, not the step's kind.
+    ["ls", "gh pr merge 5 && vercel --prod"],
+    ["gh pr view 5", "gh pr merge 5 && vercel --prod"],
+    ["ls", "vercel --prod && gh pr merge 5"],
+    ["pytest -q", "gh pr merge 5; vercel --prod"],
+    ["ls", "gh pr merge 5 && git push origin main"],
+    # Housekeeping that changes the head or the base clears an earlier read of that pull request.
+    ["gh pr view 5", "gh pr update-branch 5", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr edit 5 --base release", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr edit 5 --body x", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr update-branch 6", "gh pr merge 5"],
+    [
+        "gh pr view 5",
+        "gh api graphql -f query='mutation { updatePullRequest(input: "
+        '{pullRequestId: "X", baseRefName: "release"}) { clientMutationId } }\'',
+        "gh pr merge 5",
+    ],
+    # A merge statement the reader calls unsafe is not checked, whatever came before it.
+    ["ls", "PATH=./evil gh pr merge 5"],
+    ["gh pr view 5", 'gh pr merge 5 --body "$(python3 x.py)"'],
+    # A plain read that asks for the branch names keeps every other read.
+    ["gh pr view 5", "gh pr view 6 --json headRefName,baseRefName", "gh pr merge 5"],
+    # A base flag on a command that changes no pull request keeps the read.
+    ["gh pr view 5", "gh pr list --base main", "gh pr merge 5"],
+    ["gh pr view 5", "gh pr create --base main --fill", "gh pr merge 5"],
+    # A merge is checked only by a read of the same pull request.
+    ["gh pr view 1", "gh pr merge 1"],
+    ["gh pr view 2", "gh pr merge 1"],
+    ["gh pr merge 1", "gh pr view 2", "gh pr merge 2"],
+    ["gh pr view 1", "gh pr merge 1", "gh pr merge 1"],
+    ["gh pr view 5 -R o/r", "gh pr merge 5"],
+    ["gh api repos/o/r/pulls/5/reviews", "gh api -X PUT repos/o/r/pulls/5/merge"],
+    ["gh pr create --title t --body b", "gh pr merge 3"],
+    ["gh pr create --title t --body b", "aws s3 ls s3://bucket", "gh pr merge 3"],
+    ["until gh pr checks 5 | grep -q pass; do sleep 5; done; gh pr merge 5"],
+    ["for i in 1 2; do gh pr view 5; sleep 1; done", "gh pr merge 5"],
+    [
+        "sha=$(gh pr view 5 --json headRefOid -q .headRefOid); gh pr merge 5 --match-head-commit $sha"
+    ],
+    ["gh pr merge 5 --match-head-commit $(gh pr view 5 --json headRefOid -q .headRefOid)"],
+    ["gh pr merge 5 --match-head-commit $(gh pr view 6 --json headRefOid -q .headRefOid)"],
+    ["while ! gh pr view 3 --json state; do git push origin main; done; gh pr merge 3"],
+    ["gh pr view 5", "gh pr merge 5 -R o/r", "gh pr merge 5"],
+    ["ls", "if true; then git push origin main; fi"],
+    ["ls", "(cd app && vercel --prod)"],
 ]
 
 
