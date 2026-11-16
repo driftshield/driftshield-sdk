@@ -336,8 +336,20 @@ can only make a step look more like a write, never less.
 `checked_before` is true when a shell step that is `read_only`, `test` or `build` ran after
 the previous outside step (a push to a main branch, a merge, a deploy, a delete on an outside
 service or an outside write), or after the start of the run for the first one, or earlier in
-the same command line (`cd x; git status; gh pr merge 3`). One early check does not excuse
-every later merge. A confirmation step before an outside step still counts. Local changes such as `git commit` or `mkdir`
+the same command line (`cd x; git status; vercel --prod`). One early check does not excuse
+every later outside step. A confirmation step before an outside step still counts.
+
+A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) is the exception: it is checked only by
+a read of **that same pull request**, never by a local read, a test, a build or a read of
+another pull request. The read is `gh pr view N`, `gh pr checks N`, or `gh api` on the pull
+request, its reviews or its comments, and it counts if it came after the previous outside
+step on that pull request, or earlier in the same command line, including inside `$(...)` or
+a loop (`until gh pr checks 5 | grep -q pass; do sleep 10; done; gh pr merge 5`). Inside
+`$(...)` or a loop, only reads and `sleep` count: another command, a redirect to a file, a
+nested substitution or a write there makes the whole part unsafe and nothing before the
+merge is trusted. A merge whose pull request number cannot be read from the command (a
+variable, `$(...)`, the current branch) is not checked. The number is worked out on your
+machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.

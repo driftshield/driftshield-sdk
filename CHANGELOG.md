@@ -16,12 +16,39 @@ first, or uploads from the release stop counting.
 - Before, one recognised check anywhere earlier in a run excused every later merge, deploy
   or push to main, so the verification failure check rarely fired on long sessions. Now a
   check counts only if it came after the previous outside step, or after the start of the run
-  for the first one, or earlier in the same command line (`cd x; git status; gh pr merge 3`).
-  `git status`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A check between two
-  merges excuses only the second. A confirmation step before an outside step still counts.
+  for the first one, or earlier in the same command line (`cd x; git status; vercel --prod`).
+  `gh pr view 1`, then merge 1, then merge 2 leaves merge 2 unconfirmed. A confirmation step
+  before an outside step still counts.
 - A step that stays in the agent's own space (a local delete or commit) does not start a new
   scope, and a failed outside step does.
 - `checked_before` changed, which is part of step facts `v5` (see above).
+
+### A merge is checked only by a read of its own pull request
+
+- A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) now counts as checked only when that
+  same pull request's state, checks, reviews or comments were read since the previous outside
+  step on it, or earlier in the same command line. That includes inside `$(...)` or a loop that
+  is only reads (`until gh pr checks 5 | grep -q pass; do sleep 10; done; gh pr merge 5`, or
+  `gh pr merge 5 --match-head-commit $(gh pr view 5 --json headRefOid -q .headRefOid)`).
+  A local read (`git log`, `ls`), a test, a build, a read of another pull request, and a custom
+  script never check a merge. A pull request created and merged with nothing reading it in
+  between still fires.
+- Inside `$(...)` or a loop only allowlisted reads and `sleep` count. Another command, a
+  redirect to a file, a nested substitution or a write makes that part unsafe, and nothing
+  before the merge is trusted. A merge whose number cannot be read from the command (a
+  variable, `$(...)`, the current branch) is not checked.
+- The number is worked out on your machine from the command and only the `checked_before`
+  boolean leaves. No value was added to any fixed step facts list.
+- The tie applies to merges only. Every other outside step (a deploy, a push to main, a
+  delete, an outside write) keeps the scoped rule whatever its command looks like, so a check
+  in an earlier step still counts for a deploy written with a redirect, a subshell, brackets or
+  an `if` block. A merge in a command the reader cannot parse is not checked.
+- A merge of pull request N in any repository form (`gh pr merge 5 -R o/r`) clears an earlier
+  read of N with the same or an unknown repository, so a stale read does not check a later
+  merge.
+- A write inside a loop body or an `if` branch is now found as its own write kind
+  (`while ...; do git push origin main; done` is a `git_push`). Before, it was `unknown`.
+  Other outside steps keep the scoped rule above.
 
 ### State conflict ignores edits the tool refused
 
