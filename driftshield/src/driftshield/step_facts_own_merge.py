@@ -52,6 +52,7 @@ _GH_VALUE_FLAGS = frozenset(
 
 _MERGE = re.compile(r"\bgh\s+(?:pr\s+merge\b|api\b[^;&|\n]*?/pulls/\d+/merge\b)")
 _CREATE = re.compile(r"\bgh\s+pr\s+create\b")
+_PR_READ = re.compile(r"\bgh\s+pr\s+(?:view|checks|status)\b")
 _CHECKOUT = re.compile(r"\bgh\s+pr\s+checkout\b")
 _SUBSTITUTION = re.compile(r"\$\(([^()]*)\)")
 
@@ -102,6 +103,9 @@ def _split_units(command: str) -> list[str]:
             continue
         elif char == ")" and depth:
             depth -= 1
+        elif char == "&" and (command[index - 1 : index] in {">", "<"} or
+                              command[index + 1 : index + 2] == ">"):
+            pass  # part of a redirect (2>&1, &>file), not a separator
         elif depth == 0 and char in ";&|\n\r":
             parts.append(current)
             current = ""
@@ -270,13 +274,21 @@ class OwnMergeTracker:
 
     # ------------------------------------------------------------------ #
 
-    def opened(self, head: str | None, result_text: str) -> None:
-        """A ``gh pr create`` succeeded. ``head`` is its ``--head`` branch, if it named one."""
+    def opened(self, heads: list[str | None], result_text: str) -> None:
+        """The ``gh pr create`` calls of one step succeeded.
+
+        ``heads`` holds each create's ``--head`` branch (``None`` for the current branch), in
+        order. Each create prints its own link, so the links pair up with the creates in
+        order. When the counts differ, only the last link is known to be the last create's.
+        """
         links = _PR_LINK.findall(result_text)
-        if not links:
+        if not links or not heads:
             return
-        repo, number = links[-1]
-        ref = (repo.lower(), number)
+        pairs = zip(heads, links) if len(links) == len(heads) else [(heads[-1], links[-1])]
+        for head, (repo, number) in pairs:
+            self._opened_one(head, (repo.lower(), number))
+
+    def _opened_one(self, head: str | None, ref: PrRef) -> None:
         branch = head if head is not None else self.current_branch
         self._tie(ref, branch)
         self.unread_prs.add(ref)
@@ -368,9 +380,21 @@ class OwnMergeTracker:
             return
         for number in _numbers(text):
             self._mark_read_number(number)
-        for branch in list(self.unread_branches):
+        branches = set(self.unread_branches) | {
+            branch for ref in self.unread_prs if (branch := self._branch_for(ref)) is not None
+        }
+        for branch in branches:
             if re.search(rf"(?<![\w./-]){re.escape(branch)}(?![\w./-])", text):
                 self._mark_read_branch(branch)
+        # ``gh pr view`` or ``gh pr checks`` with no target reads the current branch's pull
+        # request.
+        read = _gh_call(text, _PR_READ)
+        if read is not None and len(_gh_parts(read)[0]) == 2:
+            if self.current_pr is not None:
+                for item in self._find(self.current_pr, self.unread_prs):
+                    self.unread_prs.discard(item)
+            if self.current_branch is not None:
+                self._mark_read_branch(self.current_branch)
 
     def _judge_merge(self, positional: list[str], values: dict[str, str]) -> bool:
         repo = values.get("-R", values.get("--repo", "")).lower()

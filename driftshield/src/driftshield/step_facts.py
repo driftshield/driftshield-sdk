@@ -2673,8 +2673,9 @@ def compute_step_facts(
             facts, call_node, is_shell = pending[call_id]
             facts["exit_status"] = status
             if status == "success":
-                for head in pending_creates.pop(call_id, []):
-                    own_merges.opened(head, _result_text(node))
+                heads = pending_creates.pop(call_id, [])
+                if heads:
+                    own_merges.opened(heads, _result_text(node))
             if status == "failure":
                 error_class = classify_error(_result_text(node))
                 if error_class is not None:

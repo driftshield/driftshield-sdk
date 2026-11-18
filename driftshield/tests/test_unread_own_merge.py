@@ -260,3 +260,44 @@ def test_no_number_branch_or_repository_leaves():
     dumped = json.dumps(run.redacted_transcript) + json.dumps(run.redaction_manifest)
     for fragment in ("43210", "secret-branch", "secret-org"):
         assert fragment not in dumped
+
+
+# --------------------------------------------------------------------------- #
+# Review round 1
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("read", ["gh pr view fix/c", "gh pr checks fix/c --watch"])
+def test_a_read_by_branch_clears_an_opened_or_pushed_pull_request(read: str):
+    opened: list[Step] = ["git push -u origin fix/c", _create(15), read, "gh pr merge 15"]
+    assert _fired(opened) == 0
+    pushed: list[Step] = [
+        "git push -u origin fix/c",
+        _create(15),
+        "gh pr view 15",
+        "git push origin fix/c",
+        read,
+        "gh pr merge 15 --squash",
+    ]
+    assert _fired(pushed) == 0
+
+
+@pytest.mark.parametrize("read", ["gh pr checks --watch", "gh pr view", "gh pr view --json state"])
+def test_a_read_of_the_current_branch_clears_the_current_pull_request(read: str):
+    assert _fired(["git push -u origin fix/e", _create(16), read, "gh pr merge --squash"]) == 0
+    assert _fired(["git push -u origin fix/e", _create(16), read, "gh pr merge 16"]) == 0
+
+
+def test_a_quiet_redirect_is_not_a_read_of_pull_request_one():
+    steps: list[Step] = [_create(1), "make lint 2>&1 | tail -5", "gh pr merge 1"]
+    assert _fired(steps) == 1
+
+
+def test_each_create_in_one_step_gets_its_own_link():
+    two = (
+        "gh pr create --head a --fill && gh pr create --head b --fill",
+        f"{LINK.format(21)}\n{LINK.format(22)}\n",
+        False,
+    )
+    assert _fired([two, "gh pr view b", "gh pr merge 21"]) == 1
+    assert _fired([two, "gh pr view a", "gh pr merge 21"]) == 0
