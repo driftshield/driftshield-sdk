@@ -46,7 +46,7 @@ _GH_VALUE_FLAGS = frozenset(
      "--match-head-commit", "--author-email", "-B", "--base", "-H", "--head", "-a",
      "--assignee", "-l", "--label", "-r", "--reviewer", "-m", "--milestone", "-p", "--project",
      "-T", "--template", "--json", "-q", "--jq", "-X", "--method", "-f", "--field",
-     "--raw-field", "--input", "--hostname"}
+     "--raw-field", "--input", "--hostname", "--interval", "-i", "-L", "--limit"}
 )  # fmt: skip
 
 

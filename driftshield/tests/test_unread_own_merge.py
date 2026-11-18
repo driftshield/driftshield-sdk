@@ -282,7 +282,16 @@ def test_a_read_by_branch_clears_an_opened_or_pushed_pull_request(read: str):
     assert _fired(pushed) == 0
 
 
-@pytest.mark.parametrize("read", ["gh pr checks --watch", "gh pr view", "gh pr view --json state"])
+@pytest.mark.parametrize(
+    "read",
+    [
+        "gh pr checks --watch",
+        "gh pr checks --watch --interval 10",
+        "gh pr checks --watch -i 10 --fail-fast",
+        "gh pr view",
+        "gh pr view --json state",
+    ],
+)
 def test_a_read_of_the_current_branch_clears_the_current_pull_request(read: str):
     assert _fired(["git push -u origin fix/e", _create(16), read, "gh pr merge --squash"]) == 0
     assert _fired(["git push -u origin fix/e", _create(16), read, "gh pr merge 16"]) == 0
