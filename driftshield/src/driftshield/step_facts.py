@@ -65,8 +65,8 @@ STEP_FACTS_KEY = "step_facts"
 # in the same command line; a new ``error_class`` field; a failed tool call that is not a
 # shell step now carries step facts too; a new ``unread_own_merge`` field).
 # v6: 0.3.5 (a loop over ``repo:N`` or ``owner/repo/N`` items names N for an own merge read;
-# a bare ``git push`` after ``cd`` pushes that checkout's branch; a new
-# ``unread_start_label`` field).
+# a bare ``git push`` after ``cd`` pushes that checkout's branch; a merge through
+# ``gh api -i`` is judged; a new ``unread_start_label`` field).
 STEP_FACTS_VERSION = "step-facts.v6"
 
 COMMAND_KINDS: tuple[str, ...] = (

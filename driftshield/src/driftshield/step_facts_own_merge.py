@@ -163,13 +163,16 @@ def _gh_parts(words: list[str]) -> tuple[list[str], dict[str, str]]:
     """Positional words and value flags of a ``gh`` command (without the ``gh``)."""
     positional: list[str] = []
     values: dict[str, str] = {}
+    # ``-i`` takes a value only in ``gh pr checks`` (``--interval``); in ``gh api`` it is the
+    # flag ``--include``, and reading it as taking a value would swallow the endpoint.
+    flags = _GH_VALUE_FLAGS - {"-i"} if words[1:2] == ["api"] else _GH_VALUE_FLAGS
     index = 1
     while index < len(words):
         word = words[index]
         if "=" in word and word.startswith("--"):
             name, value = word.split("=", 1)
             values[name] = value
-        elif word in _GH_VALUE_FLAGS and index + 1 < len(words):
+        elif word in flags and index + 1 < len(words):
             values[word] = words[index + 1]
             index += 1
         elif not word.startswith("-"):

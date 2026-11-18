@@ -901,6 +901,11 @@
     false,
     false
    ],
+   "[\"gh pr checkout 4\", \"git push\", \"gh api -i repos/o/r/pulls/4/merge -X PUT\"]": [
+    false,
+    false,
+    true
+   ],
    "[\"gh pr checkout 4\", \"git push\", \"gh pr merge 4\"]": [
     false,
     false,

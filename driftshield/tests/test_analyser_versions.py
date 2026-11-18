@@ -200,6 +200,7 @@ OWN_MERGE_SEQUENCES: list[list[str]] = [
         "cd ../b && git push",
         "gh pr merge 4",
     ],
+    ["gh pr checkout 4", "git push", "gh api -i repos/o/r/pulls/4/merge -X PUT"],
 ]
 
 
