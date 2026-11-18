@@ -196,6 +196,17 @@ def _numbers(text: str) -> set[str]:
     return found
 
 
+def _checkout_name(args: list[str]) -> str | None:
+    """The folder name a ``cd`` moves into, or ``None`` when it cannot be named (``cd``,
+    ``cd -``, ``cd ..``, ``cd .``, ``cd ~``, a folder in a variable)."""
+    if len(args) != 1:
+        return None
+    name = args[0].rstrip("/").rsplit("/", 1)[-1]
+    if name in {"", ".", "..", "-", "~"} or "$" in name:
+        return None
+    return name
+
+
 def _loop_item_numbers(text: str) -> set[str]:
     """Numbers named by ``repo:N`` or ``owner/repo/N`` items of the ``for`` loops in ``text``."""
     found: set[str] = set()
@@ -258,6 +269,8 @@ class OwnMergeTracker:
     # The branch and pull request last worked on in each checkout a step ``cd``-ed into, keyed
     # by the folder name (``cd ../kit``, ``cd kit`` and ``cd /w/kit`` are one checkout), so a
     # bare ``git push`` after ``cd`` pushes that checkout's branch, not the last one used.
+    # Two checkouts with the same folder name under different parents share one entry; agent
+    # worktrees are named apart, so this stays a small, known blur.
     place: dict[str, tuple[str | None, PrRef | None]] = field(default_factory=dict)
     # The checkout the current step ``cd``-ed into (``None``: it did not). Only a ``cd`` in the
     # same step counts: whether the shell keeps its folder between steps is not known.
@@ -340,8 +353,8 @@ class OwnMergeTracker:
         self.step_dir = None
         for unit in _split_units(command):
             words = _program(_words(unit))
-            if words[:1] == ["cd"] and len(words) == 2:
-                self.step_dir = words[1].rstrip("/").rsplit("/", 1)[-1] or "/"
+            if words[:1] == ["cd"]:
+                self.step_dir = _checkout_name(words[1:])
                 continue
             merge = _gh_call(unit, _MERGE)
             if merge is not None:

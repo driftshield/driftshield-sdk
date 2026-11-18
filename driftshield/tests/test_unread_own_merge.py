@@ -251,11 +251,23 @@ def test_a_bare_push_in_an_unknown_checkout_leaves_later_plain_pushes_as_before(
     steps: list[Step] = [
         ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
         "gh pr view 28",
-        "cd /w/other && git status",
+        "cd /w/other && git push",
         "git push",
         "gh pr merge 28",
     ]
     assert _fired(steps) == 1
+
+
+@pytest.mark.parametrize("folder", ["..", ".", "-", "~", "$W", ""])
+def test_a_cd_that_names_no_folder_keeps_the_current_branch(folder: str):
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "gh pr view 12 && gh pr view 28",
+        f"cd {folder} && git push".replace("cd  ", "cd "),
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 1  # as with a plain push: the current branch is meta's
 
 
 @pytest.mark.parametrize("folder", ["../kit", "kit", "/w/kit/", "~/x/kit"])
