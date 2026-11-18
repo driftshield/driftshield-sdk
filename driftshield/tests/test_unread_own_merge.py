@@ -237,11 +237,37 @@ def test_a_bare_push_in_the_same_checkout_still_reopens_its_pull_request():
     assert _fired(steps) == 1
 
 
-def test_a_bare_push_in_an_unknown_checkout_reopens_nothing():
+def test_a_bare_push_in_a_checkout_never_cd_ed_into_keeps_the_current_branch():
+    # The pull request was opened from the starting folder, so its checkout is not known.
     steps: list[Step] = [_create(12), "gh pr view 12", "cd /w/other && git push", "gh pr merge 12"]
-    assert _fired(steps) == 0
+    assert _fired(steps) == 1
     steps[2] = "git push"
     assert _fired(steps) == 1
+    steps[2] = "gh pr view 12"
+    assert _fired(steps) == 0
+
+
+def test_a_bare_push_in_an_unknown_checkout_leaves_later_plain_pushes_as_before():
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        "gh pr view 28",
+        "cd /w/other && git status",
+        "git push",
+        "gh pr merge 28",
+    ]
+    assert _fired(steps) == 1
+
+
+@pytest.mark.parametrize("folder", ["../kit", "kit", "/w/kit/", "~/x/kit"])
+def test_a_checkout_is_known_by_its_folder_name(folder: str):
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "gh pr view 12 && gh pr view 28",
+        f"cd {folder} && git push",
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 0
 
 
 def test_a_read_before_the_open_does_not_count():

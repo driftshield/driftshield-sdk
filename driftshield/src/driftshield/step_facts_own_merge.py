@@ -255,10 +255,12 @@ class OwnMergeTracker:
     # pushed, created or checked out.
     current_branch: str | None = None
     current_pr: PrRef | None = None
-    # The branch and pull request last worked on in each checkout a step ``cd``-ed into, so a
+    # The branch and pull request last worked on in each checkout a step ``cd``-ed into, keyed
+    # by the folder name (``cd ../kit``, ``cd kit`` and ``cd /w/kit`` are one checkout), so a
     # bare ``git push`` after ``cd`` pushes that checkout's branch, not the last one used.
     place: dict[str, tuple[str | None, PrRef | None]] = field(default_factory=dict)
-    # The checkout the current step ``cd``-ed into (``None``: it did not).
+    # The checkout the current step ``cd``-ed into (``None``: it did not). Only a ``cd`` in the
+    # same step counts: whether the shell keeps its folder between steps is not known.
     step_dir: str | None = None
 
     # ------------------------------------------------------------------ #
@@ -339,7 +341,7 @@ class OwnMergeTracker:
         for unit in _split_units(command):
             words = _program(_words(unit))
             if words[:1] == ["cd"] and len(words) == 2:
-                self.step_dir = words[1].rstrip("/")
+                self.step_dir = words[1].rstrip("/").rsplit("/", 1)[-1] or "/"
                 continue
             merge = _gh_call(unit, _MERGE)
             if merge is not None:
@@ -390,12 +392,10 @@ class OwnMergeTracker:
         self._remember_place()
 
     def _pushed(self, branches: list[str]) -> None:
-        if not branches and self.step_dir is not None:
+        if not branches and self.step_dir in self.place:
             # A bare push in a checkout the step ``cd``-ed into pushes that checkout's branch.
-            # One never seen before pushes a branch this run cannot name: nothing reopens.
-            self.current_branch, self.current_pr = self.place.get(self.step_dir, (None, None))
-            if self.current_branch is None and self.current_pr is None:
-                return
+            # A checkout never seen in a ``cd`` before keeps the current branch, as without one.
+            self.current_branch, self.current_pr = self.place[self.step_dir]
         if not branches:
             if self.current_branch is None:
                 if self.current_pr is not None:
