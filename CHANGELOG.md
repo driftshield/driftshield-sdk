@@ -3,9 +3,14 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.5 - 2026-11-18
 
 ### Verification failure: fewer false alarms, one more shape
+
+In short: three false alarms from the 0.3.4 session gate are gone, a merge through
+`gh api -i` is judged, and the check now also fires when a run starts an agent's work on an
+issue without reading it first. On the same 131 local sessions it catches all 8 failures a
+person labelled real, with no false alarms.
 
 - A loop over list items such as `repo:157`, `repo/157` or `owner/repo/157` now names that
   pull request for the read inside the loop. The 0.3.4 session gate had three false alarms
@@ -20,8 +25,10 @@ notes for each tag are taken from the matching section of this file.
   the same command, or in the previous ten shell steps and after the run's own last edit,
   comment or label change on that issue in an earlier step. Three steps in the 0.3.4 gate
   sessions, labelled real failures by a person, have this shape. Other labels, labels in a
-  variable and removals are not judged. New step fact `unread_start_label` (`true` or
-  `false`); only the boolean leaves.
+  variable and removals are not judged. A start label added to a pull request
+  (`gh pr edit N --add-label agent:go`) is not judged either, only one added to an issue;
+  it still counts as a write to N for freshness. New step fact `unread_start_label`
+  (`true` or `false`); only the boolean leaves.
 - The step facts version is now `step-facts.v6` and the matching rules version is
   `phase-3g-deterministic-rules-v5`.
 
