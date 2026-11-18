@@ -3,13 +3,25 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.4 - 2026-11-18
 
-**Do not release until intel accepts `phase-3g-deterministic-rules-v4` (matching rules) and
-`step-facts.v5` (step facts).** This release moves the matching rules version from
-`phase-3g-deterministic-rules-v3` to `phase-3g-deterministic-rules-v4` and the step facts
-version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
-first, or uploads from the release stop counting.
+### Findings you can trust: checks, merges and refused edits
+
+- A check now only excuses the next outside step after it. One recognised check early in a
+  run no longer excuses every later merge, deploy or push to main, so the verification
+  failure check can fire on long sessions.
+- A merge counts as checked only when that same pull request was read since its last
+  outside step. A read of another pull request, a local read, a test or a build no longer
+  checks it, and moving the pull request's base or head clears the earlier read.
+- Housekeeping on pull requests and issues (comments, body edits, closing, labels and the
+  like) is low risk and no longer counts as an outside write. Two classifier slips are
+  fixed, and Claude Code auto mode denials count as refused edits.
+- State conflict ignores edits the tool refused. The SDK sorts each tool error into a fixed
+  list (`none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`,
+  `timeout`, `other`) on your machine, and only the label is sent.
+- The matching rules version is now `phase-3g-deterministic-rules-v4` and the step facts
+  version is `step-facts.v5`. Every upload says which versions made it, so findings from the
+  earlier rules can be told apart from these.
 
 ### Verification failure fires only on an unread merge of the run's own pull request
 
@@ -48,8 +60,7 @@ first, or uploads from the release stop counting.
   auto mode classifier" (the Claude Code auto mode) is read as `permission_denied`, so a
   refused edit is not a state conflict. A remote or hook rejection that only says "denied
   by" is not a permission refusal.
-- No new value is added to any fixed list. The matching rules stay
-  `phase-3g-deterministic-rules-v4` and the step facts `step-facts.v5`, both unreleased.
+- No new value is added to any fixed list.
 
 ### A check excuses an outside step only until the next outside step
 
@@ -61,7 +72,7 @@ first, or uploads from the release stop counting.
   before an outside step still counts.
 - A step that stays in the agent's own space (a local delete or commit) does not start a new
   scope, and a failed outside step does.
-- `checked_before` changed, which is part of step facts `v5` (see above).
+- `checked_before` changed, which is part of step facts `v5`.
 
 ### Three narrow bypasses closed
 
@@ -92,8 +103,7 @@ first, or uploads from the release stop counting.
 - A merge is never left to the scoped check rule: a merge statement the reader calls unsafe
   (`PATH=./evil gh pr merge 5`, a `$(...)` in the body), a merge inside a substitution or a
   merge step with no statement it can read as one is unchecked, even after an unrelated step.
-- No value is added to any fixed list. Rules stay `phase-3g-deterministic-rules-v4` and step
-  facts `step-facts.v5`, both unreleased.
+- No value is added to any fixed list.
 
 ### A merge is checked only by a read of its own pull request
 
@@ -139,7 +149,7 @@ first, or uploads from the release stop counting.
   from the error fields of a JSON result, so a stray word such as "timeout" or "stale" in a
   quoted snippet or a stack frame does not change it. `404` and `409` count only as HTTP
   status tokens (`HTTP/1.1 409`, `status 404`), never inside an id, a hash or a line number.
-  Step facts stay `step-facts.v5`: it is not released yet, and no pinned row changed.
+  Step facts are `step-facts.v5`.
 - A write that fails with no step facts or no error class (an older upload) does not count
   as a conflict: the reason is unknown, so the check errs towards missing.
 

@@ -104,7 +104,7 @@ def test_a_failed_outside_step_still_starts_a_new_scope():
 )
 def test_a_check_earlier_in_the_same_command_line_counts(command: str, expected: bool):
     flags = _checked_before([command])
-    assert flags == [expected] if not command.startswith("ls; ls") else flags == [False]
+    assert flags == [expected]
 
 
 def test_a_check_in_one_command_line_does_not_carry_past_its_outside_step():
