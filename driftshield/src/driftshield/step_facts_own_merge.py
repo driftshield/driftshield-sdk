@@ -8,7 +8,8 @@ judged by this check.
 
 A read is generous on purpose: any statement that names N and runs ``gh``, ``curl``, a script
 or a shell function (which may call ``gh``) counts, inside loops and substitutions too, and so
-does a read earlier in the merge command itself. A diff of N is not a read: it shows the
+does a read earlier in the merge command itself. A loop over items such as ``repo:N`` or
+``owner/repo/N`` names N for the read inside it. A diff of N is not a read: it shows the
 change, not whether the pull request is ready to merge.
 
 The numbers, branches and links are worked out here, on the machine. Only the resulting
@@ -35,6 +36,11 @@ _COUNT_WORDS = frozenset(
     {"sleep", "timeout", "-n", "--limit", "-L", "--tail", "--max-count", "-m", "seq", "head",
      "tail", "--depth", "--interval", "-i", "-c"}
 )  # fmt: skip
+# The word list of a ``for NAME in ...`` loop, and a list item that names a pull request
+# number after a repository: ``repo:N``, ``repo/N`` or ``owner/repo/N``. The read inside the
+# loop takes N from the loop variable, so the item is where N is named.
+_FOR_LIST = re.compile(r"\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+([^;\n]*)")
+_LIST_ITEM = re.compile(r"(?=[^:/]*[A-Za-z])[\w.-]+(?::|(?:/[\w.-]+)*/)(\d+)")
 _DIFF = re.compile(r"\bgh\s+pr\s+diff\b[^;&|\n]*")
 _RUNS_GH = re.compile(r"(?<![\w./-])(gh|curl)(?![\w-])")
 _LOOP_WORDS = frozenset({"for", "while", "until"})
@@ -190,6 +196,17 @@ def _numbers(text: str) -> set[str]:
     return found
 
 
+def _loop_item_numbers(text: str) -> set[str]:
+    """Numbers named by ``repo:N`` or ``owner/repo/N`` items of the ``for`` loops in ``text``."""
+    found: set[str] = set()
+    for items in _FOR_LIST.findall(text):
+        for item in items.split():
+            match = _LIST_ITEM.fullmatch(item.strip("'\""))
+            if match is not None:
+                found.add(match.group(1).lstrip("0") or "0")
+    return found
+
+
 def _is_script_or_function(words: list[str]) -> bool:
     """A statement that runs a script, or a name the classifier does not know (a function)."""
     if not words:
@@ -238,6 +255,11 @@ class OwnMergeTracker:
     # pushed, created or checked out.
     current_branch: str | None = None
     current_pr: PrRef | None = None
+    # The branch and pull request last worked on in each checkout a step ``cd``-ed into, so a
+    # bare ``git push`` after ``cd`` pushes that checkout's branch, not the last one used.
+    place: dict[str, tuple[str | None, PrRef | None]] = field(default_factory=dict)
+    # The checkout the current step ``cd``-ed into (``None``: it did not).
+    step_dir: str | None = None
 
     # ------------------------------------------------------------------ #
 
@@ -297,6 +319,11 @@ class OwnMergeTracker:
         self.current_pr = ref
         if head is not None:
             self.current_branch = head
+        self._remember_place()
+
+    def _remember_place(self) -> None:
+        if self.step_dir is not None:
+            self.place[self.step_dir] = (self.current_branch, self.current_pr)
 
     def step(self, command: str) -> tuple[bool | None, list[str | None]]:
         """Read one shell step.
@@ -308,8 +335,12 @@ class OwnMergeTracker:
         """
         verdict: bool | None = None
         creates: list[str | None] = []
+        self.step_dir = None
         for unit in _split_units(command):
             words = _program(_words(unit))
+            if words[:1] == ["cd"] and len(words) == 2:
+                self.step_dir = words[1].rstrip("/")
+                continue
             merge = _gh_call(unit, _MERGE)
             if merge is not None:
                 # A read inside a substitution in the merge statement runs before the merge.
@@ -332,12 +363,14 @@ class OwnMergeTracker:
             branches = _push_branches(words)
             if branches is not None:
                 self._pushed(branches)
+                self._remember_place()
                 continue
             if words[:2] in (["git", "checkout"], ["git", "switch"]):
                 names = [w for w in words[2:] if not w.startswith("-")]
                 if names:
                     self.current_branch = names[-1]
                     self.current_pr = self.pr_of.get(names[-1])
+                    self._remember_place()
                 continue
             self._read(unit)
         return verdict, creates
@@ -354,8 +387,15 @@ class OwnMergeTracker:
             self.current_branch = self._branch_for(self.current_pr)
         else:
             self.current_branch, self.current_pr = target, self.pr_of.get(target)
+        self._remember_place()
 
     def _pushed(self, branches: list[str]) -> None:
+        if not branches and self.step_dir is not None:
+            # A bare push in a checkout the step ``cd``-ed into pushes that checkout's branch.
+            # One never seen before pushes a branch this run cannot name: nothing reopens.
+            self.current_branch, self.current_pr = self.place.get(self.step_dir, (None, None))
+            if self.current_branch is None and self.current_pr is None:
+                return
         if not branches:
             if self.current_branch is None:
                 if self.current_pr is not None:
@@ -378,7 +418,7 @@ class OwnMergeTracker:
         text = _DIFF.sub(" ", unit)
         if not (_RUNS_GH.search(text) or _is_script_or_function(_program(_words(text)))):
             return
-        for number in _numbers(text):
+        for number in _numbers(text) | _loop_item_numbers(text):
             self._mark_read_number(number)
         branches = set(self.unread_branches) | {
             branch for ref in self.unread_prs if (branch := self._branch_for(ref)) is not None

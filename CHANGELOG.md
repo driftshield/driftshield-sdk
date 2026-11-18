@@ -3,6 +3,18 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Verification failure: fewer false alarms, one more shape
+
+- A loop over list items such as `repo:157`, `repo/157` or `owner/repo/157` now names that
+  pull request for the read inside the loop. The 0.3.4 session gate had three false alarms
+  where the verdict was read this way just before the merge.
+- A bare `git push` after `cd` into another checkout pushes that checkout's branch, not the
+  pull request the run last opened. In one of the three false alarms, a docs fix pushed to a
+  different pull request's checkout made the merged one look unread again.
+- The step facts version is now `step-facts.v6`.
+
 ## 0.3.4 - 2026-11-18
 
 ### Findings you can trust: checks, merges and refused edits
