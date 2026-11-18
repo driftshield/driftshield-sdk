@@ -44,7 +44,7 @@ START_LABELS = frozenset({"agent:go"})
 FRESH_STEPS = 10
 
 _ISSUE_PATH = re.compile(r"repos/[^/\s]+/[^/\s]+/issues/(\d+)(/[\w/]*)?")
-_GH_ISSUE = re.compile(r"\bgh\s+(?:issue|pr)\s+(edit|comment|close|reopen|lock|unlock)\b")
+_GH_ISSUE = re.compile(r"\bgh\s+(issue|pr)\s+(edit|comment|close|reopen|lock|unlock)\b")
 _API_WRITE_METHOD = re.compile(r"(?:-X|--method)[\s=]*['\"]?(POST|PATCH|PUT|DELETE)\b", re.I)
 
 
@@ -72,7 +72,9 @@ def _issue_write(unit: str, words: list[str]) -> tuple[str | None, bool]:
         number = next((w.lstrip("#") for w in rest if w.lstrip("#").isdigit()), None)
         if number is None:
             return None, False
-        starts = gh.group(1) == "edit" and bool(START_LABELS & set(_label_values(rest)))
+        # Only an issue is judged: a label on a pull request is not a start label.
+        starts = gh.group(1) == "issue" and gh.group(2) == "edit"
+        starts = starts and bool(START_LABELS & set(_label_values(rest)))
         return number.lstrip("0") or "0", starts
     if "gh" in words and "api" in words and _API_WRITE_METHOD.search(unit):
         path = _ISSUE_PATH.search(unit)

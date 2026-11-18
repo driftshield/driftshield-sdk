@@ -949,6 +949,43 @@
    ]
   }
  },
+ "start_label_sequences": {
+  "step-facts.v6": {
+   "[\"gh api --method PATCH repos/o/r/issues/5 --input b.json\", \"gh issue edit 5 --add-label agent:go\"]": [
+    false,
+    true
+   ],
+   "[\"gh api --method POST repos/o/r/issues/5/labels -f 'labels[]=agent:go'\"]": [
+    true
+   ],
+   "[\"gh issue edit 5 --add-label agent:go && gh issue view 5 --json labels\"]": [
+    false
+   ],
+   "[\"gh issue view 5\", \"gh issue edit 5 --add-label agent:go\"]": [
+    false,
+    false
+   ],
+   "[\"gh issue view 5\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"ls\", \"gh issue edit 5 --add-label agent:go\"]": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ],
+   "[\"gh pr edit 5 --add-label agent:go\", \"gh issue edit 5 --add-label bug\"]": [
+    false,
+    false
+   ]
+  }
+ },
  "step_fact_sequences": {
   "step-facts.v5": {
    "[\"cd x; git status; gh pr merge 3\"]": [

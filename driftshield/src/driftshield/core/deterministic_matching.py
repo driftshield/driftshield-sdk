@@ -27,6 +27,10 @@ MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 #     (``permission_denied``). Verification failure then fires only on a merge of a pull request
 #     the run opened or pushed to with no read of it since the last open or push (a diff is
 #     not a read); deploys, pushes to main, deletes and other outside writes stop firing.
+# v5: (0.3.5) verification failure also fires on a step that adds the start label
+#     ``agent:go`` to an issue with no fresh read of it (step facts ``unread_start_label``):
+#     no read in the same command, and none in the previous ten shell steps after the run's
+#     own last write to the issue in an earlier step.
 RULESET_VERSION = "phase-3g-deterministic-rules-v5"
 
 

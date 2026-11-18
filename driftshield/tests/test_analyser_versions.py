@@ -204,6 +204,41 @@ OWN_MERGE_SEQUENCES: list[list[str]] = [
 ]
 
 
+# Sequences whose ``unread_start_label`` flags are pinned per step facts version (from v6).
+START_LABEL_SEQUENCES: list[list[str]] = [
+    ["gh api --method POST repos/o/r/issues/5/labels -f 'labels[]=agent:go'"],
+    ["gh issue view 5", "gh issue edit 5 --add-label agent:go"],
+    [
+        "gh api --method PATCH repos/o/r/issues/5 --input b.json",
+        "gh issue edit 5 --add-label agent:go",
+    ],
+    ["gh issue edit 5 --add-label agent:go && gh issue view 5 --json labels"],
+    ["gh issue view 5"] + ["ls"] * 11 + ["gh issue edit 5 --add-label agent:go"],
+    ["gh pr edit 5 --add-label agent:go", "gh issue edit 5 --add-label bug"],
+]
+
+
+def _sequence_flags(sequences: list[list[str]], key: str) -> dict[str, list[bool]]:
+    from tests.test_step_facts import claude_code
+
+    out: dict[str, list[bool]] = {}
+    for commands in sequences:
+        steps = [(command, f"c{index}", False) for index, command in enumerate(commands)]
+        run = analyse_run(claude_code(steps), format="claude_code")
+        out[json.dumps(commands)] = [
+            block["step_facts"][key]
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+    return out
+
+
+def start_label_sequences_behaviour() -> dict[str, list[bool]]:
+    """``unread_start_label`` of every step of each frozen sequence, as an upload carries it."""
+    return _sequence_flags(START_LABEL_SEQUENCES, "unread_start_label")
+
+
 def own_merge_sequences_behaviour() -> dict[str, list[bool]]:
     """``unread_own_merge`` of every step of each frozen sequence, as an upload carries it."""
     from tests.test_step_facts import claude_code
@@ -315,6 +350,17 @@ def test_unread_own_merge_matches_the_pinned_sequences_for_the_current_version()
     )
 
 
+def test_unread_start_label_matches_the_pinned_sequences_for_the_current_version():
+    pinned = _load()["start_label_sequences"][STEP_FACTS_VERSION]
+    current = start_label_sequences_behaviour()
+    changed = sorted(k for k in pinned if current.get(k) != pinned[k])
+    assert pinned and not changed, (
+        f"unread_start_label changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION in step_facts.py and pin the new "
+        "behaviour (see the module docstring); never edit the entry of a released version."
+    )
+
+
 def test_error_classes_match_the_pinned_ones_for_the_current_version():
     pinned = _load()["error_classes"][STEP_FACTS_VERSION]
     current = error_class_behaviour(list(pinned))
@@ -352,6 +398,9 @@ def _write() -> None:
     own = data.setdefault("own_merge_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
     for key, value in own_merge_sequences_behaviour().items():
         own.setdefault(key, value)
+    start = data.setdefault("start_label_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
+    for key, value in start_label_sequences_behaviour().items():
+        start.setdefault(key, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
