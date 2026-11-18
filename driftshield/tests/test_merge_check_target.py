@@ -442,6 +442,7 @@ def test_nothing_but_the_boolean_leaves():
             "checked_before",
             "error_class",
             "unread_own_merge",
+            "unread_start_label",
         }
         for f in facts
     )

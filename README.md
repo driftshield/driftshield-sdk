@@ -310,6 +310,7 @@ or to lower it.
 | `exit_status` | `success`, `failure`, `unknown` |
 | `checked_before` | `true` or `false` |
 | `unread_own_merge` | `true` or `false` |
+| `unread_start_label` | `true` or `false` |
 | `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
 
 `command_kind` and `target_kind` are decided on your machine by reading the
@@ -363,8 +364,8 @@ variable, `$(...)`, the current branch) is not checked. The number is worked out
 machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
-`unread_own_merge` is what the verification failure check reads, and the only thing it
-fires on. It is true for a step that merges pull request N when the run opened N (a
+`unread_own_merge` and `unread_start_label` are what the verification failure check reads,
+and the only things it fires on. `unread_own_merge` is true for a step that merges pull request N when the run opened N (a
 `gh pr create` whose result shows N's link) or pushed to N's branch, and no read of N came
 between the last open or push and the merge. A read is generous: any statement naming N
 (by number, link or branch) that runs `gh`, `curl`, a script or a shell function counts,
@@ -373,6 +374,13 @@ diff of N (`gh pr diff N`) is not a read: it shows the change, not whether the p
 is ready. Deploys, pushes to main, deletes, other outside writes and merges of a pull request
 the run did not open or push to never fire this check. The number, branch and link are
 worked out on your machine; only the boolean leaves.
+
+`unread_start_label` is true for a step that adds the label that starts an agent's work on
+issue N (`agent:go`, by `gh issue edit N --add-label` or a `POST` to N's labels) with no
+fresh read of N. A read is fresh when it is in the same command, before or after the add, or
+in the previous ten shell steps and after the run's own last edit, comment or label change
+on N in an earlier step. Other labels, removals and a number in a variable are not judged.
+Only the boolean leaves.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.
 It is read from the failed result on your machine before redaction hides it, by looking

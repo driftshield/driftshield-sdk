@@ -25,6 +25,10 @@ command *before* redaction and sends only values from closed lists:
     ``True`` for a step that merges a pull request this run opened or pushed to, with no
     read of that pull request since the last open or push (a diff is not a read). Worked
     out by :mod:`driftshield.step_facts_own_merge`; the number and branch never leave.
+``unread_start_label``
+    ``True`` for a step that adds the label that starts an agent's work on an issue (for
+    example ``agent:go``) with no fresh read of that issue. Worked out by
+    :mod:`driftshield.step_facts_start_label`; the number and label never leave.
 
 Nothing else leaves: no command text, path, argument, prompt or code, and no
 hash or fingerprint of them. Every value is checked against its list by
@@ -61,7 +65,8 @@ STEP_FACTS_KEY = "step_facts"
 # in the same command line; a new ``error_class`` field; a failed tool call that is not a
 # shell step now carries step facts too; a new ``unread_own_merge`` field).
 # v6: 0.3.5 (a loop over ``repo:N`` or ``owner/repo/N`` items names N for an own merge read;
-# a bare ``git push`` after ``cd`` pushes that checkout's branch).
+# a bare ``git push`` after ``cd`` pushes that checkout's branch; a new
+# ``unread_start_label`` field).
 STEP_FACTS_VERSION = "step-facts.v6"
 
 COMMAND_KINDS: tuple[str, ...] = (
@@ -118,6 +123,7 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "checked_before": checked_before,
         "error_class": "none",
         "unread_own_merge": False,
+        "unread_start_label": False,
     }
 
 
@@ -160,6 +166,7 @@ def sanitise_step_facts(value: object) -> dict[str, Any] | None:
             error_class if isinstance(error_class, str) and error_class in ERROR_CLASSES else "none"
         ),
         "unread_own_merge": value.get("unread_own_merge") is True,
+        "unread_start_label": value.get("unread_start_label") is True,
     }
 
 
@@ -2586,6 +2593,7 @@ def compute_step_facts(
     )
 
     from driftshield.step_facts_own_merge import OwnMergeTracker
+    from driftshield.step_facts_start_label import StartLabelTracker
 
     facts_by_node: dict[int, dict[str, Any]] = {}
     # call id -> (facts, call block, is a shell step)
@@ -2593,6 +2601,7 @@ def compute_step_facts(
     # call id -> the head branch of every ``gh pr create`` in that step (None: current branch)
     pending_creates: dict[str, list[str | None]] = {}
     own_merges = OwnMergeTracker()
+    start_labels = StartLabelTracker()
     seen_check = False
     # Pull requests whose state, checks, reviews or comments were read since the previous
     # outside step on them. Only a merge reads this, and only for its own pull request.
@@ -2639,6 +2648,7 @@ def compute_step_facts(
                 if not hidden and command is not None:
                     unread_own, creates = own_merges.step(command)
                     facts["unread_own_merge"] = bool(unread_own)
+                    facts["unread_start_label"] = start_labels.step(command)
                     call_id = _call_id(node)
                     if creates and call_id is not None:
                         pending_creates[call_id] = creates

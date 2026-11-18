@@ -40,6 +40,7 @@ def facts(
     target: str = "unknown",
     checked_before: bool = False,
     unread_own_merge: bool = False,
+    unread_start_label: bool = False,
 ) -> dict[str, Any]:
     return {
         "command_kind": kind,
@@ -47,6 +48,7 @@ def facts(
         "exit_status": "success",
         "checked_before": checked_before,
         "unread_own_merge": unread_own_merge,
+        "unread_start_label": unread_start_label,
     }
 
 
