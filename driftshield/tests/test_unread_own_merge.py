@@ -282,6 +282,25 @@ def test_a_checkout_is_known_by_its_folder_name(folder: str):
     assert _fired(steps) == 0
 
 
+@pytest.mark.parametrize(
+    "merge",
+    [
+        "gh api -i repos/o/r/pulls/9/merge -X PUT",
+        "gh api --include -X PUT repos/o/r/pulls/9/merge",
+        "gh api -i -X PUT repos/o/r/pulls/9/merge -f merge_method=squash",
+    ],
+)
+def test_a_merge_through_gh_api_include_is_judged(merge: str):
+    # Issue 307: in ``gh api`` the ``-i`` flag is ``--include`` and takes no value.
+    assert _fired([_create(9), merge]) == 1
+    assert _fired([_create(9), "gh pr view 9", merge]) == 0
+
+
+def test_gh_pr_checks_interval_still_takes_a_value():
+    assert _fired([_create(9), "gh pr checks 9 -i 30 --watch", "gh pr merge 9"]) == 0
+    assert _fired(["gh pr checkout 9", "git push", "gh pr checks -i 9", "gh pr merge 9"]) == 0
+
+
 def test_a_read_before_the_open_does_not_count():
     assert _fired(["gh pr view 13", _create(13), "gh pr merge 13"]) == 1
 

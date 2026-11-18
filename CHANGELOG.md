@@ -13,6 +13,8 @@ notes for each tag are taken from the matching section of this file.
 - A bare `git push` after `cd` into another checkout pushes that checkout's branch, not the
   pull request the run last opened. In one of the three false alarms, a docs fix pushed to a
   different pull request's checkout made the merged one look unread again.
+- A merge through `gh api -i .../pulls/N/merge` is judged. `-i` there is `--include` and no
+  longer swallows the endpoint.
 - The step facts version is now `step-facts.v6`.
 
 ## 0.3.4 - 2026-11-18
