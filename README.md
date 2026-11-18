@@ -299,7 +299,7 @@ leave them out.
 Redaction replaces every tool input with a placeholder, so by default nothing
 tells `ls` and `git push` apart. For each shell step (Claude Code `Bash`,
 OpenClaw `exec` and `bash`, and Codex shell calls) the redacted transcript
-keeps one extra key, `step_facts`, with exactly five values. Each value is
+keeps one extra key, `step_facts`, with exactly six values. Each value is
 picked from a fixed list. This is always on. There is no option to turn it off
 or to lower it.
 
@@ -309,6 +309,7 @@ or to lower it.
 | `target_kind` | `own_checkout`, `main_branch`, `outside_service`, `unknown` |
 | `exit_status` | `success`, `failure`, `unknown` |
 | `checked_before` | `true` or `false` |
+| `unread_own_merge` | `true` or `false` |
 | `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
 
 `command_kind` and `target_kind` are decided on your machine by reading the
@@ -361,6 +362,17 @@ merge is trusted. A merge whose pull request number cannot be read from the comm
 variable, `$(...)`, the current branch) is not checked. The number is worked out on your
 machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
 are `unknown`.
+
+`unread_own_merge` is what the verification failure check reads, and the only thing it
+fires on. It is true for a step that merges pull request N when the run opened N (a
+`gh pr create` whose result shows N's link) or pushed to N's branch, and no read of N came
+between the last open or push and the merge. A read is generous: any statement naming N
+(by number, link or branch) that runs `gh`, `curl`, a script or a shell function counts,
+inside a loop or `$(...)` too, and so does a read earlier in the merge command itself. A
+diff of N (`gh pr diff N`) is not a read: it shows the change, not whether the pull request
+is ready. Deploys, pushes to main, deletes, other outside writes and merges of a pull request
+the run did not open or push to never fire this check. The number, branch and link are
+worked out on your machine; only the boolean leaves.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.
 It is read from the failed result on your machine before redaction hides it, by looking

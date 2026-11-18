@@ -282,51 +282,56 @@ def _fires(run: Any) -> bool:
     return any(hit.signature_id == "mechanism:verification_failure" for hit in run.signature_hits)
 
 
-def test_one_early_check_no_longer_excuses_every_later_merge():
+# Verification failure judges only a merge of a pull request the run opened or pushed to
+# (here pushed: ``git push origin fix`` then ``gh pr merge fix``), with no read of it since.
+# The scoped ``checked_before`` fact above is still worked out, but it no longer fires.
+
+
+def test_a_merge_of_a_pull_request_the_run_did_not_open_or_push_is_not_judged():
     run = _run(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"])
-    assert _unconfirmed(run) == 1
-    assert _fires(run)
-
-
-def test_a_check_before_each_merge_leaves_nothing_unconfirmed():
-    run = _run(["gh pr view 1", "gh pr merge 1", "gh pr view 2", "gh pr merge 2"])
     assert _unconfirmed(run) == 0
     assert not _fires(run)
 
 
-def test_a_check_between_two_outside_steps_leaves_only_the_first_unconfirmed():
-    run = _run(["gh pr merge 1", "gh pr view 2", "gh pr merge 2"])
+def test_an_unread_merge_of_a_pushed_branch_fires():
+    run = _run(["git push origin fix", "gh pr merge fix --squash"])
     assert _unconfirmed(run) == 1
     assert _fires(run)
 
 
-def test_a_single_checked_merge_does_not_fire():
-    run = _run(["gh pr view 1", "gh pr merge 1"])
+def test_a_read_after_the_push_clears_the_merge():
+    run = _run(["git push origin fix", "gh pr checks fix", "gh pr merge fix --squash"])
     assert _unconfirmed(run) == 0
     assert not _fires(run)
+
+
+def test_a_read_before_the_push_does_not_clear_the_merge():
+    run = _run(["gh pr view fix", "git push origin fix", "gh pr merge fix --squash"])
+    assert _unconfirmed(run) == 1
 
 
 def test_a_check_in_the_same_command_line_still_excuses_the_merge():
-    run = _run(["cd x; gh pr view 1; gh pr merge 1"])
+    run = _run(["git push origin fix", "cd x; gh pr view fix; gh pr merge fix"])
     assert _unconfirmed(run) == 0
     assert not _fires(run)
 
 
-def test_a_confirmation_step_still_counts_for_every_later_outside_step():
-    without = _run(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"])
-    assert _fires(without)
-    with_question = _run(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"], question_before=1)
+def test_a_confirmation_step_still_excuses_a_later_own_merge():
+    commands = ["git push origin fix", "gh pr merge fix"]
+    assert _fires(_run(commands))
+    with_question = _run(commands, question_before=1)
     assert _unconfirmed(with_question) == 0
     assert not _fires(with_question)
 
 
 def test_a_confirmation_before_a_later_step_does_not_excuse_an_earlier_one():
-    run = _run(["gh pr merge 1", "gh pr merge 2"], question_before=1)
+    run = _run(["git push origin a", "git push origin b", "gh pr merge a", "gh pr merge b"],
+               question_before=3)  # fmt: skip
     assert _unconfirmed(run) == 1
 
 
-def test_local_analysis_and_the_redacted_copy_agree_on_the_scoped_counts():
-    run = _run(["gh pr view 1", "gh pr merge 1", "gh pr merge 2"])
+def test_local_analysis_and_the_redacted_copy_agree_on_the_counts():
+    run = _run(["git push origin a", "gh pr merge a", "gh pr merge 2"])
     again = analyse_run(json.dumps(run.redacted_transcript), format="claude_code")
     assert _unconfirmed(run) == _unconfirmed(again) == 1
 
@@ -334,14 +339,15 @@ def test_local_analysis_and_the_redacted_copy_agree_on_the_scoped_counts():
 @pytest.mark.parametrize(
     ("commands", "unconfirmed"),
     [
-        (["cd x; gh pr view 1; gh pr merge 1"], 0),
-        (["cd x; gh pr view 1; gh pr merge 1", "gh pr merge 2"], 1),
-        (["gh pr view 1 && gh pr merge 1"], 0),
-        (["gh pr merge 1; gh pr view 1"], 1),
-        (["gh pr view 1 | gh pr merge 1"], 1),
+        (["git push origin a", "cd x; gh pr view a; gh pr merge a"], 0),
+        (["git push origin a", "git push origin b", "gh pr view a; gh pr merge a", "gh pr merge b"],
+         1),  # fmt: skip
+        (["git push origin a", "gh pr view a && gh pr merge a"], 0),
+        (["git push origin a", "gh pr merge a; gh pr view a"], 1),
+        (["git push origin a", "gh pr diff a | head; gh pr merge a"], 1),
     ],
 )
-def test_a_check_in_the_same_command_line_survives_the_redacted_copy(
+def test_a_read_in_the_same_command_line_survives_the_redacted_copy(
     commands: list[str], unconfirmed: int
 ):
     run = _run(commands)
@@ -396,7 +402,7 @@ def test_housekeeping_alone_never_fires_verification_failure(command: str):
 
 
 def test_a_real_merge_after_housekeeping_still_fires():
-    run = _run(["gh pr create --title t", "gh pr comment 3 --body hi", "gh pr merge 3"])
+    run = _run(["git push origin fix", "gh pr comment 3 --body hi", "gh pr merge fix"])
     assert _unconfirmed(run) == 1
     assert _fires(run)
 
@@ -425,6 +431,9 @@ def test_a_real_merge_after_housekeeping_still_fires():
         "gh api -X PATCH repos/o/r -f private=true",
     ],
 )
-def test_a_write_that_is_not_housekeeping_still_fires_and_ends_the_scope(command: str):
+def test_a_write_that_is_not_housekeeping_ends_the_scope_but_never_fires(command: str):
+    # It is an outside step (it ends the scope of an earlier check), but verification
+    # failure judges only unread merges of the run's own pull requests.
+    assert _checked_before(["ls", command, "gh pr merge 3"]) == [False, True, False]
     run = _run([command])
-    assert _unconfirmed(run) == 1
+    assert _unconfirmed(run) == 0

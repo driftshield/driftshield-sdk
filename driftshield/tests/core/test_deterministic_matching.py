@@ -71,10 +71,11 @@ def test_deterministic_matching_surfaces_verification_failure_candidates():
                     "safety_relevant_flags": ["executes_shell"],
                     "tool_category": "shell",
                     "step_facts": {
-                        "command_kind": "deploy",
+                        "command_kind": "merge",
                         "target_kind": "outside_service",
                         "exit_status": "success",
                         "checked_before": False,
+                        "unread_own_merge": True,
                     },
                 },
             },

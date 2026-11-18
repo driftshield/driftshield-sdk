@@ -189,8 +189,12 @@ def test_a_pull_request_created_then_merged_with_no_read_is_not_checked():
     created = "gh pr create --title t --body b"
     assert _flags([created, "gh pr merge 3"]) == [False, False]
     assert _flags([created, "aws s3 ls s3://bucket", "gh pr merge 3"]) == [False, False, False]
-    assert _fires([created, "gh pr merge 3"])
-    assert _fires([created, "aws s3 ls s3://bucket", "git log -1", "gh pr merge 3"])
+    # Verification failure needs to know the pull request is the run's own: here no result
+    # shows the new link, so it is not judged. A pushed branch is enough to know it.
+    assert not _fires([created, "gh pr merge 3"])
+    assert _fires(["git push origin fix", created, "gh pr merge fix"])
+    assert _fires(["git push origin fix", created, "aws s3 ls s3://bucket", "git log -1",
+                   "gh pr merge fix"])  # fmt: skip
 
 
 def test_a_merge_whose_number_cannot_be_worked_out_is_not_checked():
@@ -430,7 +434,15 @@ def test_nothing_but_the_boolean_leaves():
         if isinstance(block, dict) and "step_facts" in block
     ]
     assert all(
-        set(f) == {"command_kind", "target_kind", "exit_status", "checked_before", "error_class"}
+        set(f)
+        == {
+            "command_kind",
+            "target_kind",
+            "exit_status",
+            "checked_before",
+            "error_class",
+            "unread_own_merge",
+        }
         for f in facts
     )
 
@@ -505,7 +517,8 @@ def test_a_write_in_an_if_block_is_found_as_its_kind_and_an_earlier_check_still_
     assert _flags(["git commit -m x", "if true; then git push origin main; fi"]) == [False, False]
     # A condition that is a check counts as one, as it does for any command line.
     assert _flags([block]) == [True]
-    assert _fires(["if true; then git push origin main; fi"])
+    # A push to main is no longer judged by verification failure, checked or not.
+    assert not _fires(["if true; then git push origin main; fi"])
     assert not _fires(["ls", "if true; then git push origin main; fi"])
 
 
