@@ -183,6 +183,105 @@ def test_a_read_earlier_in_the_merge_command_clears_it(merge: str):
     assert _fired([_create(12), merge]) == 0
 
 
+@pytest.mark.parametrize(
+    "read",
+    [
+        'for x in infra:12 meta:441; do gh pr view ${x##*:} -R o/${x%%:*} --json headRefOid; done',
+        "for rp in o-kit/28 o-meta/12; do gh pr checks ${rp#*/} -R o/${rp%/*}; done",
+        "for rp in o/r/12 o/k/7; do gh api repos/${rp%/*}/pulls/${rp##*/}/reviews; done",
+        'seen=""; while true; do for rp in o-kit/28 o-meta/12; do gh pr view ${rp#*/}; done; '
+        "sleep 30; done",
+    ],
+)
+def test_a_loop_over_list_items_naming_the_pull_request_clears_the_merge(read: str):
+    # 0.3.4 gate false alarms: the loop item ``repo:N`` or ``owner/repo/N`` names N.
+    assert _fired([_create(12), read, "gh pr merge 12 --squash"]) == 0
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        "for x in infra:13 meta:441; do gh pr view ${x##*:}; done",
+        "for rp in o-kit/28 o-meta/120; do gh pr view ${rp#*/}; done",
+        "for f in o/r/12.txt o/r/v12; do gh pr view 1; done",
+        "echo infra:12 && gh pr view 1",
+    ],
+)
+def test_list_items_naming_another_number_or_outside_a_loop_do_not_clear(read: str):
+    assert _fired([_create(12), read, "gh pr merge 12 --squash"]) == 1
+
+
+def test_a_bare_push_in_another_checkout_does_not_reopen_the_last_pull_request():
+    # 0.3.4 gate false alarm: the push went to the other pull request's checkout.
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "for rp in o-kit/28 o-meta/12; do gh pr view ${rp#*/}; done",
+        "cd /w/kit && git commit -qam docs && git push",
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 0
+
+
+def test_a_bare_push_in_the_same_checkout_still_reopens_its_pull_request():
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "for rp in o-kit/28 o-meta/12; do gh pr view ${rp#*/}; done",
+        "cd /w/meta && git commit -qam docs && git push",
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 1
+    steps[3] = "cd /w/kit && git commit -qam docs && git push"
+    steps[4] = "gh pr merge 28 --squash"
+    assert _fired(steps) == 1
+
+
+def test_a_bare_push_in_a_checkout_never_cd_ed_into_keeps_the_current_branch():
+    # The pull request was opened from the starting folder, so its checkout is not known.
+    steps: list[Step] = [_create(12), "gh pr view 12", "cd /w/other && git push", "gh pr merge 12"]
+    assert _fired(steps) == 1
+    steps[2] = "git push"
+    assert _fired(steps) == 1
+    steps[2] = "gh pr view 12"
+    assert _fired(steps) == 0
+
+
+def test_a_bare_push_in_an_unknown_checkout_leaves_later_plain_pushes_as_before():
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        "gh pr view 28",
+        "cd /w/other && git push",
+        "git push",
+        "gh pr merge 28",
+    ]
+    assert _fired(steps) == 1
+
+
+@pytest.mark.parametrize("folder", ["..", ".", "-", "~", "$W", ""])
+def test_a_cd_that_names_no_folder_keeps_the_current_branch(folder: str):
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "gh pr view 12 && gh pr view 28",
+        f"cd {folder} && git push".replace("cd  ", "cd "),
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 1  # as with a plain push: the current branch is meta's
+
+
+@pytest.mark.parametrize("folder", ["../kit", "kit", "/w/kit/", "~/x/kit"])
+def test_a_checkout_is_known_by_its_folder_name(folder: str):
+    steps: list[Step] = [
+        ("cd /w/kit && git push -u origin k && gh pr create -t t -b b", LINK.format(28), False),
+        ("cd /w/meta && git push -u origin m && gh pr create -t t -b b", LINK.format(12), False),
+        "gh pr view 12 && gh pr view 28",
+        f"cd {folder} && git push",
+        "gh pr merge 12 --squash",
+    ]
+    assert _fired(steps) == 0
+
+
 def test_a_read_before_the_open_does_not_count():
     assert _fired(["gh pr view 13", _create(13), "gh pr merge 13"]) == 1
 

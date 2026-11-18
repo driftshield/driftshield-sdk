@@ -187,6 +187,19 @@ OWN_MERGE_SEQUENCES: list[list[str]] = [
     ["gh pr checkout 4", "git push", "gh pr merge 4"],
     ["gh pr checkout 4", "git push", "for p in 4; do gh pr view $p; done", "gh pr merge 4"],
     ["git push origin main", "vercel --prod", "gh pr merge 3"],
+    [
+        "gh pr checkout 4",
+        "git push",
+        "for x in r:4 k:9; do gh pr view ${x##*:}; done",
+        "gh pr merge 4",
+    ],
+    [
+        "cd /a && gh pr checkout 4",
+        "cd /b && gh pr checkout 5",
+        "gh pr view 4",
+        "cd ../b && git push",
+        "gh pr merge 4",
+    ],
 ]
 
 

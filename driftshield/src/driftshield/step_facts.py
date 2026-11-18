@@ -60,7 +60,9 @@ STEP_FACTS_KEY = "step_facts"
 # v5: 0.3.4 (checked_before counts only a check after the previous outside step, or earlier
 # in the same command line; a new ``error_class`` field; a failed tool call that is not a
 # shell step now carries step facts too; a new ``unread_own_merge`` field).
-STEP_FACTS_VERSION = "step-facts.v5"
+# v6: 0.3.5 (a loop over ``repo:N`` or ``owner/repo/N`` items names N for an own merge read;
+# a bare ``git push`` after ``cd`` pushes that checkout's branch).
+STEP_FACTS_VERSION = "step-facts.v6"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
