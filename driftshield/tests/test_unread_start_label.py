@@ -130,6 +130,7 @@ def test_a_read_after_an_earlier_edit_clears_the_start():
         "gh issue edit $N --add-label agent:go",
         "gh api repos/o/r/issues/9/labels",
         "gh issue comment 9 --body 'agent:go'",
+        "gh pr edit 9 --add-label agent:go",
     ],
 )
 def test_other_label_changes_are_not_judged(command: str):
