@@ -11,6 +11,23 @@ notes for each tag are taken from the matching section of this file.
 version from `step-facts.v4` to `step-facts.v5`. Intel must list both as known versions
 first, or uploads from the release stop counting.
 
+### Verification failure fires only on an unread merge of the run's own pull request
+
+- The 0.3.4 session gate showed the broad check firing on 153 steps in 44 sessions at 3.3%
+  precision: most flags were checks the SDK cannot see (a verdict watcher script, release
+  smoke scripts, merge command shapes). The check now judges one shape: a merge of pull
+  request N when the run opened N (`gh pr create`, whose result shows N's link) or pushed to
+  N's branch, and no read of N came between the last open or push and the merge.
+- A read is generous: any statement naming N (by number, link or branch) that runs `gh`,
+  `curl`, a script or a shell function, inside loops and `$(...)` too, and a read earlier in
+  the merge command itself. A diff of N is not a read.
+- Deploys, pushes to main, deletes, other outside writes and merges of a pull request the run
+  did not open or push to no longer fire this check. A confirmation before the merge still
+  excuses it. `checked_before` is still worked out and sent as before.
+- New step fact `unread_own_merge` (`true` or `false`); only the boolean leaves. Part of
+  `step-facts.v5` and `phase-3g-deterministic-rules-v4`, both unreleased. Intel reads step
+  facts from a fixed key list and ignores the new key.
+
 ### Housekeeping is low risk, two classifier slips, and auto mode denials
 
 - Housekeeping on a pull request or an issue, including someone else's, is `unknown` and no
