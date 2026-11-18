@@ -1,67 +1,46 @@
-# Project Agent Guidance
+# Agent guidance
 
-## Implementation Workflow
+DriftShield is an open source engine that reads an AI agent's transcript, classifies each step and finds where the run went wrong. The Python package lives in `driftshield/` (import `driftshield`, CLI `driftshield`). A FastAPI app and a React frontend (`driftshield/frontend/`) sit on top of the same engine.
 
-- For issue or PR driven work, read the linked issue or PR and the relevant code paths before making changes.
-- Before implementing, write a short spec and plan in your working notes or user update, then continue into implementation without waiting for extra human approval unless there is a real blocker or a risky irreversible decision.
-- Prefer end to end execution. Do not stop at analysis, planning or partial scaffolding when the task can reasonably be completed in one pass.
-- If a change touches frontend or UI behaviour, include browser based verification as part of completion, not just static or unit checks.
-- When browser testing is needed, use the real browser tooling available in the environment and report what flow was exercised.
-- After local verification passes, push the working branch and open or update a PR linked to the issue.
+## Working here
 
-## Git Naming
+- Read the linked issue and the code paths it touches before changing anything, then carry the work through to a verified PR.
+- Tests: `cd driftshield && uv run --extra dev pytest tests -q`. Frontend changes also need `npm run build` in `driftshield/frontend` and a real browser check.
+- Commits and PR titles: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), one line, no tool prefixes.
+- Reviews come from the `driftshield-reviewer` GitHub App as a PR comment whose first line is `<!-- driftshield-agent-review:v1 ... verdict=approve|changes -->`. It skips draft PRs. A PR merges only on an `approve` verdict at its exact head commit.
+- Keep the issue body, its checkboxes and any parent checklist in step with what actually shipped.
 
-- Use standard conventional commit messages such as `feat:`, `fix:`, `docs:`, `chore:`, and `test:`.
-- Do not prefix PR titles with `[codex]`.
-- Do not add tool-provenance prefixes to commit subjects or squash-merge commit titles unless explicitly requested.
+## Public repository
 
-## Issue Hygiene
-
-- When working from GitHub issues, keep the issue body, linked parent issue, and GitHub Project status in sync with the real state of the work.
-- If an issue is closed as completed, update all relevant checkboxes in the issue body first.
-- If an issue is closed as superseded, cancelled, or intentionally not completed, leave incomplete checkboxes only if the closing comment explains why.
-- When a child issue is completed, update any parent issue checklist entry that tracks it.
-- Do not mark an issue done until acceptance criteria, test plan, linked parent checklist, and project status all reflect the actual outcome.
-- If work is blocked, prefer leaving the issue open with a clear blocker comment and the `blocked` label instead of closing it.
-
-## Handoffs
-
-- When preparing a prompt for another agent, make it autonomous by default.
-- Tell the agent to inspect the issue and codebase first, produce a concrete spec and plan, then implement, verify and summarise the result without waiting for a human in the loop.
+Everything tracked here is public. Every file must make sense without any private DriftShield repository, path or planning doc. `./scripts/check-public-scope.sh` enforces this in CI; run it for any change to docs, prompts, fixtures, templates or workflows.
 
 ## Engine door
 
-- The engine's public API is `driftshield.analyse_run` and `driftshield.submit` (see `docs/public-api.md`). Every CLI command, the `/api/ingest` route and the connector watcher analyse through `analyse_run`; do not add a second parse-and-analyse chain.
-- Format detection lives in one place, `driftshield/src/driftshield/parsers/registry.py`: content decides, a path is only a hint. Add a parser there together with a fixture in `driftshield/tests/fixtures/transcripts/` and its hash in `golden/redaction_snapshot.json`.
-- Zero parseable events is an error (`NoParseableEventsError`), never an empty success. Redaction output for the bundled fixtures is pinned by the snapshot test in `driftshield/tests/test_door.py`.
-- The failure verdict (`qualification_state`) is decided in `driftshield/src/driftshield/core/canonical_analysis.py`; the structural tool outcome rules it relies on live in `core/analysis/tool_outcomes.py`. The product statement of what counts as a failure is the README section "What counts as a failure"; keep the two in step.
+- The public API is `driftshield.analyse_run` and `driftshield.submit` (`docs/public-api.md`). Every CLI command, the `/api/ingest` route and the connector watcher analyse through `analyse_run`. Add features behind that one path.
+- Format detection lives only in `driftshield/src/driftshield/parsers/registry.py`: content decides, a path is a hint. A new parser comes with a fixture in `driftshield/tests/fixtures/transcripts/` and its hash in `golden/redaction_snapshot.json`.
+- Zero parseable events raises `NoParseableEventsError`. Redaction of the bundled fixtures is pinned by `driftshield/tests/test_door.py`.
+- The failure verdict (`qualification_state`) is decided in `core/canonical_analysis.py`, using the tool outcome rules in `core/analysis/tool_outcomes.py`. The README section "What counts as a failure" states the same rules for users; change both together.
 
-## Community signature opt-in
+## Step facts and rules
 
-- After analysing a finished run locally, opt its signature run into the community pool:
-  `driftshield submit --path <session.json>`
-- No setup is needed. The community intake URL is baked in as the default; `remote-enable` is only for pointing at a different intake. Every tier (community, Teams and Enterprise) uses this same address; the API key decides the workspace. `telemetry remote-disable` opts out entirely, baked default included.
-- The default tier is `oss`, the unauthenticated community lane. No API key is sent.
-- Opting in declares the run as a production run by default. Do not pass `--environment` in the normal path.
-- Only the redacted, community-safe envelope leaves the machine.
-- Override note: a non-production contribution can pass `--environment staging|test|demo`, but this is the uncommon case, not the documented path.
+- Step facts (`step_facts.py`, `step_facts_pr.py`, `step_facts_own_merge.py`) classify each shell step. `STEP_FACTS_VERSION` in `step_facts.py` changes whenever any command's classification changes.
+- The matching rules are in `core/deterministic_matching.py`. `RULESET_VERSION` changes whenever a rule's behaviour changes.
+- Both versions are sent with every upload and pinned per version by `driftshield/tests/test_analyser_versions.py`, so a behaviour change without a version bump fails the build. Record each bump in `CHANGELOG.md`.
 
-## Review guidelines
+## Community upload
 
-- For pull request reviews, use the repo-local review skill at `.agents/skills/driftshield-pr-review`.
-- Treat references to private sibling repos, private sibling paths, or internal cross-repo planning docs in tracked public files as high-priority boundary leaks.
-- Keep the public OSS repo self-contained. Do not add documentation, prompts, fixtures, or workflow text that depends on the private DriftShield repos to make sense.
-- When checking a PR, confirm `./scripts/check-public-scope.sh` would pass if the change touches docs, prompts, templates, fixtures, or workflow files.
+`driftshield submit --path <session.json>` sends only the redacted envelope of a finished run to the community pool. The intake URL is built in, the default tier is `oss` with no API key, and an API key picks the workspace on paid tiers. `telemetry remote-disable` opts out.
 
 ## Releases
 
-- Process: `docs/release-runbook.md`. Tag `v<version>` on `main` runs `.github/workflows/release-publish.yml` (PyPI trusted publishing behind the `pypi` environment, then a GitHub release from the matching `CHANGELOG.md` section). `scripts/release-build-check.sh` is the single build-and-verify step both release workflows run; run it locally from a venv before tagging.
-- Version lives in two places that must agree: `driftshield/pyproject.toml` and `driftshield/src/driftshield/__init__.py`.
-- The PyPI distribution is `driftshield-sdk` (`pip install driftshield-sdk`); the import package and the CLI command stay `driftshield`. PyPI refused `driftshield` as too similar to the unrelated `drift-shield`. Never rename the import package or the console scripts to match the distribution.
+- Process: `docs/release-runbook.md`. A `v<version>` tag on `main` runs `.github/workflows/release-publish.yml`; `scripts/release-build-check.sh` is the build check both release workflows share.
+- The version lives in `driftshield/pyproject.toml` and `driftshield/src/driftshield/__init__.py`; keep them equal.
+- The PyPI distribution is `driftshield-sdk`. The import package and console scripts stay `driftshield`, because PyPI refused that name as too close to `drift-shield`.
 
-## Maintaining this file
+## Delivery agent files
 
-Keep this file for knowledge useful to almost every future agent session in this project.
-Do not repeat what the codebase already shows; point to the authoritative file or command instead.
-Prefer rewriting or pruning existing entries over appending new ones.
-When updating this file, preserve this bar for all agents and keep entries concise.
+`.claude/agents/`, `.claude/delivery/`, `.claude/hooks/` and `.claude/skills/issue-diagram` are synced from DriftShield's delivery tooling and overwritten on the next sync. Change them at the source.
+
+## Keeping this file current
+
+Add only what nearly every session needs and the code does not show. Point to the file or test that enforces a rule. Rewrite or prune before appending.
