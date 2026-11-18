@@ -15,7 +15,15 @@ notes for each tag are taken from the matching section of this file.
   different pull request's checkout made the merged one look unread again.
 - A merge through `gh api -i .../pulls/N/merge` is judged. `-i` there is `--include` and no
   longer swallows the endpoint.
-- The step facts version is now `step-facts.v6`.
+- New: verification failure also fires when a run adds the label that starts an agent's work
+  on an issue (`agent:go`) with no fresh read of that issue. A read is fresh when it is in
+  the same command, or in the previous ten shell steps and after the run's own last edit,
+  comment or label change on that issue in an earlier step. Three steps in the 0.3.4 gate
+  sessions, labelled real failures by a person, have this shape. Other labels, labels in a
+  variable and removals are not judged. New step fact `unread_start_label` (`true` or
+  `false`); only the boolean leaves.
+- The step facts version is now `step-facts.v6` and the matching rules version is
+  `phase-3g-deterministic-rules-v5`.
 
 ## 0.3.4 - 2026-11-18
 

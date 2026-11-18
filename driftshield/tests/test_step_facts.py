@@ -22,7 +22,8 @@ from driftshield.step_facts import (
 )
 
 FACT_KEYS = {
-    "command_kind", "target_kind", "exit_status", "checked_before", "error_class", "unread_own_merge"
+    "command_kind", "target_kind", "exit_status", "checked_before", "error_class",
+    "unread_own_merge", "unread_start_label",
 }
 
 # (command, command_kind, target_kind). Every command kind and every target
@@ -992,6 +993,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "checked_before": False,
         "error_class": "none",
         "unread_own_merge": False,
+        "unread_start_label": False,
     }
     assert sanitise_step_facts("a string") is None
     assert sanitise_step_facts(None) is None
@@ -1345,6 +1347,7 @@ def test_a_step_facts_key_in_the_input_is_never_copied_through():
         "checked_before": False,
         "error_class": "none",
         "unread_own_merge": False,
+        "unread_start_label": False,
     }
 
 
@@ -1413,6 +1416,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "checked_before": False,
             "error_class": "none",
             "unread_own_merge": False,
+        "unread_start_label": False,
         },
         {
             "command_kind": "git_push",
@@ -1421,6 +1425,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "checked_before": True,
             "error_class": "other",
             "unread_own_merge": False,
+        "unread_start_label": False,
         },
     ]
     # The second pass must not reset a hidden command to unknown: its own

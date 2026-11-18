@@ -526,6 +526,7 @@ def test_hostile_error_text_cannot_leak_through_the_class(builder, fmt, tool):
             "checked_before",
             "error_class",
             "unread_own_merge",
+            "unread_start_label",
         }
     dumped = json.dumps(run.redacted_transcript) + json.dumps(run.redaction_manifest)
     for fragment in LEAK_FRAGMENTS:
