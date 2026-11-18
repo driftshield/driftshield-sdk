@@ -3,7 +3,7 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## 0.3.4 - 2026-11-16
+## 0.3.4 - 2026-11-18
 
 ### Findings you can trust: checks, merges and refused edits
 
