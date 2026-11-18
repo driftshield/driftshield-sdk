@@ -249,7 +249,7 @@ def test_failure_wording_in_a_successful_result_is_not_a_conflict():
 
 
 def test_a_failed_unconfirmed_outside_step_still_fires():
-    failed = tool(0, facts=facts("git_push", "main_branch"))
+    failed = tool(0, facts=facts("merge", "outside_service", unread_own_merge=True))
     failed["event_family"] = "error_or_exception"
     payload = match([failed])
     assert {rule["rule_id"] for rule in payload["matched_rules"]} >= {"R-VER-001"}
@@ -263,7 +263,7 @@ def test_a_failed_step_that_stays_inside_still_does_not_fire():
 
 
 @pytest.mark.parametrize("is_error", [False, True])
-def test_a_bash_deploy_fires_whether_or_not_it_failed(is_error):
+def test_an_unread_own_merge_fires_whether_or_not_it_failed(is_error):
     lines = [
         _line(
             "2026-03-01T11:00:00Z",
@@ -275,7 +275,7 @@ def test_a_bash_deploy_fires_whether_or_not_it_failed(is_error):
                 "type": "tool_use",
                 "id": "b",
                 "name": "Bash",
-                "input": {"command": "vercel --prod"},
+                "input": {"command": "git push origin fix && gh pr merge fix --squash"},
             },
         ),
         _result("2026-03-01T11:00:02Z", "b", "denied" if is_error else "ok", is_error),

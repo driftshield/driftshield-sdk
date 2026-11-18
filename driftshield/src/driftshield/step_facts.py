@@ -21,6 +21,10 @@ command *before* redaction and sends only values from closed lists:
     ``conflict``, ``not_found``, ``timeout``, ``other``. Shell steps always carry
     the field. Any other tool call (an edit, a write, a read) carries step facts
     only when its result was an error, so the field is there to say why.
+``unread_own_merge``
+    ``True`` for a step that merges a pull request this run opened or pushed to, with no
+    read of that pull request since the last open or push (a diff is not a read). Worked
+    out by :mod:`driftshield.step_facts_own_merge`; the number and branch never leave.
 
 Nothing else leaves: no command text, path, argument, prompt or code, and no
 hash or fingerprint of them. Every value is checked against its list by
@@ -55,7 +59,7 @@ STEP_FACTS_KEY = "step_facts"
 # semicolons and newlines, quiet redirects, sleep, help calls, pull request creation).
 # v5: 0.3.4 (checked_before counts only a check after the previous outside step, or earlier
 # in the same command line; a new ``error_class`` field; a failed tool call that is not a
-# shell step now carries step facts too).
+# shell step now carries step facts too; a new ``unread_own_merge`` field).
 STEP_FACTS_VERSION = "step-facts.v5"
 
 COMMAND_KINDS: tuple[str, ...] = (
@@ -111,6 +115,7 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "exit_status": "unknown",
         "checked_before": checked_before,
         "error_class": "none",
+        "unread_own_merge": False,
     }
 
 
@@ -133,7 +138,7 @@ def is_outside_step(command_kind: object, target_kind: object) -> bool:
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
     """Rebuild ``value`` from the fixed lists, or ``None`` when it is not facts.
 
-    Only the five known keys are read. Each value must be an exact member of
+    Only the six known keys are read. Each value must be an exact member of
     its list, otherwise it becomes ``unknown`` (``False`` for the flag, ``none``
     for the error class, so a bad or missing value never reads as a failure
     reason). No other key and no free text can survive.
@@ -152,6 +157,7 @@ def sanitise_step_facts(value: object) -> dict[str, Any] | None:
         "error_class": (
             error_class if isinstance(error_class, str) and error_class in ERROR_CLASSES else "none"
         ),
+        "unread_own_merge": value.get("unread_own_merge") is True,
     }
 
 
@@ -2577,9 +2583,14 @@ def compute_step_facts(
         merge_tied_check,
     )
 
+    from driftshield.step_facts_own_merge import OwnMergeTracker
+
     facts_by_node: dict[int, dict[str, Any]] = {}
     # call id -> (facts, call block, is a shell step)
     pending: dict[str, tuple[dict[str, Any], dict[str, Any], bool]] = {}
+    # call id -> the head branch of every ``gh pr create`` in that step (None: current branch)
+    pending_creates: dict[str, list[str | None]] = {}
+    own_merges = OwnMergeTracker()
     seen_check = False
     # Pull requests whose state, checks, reviews or comments were read since the previous
     # outside step on them. Only a merge reads this, and only for its own pull request.
@@ -2623,6 +2634,12 @@ def compute_step_facts(
                             and facts["command_kind"] in _RISK_ORDER
                             and _check_earlier_in_command(command)
                         )
+                if not hidden and command is not None:
+                    unread_own, creates = own_merges.step(command)
+                    facts["unread_own_merge"] = bool(unread_own)
+                    call_id = _call_id(node)
+                    if creates and call_id is not None:
+                        pending_creates[call_id] = creates
                 if outside:
                     seen_check = False
                     if command is not None:
@@ -2655,6 +2672,9 @@ def compute_step_facts(
                 continue
             facts, call_node, is_shell = pending[call_id]
             facts["exit_status"] = status
+            if status == "success":
+                for head in pending_creates.pop(call_id, []):
+                    own_merges.opened(head, _result_text(node))
             if status == "failure":
                 error_class = classify_error(_result_text(node))
                 if error_class is not None:

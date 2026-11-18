@@ -35,12 +35,18 @@ def analysis_result(*, risk: RiskClassification | None = None) -> AnalysisResult
 REQUIREMENT = {"constraint": "Ask for confirmation before destructive changes."}
 
 
-def facts(kind: str, target: str = "unknown", checked_before: bool = False) -> dict[str, Any]:
+def facts(
+    kind: str,
+    target: str = "unknown",
+    checked_before: bool = False,
+    unread_own_merge: bool = False,
+) -> dict[str, Any]:
     return {
         "command_kind": kind,
         "target_kind": target,
         "exit_status": "success",
         "checked_before": checked_before,
+        "unread_own_merge": unread_own_merge,
     }
 
 

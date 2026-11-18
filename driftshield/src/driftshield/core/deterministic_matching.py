@@ -19,12 +19,14 @@ MATCHING_SCHEMA_VERSION = "phase-3g-deterministic-v1"
 # v3: the state conflict rules fire only on a write the system rejected after an earlier
 #     read, never on failure wording or a failed read alone; a failed unconfirmed outside
 #     step now counts for verification failure.
-# v4: (0.3.4) two changes. A check counts as excusing an outside step only if it came after the
+# v4: (0.3.4) three changes. A check counts as excusing an outside step only if it came after the
 #     previous outside step (or after the start of the run for the first one), so one early
 #     check no longer excuses every later merge or deploy. State conflict fires only on a
 #     rejected write whose error class (from the step facts) is ``conflict`` or ``other``,
 #     never on an edit the tool refused (``precondition_failed``) or a permission refusal
-#     (``permission_denied``).
+#     (``permission_denied``). Verification failure then fires only on a merge of a pull request
+#     the run opened or pushed to with no read of it since the last open or push (a diff is
+#     not a read); deploys, pushes to main, deletes and other outside writes stop firing.
 RULESET_VERSION = "phase-3g-deterministic-rules-v4"
 
 
@@ -224,8 +226,14 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
         event for event in normalized_events if event.get("event_family") in _ATTEMPTED_CALL_FAMILIES
     ]
     outside_action_events = [event for event in attempted_calls if _is_outside_step(event)]
+    # Verification failure judges one shape only: a merge of a pull request this run opened or
+    # pushed to, with no read of it since (step facts ``unread_own_merge``). Deploys, pushes to
+    # main, deletes, other outside writes and merges of someone else's pull request are not
+    # judged by it. A confirmation before the merge still excuses it.
     unconfirmed_outside_events = [
-        event for event in outside_action_events if not _outside_step_confirmed(event, confirmations)
+        event
+        for event in attempted_calls
+        if _unread_own_merge(event) and not _confirmed_before(event, confirmations)
     ]
     # Read by _global_contradictions: a confirmation came before the first outside step.
     confirmation_before_action = _confirmation_before_action(confirmations, outside_action_events)
@@ -251,9 +259,9 @@ def _extract_features(canonical_analysis: dict[str, Any], result: AnalysisResult
         "confirmation_before_action": confirmation_before_action,
         "safeguard_requirement_present": safeguard_requirement_present,
         "safeguard_present": safeguard_present,
-        # Fires only on a step that leaves the agent's own space (see
-        # _is_outside_step) with no confirmation before it. Using a shell or
-        # edit tool is not enough, and runs without step facts never fire.
+        # Fires only on an unread merge of the run's own pull request (see
+        # _unread_own_merge) with no confirmation before it. Runs without step
+        # facts never fire.
         "safeguard_omitted": bool(unconfirmed_outside_events) and safeguard_requirement_present,
         "unconfirmed_outside_event_ids": [
             event["event_id"] for event in unconfirmed_outside_events if isinstance(event.get("event_id"), str)
@@ -662,10 +670,12 @@ def _is_outside_step(event: dict[str, Any]) -> bool:
     return is_outside_step(facts.get("command_kind"), facts.get("target_kind"))
 
 
-def _outside_step_confirmed(event: dict[str, Any], confirmations: list[dict[str, Any]]) -> bool:
-    facts = _step_facts(event) or {}
-    if facts.get("checked_before") is True:
-        return True
+def _unread_own_merge(event: dict[str, Any]) -> bool:
+    facts = _step_facts(event)
+    return facts is not None and facts.get("unread_own_merge") is True
+
+
+def _confirmed_before(event: dict[str, Any], confirmations: list[dict[str, Any]]) -> bool:
     index = int(event.get("sequence_index", 0))
     return any(int(item.get("sequence_index", 0)) < index for item in confirmations)
 

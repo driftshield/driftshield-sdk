@@ -175,6 +175,38 @@ def step_fact_sequences_behaviour() -> dict[str, list[bool]]:
     return out
 
 
+# Sequences whose ``unread_own_merge`` flags are pinned per step facts version (from v5).
+OWN_MERGE_SEQUENCES: list[list[str]] = [
+    ["gh pr merge 1"],
+    ["git push origin fix", "gh pr merge fix"],
+    ["git push origin fix", "gh pr view fix", "gh pr merge fix"],
+    ["git push origin fix", "gh pr diff fix", "gh pr merge fix"],
+    ["gh pr view fix", "git push origin fix", "gh pr merge fix"],
+    ["git push origin fix", "gh pr checks fix && gh pr merge fix"],
+    ["git push origin fix", "./scripts/wait.sh fix", "gh pr merge fix"],
+    ["gh pr checkout 4", "git push", "gh pr merge 4"],
+    ["gh pr checkout 4", "git push", "for p in 4; do gh pr view $p; done", "gh pr merge 4"],
+    ["git push origin main", "vercel --prod", "gh pr merge 3"],
+]
+
+
+def own_merge_sequences_behaviour() -> dict[str, list[bool]]:
+    """``unread_own_merge`` of every step of each frozen sequence, as an upload carries it."""
+    from tests.test_step_facts import claude_code
+
+    out: dict[str, list[bool]] = {}
+    for commands in OWN_MERGE_SEQUENCES:
+        steps = [(command, f"c{index}", False) for index, command in enumerate(commands)]
+        run = analyse_run(claude_code(steps), format="claude_code")
+        out[json.dumps(commands)] = [
+            block["step_facts"]["unread_own_merge"]
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+    return out
+
+
 def _load() -> dict[str, dict[str, dict[str, Any]]]:
     return json.loads(GOLDEN.read_text())
 
@@ -258,6 +290,17 @@ def test_checked_before_matches_the_pinned_sequences_for_the_current_version():
     )
 
 
+def test_unread_own_merge_matches_the_pinned_sequences_for_the_current_version():
+    pinned = _load()["own_merge_sequences"][STEP_FACTS_VERSION]
+    current = own_merge_sequences_behaviour()
+    changed = sorted(k for k in pinned if current.get(k) != pinned[k])
+    assert pinned and not changed, (
+        f"unread_own_merge changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION in step_facts.py and pin the new "
+        "behaviour (see the module docstring); never edit the entry of a released version."
+    )
+
+
 def test_error_classes_match_the_pinned_ones_for_the_current_version():
     pinned = _load()["error_classes"][STEP_FACTS_VERSION]
     current = error_class_behaviour(list(pinned))
@@ -292,6 +335,9 @@ def _write() -> None:
     sequences = data.setdefault("step_fact_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
     for key, value in step_fact_sequences_behaviour().items():
         sequences.setdefault(key, value)
+    own = data.setdefault("own_merge_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
+    for key, value in own_merge_sequences_behaviour().items():
+        own.setdefault(key, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
