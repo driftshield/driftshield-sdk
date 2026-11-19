@@ -3,6 +3,14 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+- New `driftshield.tool_map` module: a table from tool name to what the tool does (`read`,
+  `check`, `outside_write`, `outside_send`, `delete_outside`, `confirmation`, `handoff`,
+  `ignore`, `shell`, `file_write`). `DEFAULT_CODING_MAP` holds the tools of the supported
+  coding agents; the shell tool list, the confirmation tool list and the file edit tool list
+  are now read from it. No change to any result.
+
 ## 0.3.5 - 2026-11-19
 
 ### Verification failure: fewer false alarms, one more shape

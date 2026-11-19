@@ -2,12 +2,12 @@
 
 A call to one of these is recorded as a confirmation checkpoint, so the
 verification rules can see that a person was asked before an outside step.
-Names are lower case.
+The names come from the default coding tool map.
 """
 
 from __future__ import annotations
 
-CONFIRMATION_TOOLS = frozenset({"askuserquestion", "request_user_input"})
+from driftshield.tool_map import CONFIRMATION_TOOLS
 
 
 def is_confirmation_tool(name: object) -> bool:
