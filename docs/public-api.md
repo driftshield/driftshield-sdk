@@ -24,7 +24,7 @@ Analyse one agent run.
 | `source` | Optional provenance label, usually the file path. Only a hint for format detection; the content decides. Also recorded on the run and used as the upload file name. |
 | `format` | Force a parser instead of detecting one: `chatgpt_export`, `claude_code`, `claude_desktop`, `codex_cli`, `codex_desktop`, `crewai`, `langchain`, `openclaw`, `openclaw_trajectory`, `driftshield_events_v1` (DriftShield's own neutral format, `docs/events-v1.md`). |
 | `run_id` | Fix the run identity (a `uuid.UUID`). Event ids derive from it, so the same content with the same `run_id` always yields the same ids. |
-| `tool_map` | Optional `driftshield.tool_map.ToolMap` saying what each tool does (`load_tool_map(path)` reads a JSON file; see the README section on the tool map). With none, only shell steps and the built in coding tools are judged and the result is exactly as before. |
+| `tool_map` | Optional `driftshield.tool_map.ToolMap` saying what each tool does (`load_tool_map(path)` reads a JSON file; see [how-checks-work.md](how-checks-work.md#tools-that-are-not-shell-commands-the-tool-map)). With none, only shell steps and the built in coding tools are judged and the result is exactly as before. |
 
 Supported inputs: native Claude Code, Codex CLI, OpenClaw session and
 trajectory JSONL; Claude Desktop, Codex Desktop, CrewAI and LangChain single

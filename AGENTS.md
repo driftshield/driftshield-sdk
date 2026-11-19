@@ -19,7 +19,7 @@ Everything tracked here is public. Every file must make sense without any privat
 - The public API is `driftshield.analyse_run` and `driftshield.submit` (`docs/public-api.md`). Every CLI command, the `/api/ingest` route and the connector watcher analyse through `analyse_run`. Add features behind that one path.
 - Format detection lives only in `driftshield/src/driftshield/parsers/registry.py`: content decides, a path is a hint. A new parser comes with a fixture in `driftshield/tests/fixtures/transcripts/` and its hash in `golden/redaction_snapshot.json`.
 - Zero parseable events raises `NoParseableEventsError`. Redaction of the bundled fixtures is pinned by `driftshield/tests/test_door.py`.
-- The failure verdict (`qualification_state`) is decided in `core/canonical_analysis.py`, using the tool outcome rules in `core/analysis/tool_outcomes.py`. The README section "What counts as a failure" states the same rules for users; change both together.
+- The failure verdict (`qualification_state`) is decided in `core/canonical_analysis.py`, using the tool outcome rules in `core/analysis/tool_outcomes.py`. The section "What counts as a failure" in `docs/how-checks-work.md` states the same rules for users; change both together.
 
 ## Step facts and rules
 

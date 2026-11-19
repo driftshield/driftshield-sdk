@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 901 378" width="901" height="378" style="width:100%;max-width:901px;height:auto" role="img" aria-label="Diagram" font-family='Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif'>
+<defs><marker id="cd-arrow-1y1lnai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d86a8"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<rect x="20" y="20" width="493.14" height="54" rx="10" fill="#f6f8ff" stroke="#d5ddf5" stroke-width="1.2"/>
+<rect x="34" y="32" width="126.45" height="30" rx="8" fill="#ffffff" stroke="#b9c1de" stroke-width="1.2"/>
+<text x="97.23" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">A step in the run</text>
+<rect x="170.45" y="32" width="177.54" height="30" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="259.23" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">A question the SDK asks</text>
+<rect x="358" y="32" width="54.3" height="30" rx="8" fill="#e2f7ee" stroke="#4ed29b" stroke-width="1.2"/>
+<text x="385.15" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Fine</text>
+<rect x="422.29" y="32" width="76.85" height="30" rx="8" fill="#fff1f1" stroke="#e25c5c" stroke-width="1.8"/>
+<text x="460.72" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#c43d3d">Flagged</text>
+<rect x="41" y="96" width="840" height="252" rx="8" fill="#f6f8ff" stroke="#d5ddf5" stroke-width="1.2"/>
+<line x1="41" y1="130" x2="881" y2="130" stroke="#d5ddf5"/>
+<text x="461" y="118" text-anchor="middle" font-size="13" font-weight="500" fill="#12203f">One risky step: a merge, a deploy, issue_payment</text>
+<circle cx="25" cy="185" r="5" fill="#7d86a8"/>
+<path d="M30,185 L65,185" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<path d="M215,185 C243,185 251,185 279,185" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<path d="M354,212 C354,240 354,240 354,268" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<path d="M429,185 C457,185 465,185 493,185" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<path d="M568,212 C568,240 568,248 568,276" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<path d="M643,185 C671,185 679,185 707,185" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-1y1lnai)"/>
+<rect x="65" y="158" width="150" height="54" rx="8" fill="#ffffff" stroke="#b9c1de" stroke-width="1.2"/>
+<text x="140" y="177" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Agent takes an</text>
+<text x="140" y="193" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">outside step</text>
+<rect x="279" y="158" width="150" height="54" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="354" y="177" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Checked since the</text>
+<text x="354" y="193" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">last outside step?</text>
+<rect x="493" y="158" width="150" height="54" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="568" y="177" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">A person</text>
+<text x="568" y="193" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">approved first?</text>
+<rect x="279" y="268" width="150" height="54" rx="8" fill="#e2f7ee" stroke="#4ed29b" stroke-width="1.2"/>
+<text x="354" y="287" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Checked,</text>
+<text x="354" y="303" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">fine</text>
+<rect x="493" y="276" width="150" height="38" rx="8" fill="#e2f7ee" stroke="#4ed29b" stroke-width="1.2"/>
+<text x="568" y="295" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Excused</text>
+<rect x="707" y="158" width="150" height="54" rx="8" fill="#fff1f1" stroke="#e25c5c" stroke-width="1.8"/>
+<text x="782" y="177" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#c43d3d">Verification</text>
+<text x="782" y="193" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#c43d3d">failure</text>
+<text x="354" y="240" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">yes</text>
+<text x="461" y="185" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">no</text>
+<text x="568" y="244" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">yes</text>
+<text x="675" y="185" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="600" fill="#c43d3d" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">no</text>
+</svg>

@@ -97,5 +97,5 @@ run.signature_hits   # verification_failure
 run.tool_coverage    # {"tool_calls": 8, "mapped_calls": 7, "not_checked_tools": {...}, ...}
 ```
 
-See the README section on the tool map for every kind and how a check, an outside step and a
+See [how-checks-work.md](how-checks-work.md#tools-that-are-not-shell-commands-the-tool-map) for every kind and how a check, an outside step and a
 confirmation are judged.

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1331 394" width="1331" height="394" style="width:100%;max-width:1331px;height:auto" role="img" aria-label="Diagram" font-family='Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif'>
+<defs><marker id="cd-arrow-kdbih0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d86a8"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<rect x="20" y="20" width="724.56" height="54" rx="10" fill="#f6f8ff" stroke="#d5ddf5" stroke-width="1.2"/>
+<rect x="34" y="32" width="127.95" height="30" rx="8" fill="#ffffff" stroke="#b9c1de" stroke-width="1.2"/>
+<text x="97.98" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Your agent's run</text>
+<rect x="171.95" y="32" width="233.9" height="30" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="288.9" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">The SDK does it, on your machine</text>
+<rect x="415.85" y="32" width="107.66" height="30" rx="8" fill="#eceef6" stroke="#9aa2c2" stroke-width="1.2"/>
+<text x="469.68" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">What you get</text>
+<rect x="533.51" y="32" width="197.05" height="30" rx="8" fill="#e2f7ee" stroke="#4ed29b" stroke-width="1.2"/>
+<text x="632.04" y="47" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Hosted DriftShield (optional)</text>
+<rect x="41" y="96" width="936.89" height="268" rx="8" fill="#f6f8ff" stroke="#d5ddf5" stroke-width="1.2"/>
+<line x1="41" y1="130" x2="977.89" y2="130" stroke="#d5ddf5"/>
+<text x="509.45" y="118" text-anchor="middle" font-size="13" font-weight="500" fill="#12203f">Your machine</text>
+<rect x="1112.39" y="96" width="198" height="206" rx="8" fill="#f6f8ff" stroke="#d5ddf5" stroke-width="1.2"/>
+<line x1="1112.39" y1="130" x2="1310.39" y2="130" stroke="#d5ddf5"/>
+<text x="1211.39" y="118" text-anchor="middle" font-size="13" font-weight="500" fill="#12203f">DriftShield cloud</text>
+<circle cx="25" cy="193" r="5" fill="#7d86a8"/>
+<path d="M30,193 L65,193" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<path d="M230.25,193 C268.56,193 283.16,193 321.47,193" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<path d="M471.47,193 C509.78,193 524.37,193 562.68,193" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<path d="M712.68,193 C750.99,193 765.58,193 803.89,193" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<path d="M637.68,220 C637.68,248 637.68,256 637.68,284" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<path d="M712.68,311 C892.53,311 956.54,249 1136.39,249" fill="none" stroke="#7d86a8" stroke-width="1.3" marker-end="url(#cd-arrow-kdbih0)"/>
+<rect x="65" y="158" width="165.25" height="70" rx="8" fill="#ffffff" stroke="#b9c1de" stroke-width="1.2"/>
+<text x="147.63" y="177" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Agent transcript</text>
+<text x="147.63" y="193" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Claude Code, Codex,</text>
+<text x="147.63" y="209" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">OpenClaw, events.v1</text>
+<rect x="321.47" y="166" width="150" height="54" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="396.47" y="185" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Read into</text>
+<text x="396.47" y="201" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">events</text>
+<rect x="562.68" y="166" width="150" height="54" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="637.68" y="185" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Run the checks</text>
+<text x="637.68" y="201" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">(tool map optional)</text>
+<rect x="803.89" y="166" width="150" height="54" rx="8" fill="#eceef6" stroke="#9aa2c2" stroke-width="1.2"/>
+<text x="878.89" y="185" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Report and</text>
+<text x="878.89" y="201" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">CI exit code</text>
+<rect x="562.68" y="284" width="150" height="54" rx="8" fill="#e8edff" stroke="#7e97ff" stroke-width="1.2"/>
+<text x="637.68" y="303" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Redact</text>
+<text x="637.68" y="319" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">everything private</text>
+<rect x="1136.39" y="222" width="150" height="54" rx="8" fill="#e2f7ee" stroke="#4ed29b" stroke-width="1.2"/>
+<text x="1211.39" y="241" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">Investigation</text>
+<text x="1211.39" y="257" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#12203f">and history</text>
+<text x="758.29" y="193" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">analyze</text>
+<text x="637.68" y="252" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">submit</text>
+<text x="924.54" y="280" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#525a78" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">labels only</text>
+</svg>
