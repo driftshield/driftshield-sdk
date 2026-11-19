@@ -526,3 +526,32 @@ class TestFailOnChecks:
         output = ANSI_RE.sub("", result.output)
         assert "verification_failure" in output
         assert "state_conflict" in output
+
+
+class TestQuietNamesFiredChecks:
+    """--quiet never says "No risks detected" when a check fired."""
+
+    def test_check_hit_with_no_step_risk(self):
+        result = runner.invoke(
+            app, ["analyze", str(INSURANCE_SESSION), "--tool-map", str(INSURANCE_MAP), "--quiet"]
+        )
+
+        output = ANSI_RE.sub("", result.stdout).strip()
+        assert result.exit_code == 0
+        assert "No risks detected" not in output
+        assert output == "⚠ 1 check fired: verification_failure"
+
+    def test_check_hit_and_step_risk_on_one_line(self):
+        result = runner.invoke(
+            app, ["analyze", str(FIXTURES_DIR / "sample_claude_code_session.jsonl"), "--quiet"]
+        )
+
+        output = ANSI_RE.sub("", result.stdout).strip()
+        assert output == "⚠ 1 risk(s) detected, 1 check fired: assumption_mutation"
+
+    def test_nothing_fired_stays_clean(self):
+        result = runner.invoke(
+            app, ["analyze", str(FIXTURES_DIR / "sample_claude_code_tool_success.jsonl"), "--quiet"]
+        )
+
+        assert ANSI_RE.sub("", result.stdout).strip() == "✓ No risks detected"

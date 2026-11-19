@@ -169,7 +169,8 @@ def analyze(
         for file_path, result in all_results:
             if len(all_results) > 1:
                 console.print(f"[bold]{file_path.stem}:[/bold] ", end="")
-            console.print(format_quiet(result))
+            fired = (hit.mechanism_id or hit.signature_id for hit in mapped_runs[file_path].signature_hits)
+            console.print(format_quiet(result, fired))
     else:
         for i, (file_path, result) in enumerate(all_results):
             if i > 0:
