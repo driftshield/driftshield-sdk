@@ -23,6 +23,7 @@ from driftshield.core.models import (
     QualificationState,
     Session as DomainSession,
 )
+from driftshield.tool_map import DEFAULT_CODING_MAP
 
 if TYPE_CHECKING:
     from driftshield.core.models import RunProvenance
@@ -764,13 +765,16 @@ def _tool_raw_reference(event: CanonicalEvent) -> dict[str, str] | None:
     return next((ref for ref in event.source_refs if ref.get("kind") != "parser"), None)
 
 
+_FILE_WRITE_TOOLS = DEFAULT_CODING_MAP.names("file_write")
+
+
 def _tool_event_family(event: CanonicalEvent) -> str:
     tool_name = str((event.tool_activity or {}).get("name") or event.action or "").lower()
     category = str((event.tool_activity or {}).get("category") or "").lower()
 
     if tool_name in {"read", "read_file", "cat"} or "file_io" in category and "read" in tool_name:
         return "state_read"
-    if tool_name in {"write", "edit", "apply_patch"} or "file_io" in category and tool_name in {"write", "edit"}:
+    if tool_name in _FILE_WRITE_TOOLS or "file_io" in category and tool_name in {"write", "edit"}:
         return "state_write"
     if tool_name in {"grep", "glob", "search", "web_search", "web_fetch"} or "search" in tool_name:
         return "retrieval_query"
@@ -897,7 +901,7 @@ def _tool_safety_flags(event: CanonicalEvent) -> list[str]:
     tool_name = str((event.tool_activity or {}).get("name") or event.action or "").lower()
     if tool_name in {"bash", "shell"}:
         flags.append("executes_shell")
-    if tool_name in {"write", "edit", "apply_patch"}:
+    if tool_name in _FILE_WRITE_TOOLS:
         flags.append("mutates_state")
     if event.failure_context:
         flags.append("reported_failure")

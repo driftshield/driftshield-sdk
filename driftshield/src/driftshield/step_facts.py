@@ -49,6 +49,8 @@ import re
 import shlex
 from typing import Any
 
+from driftshield.tool_map import SHELL_TOOL_NAMES
+
 STEP_FACTS_KEY = "step_facts"
 
 # STEP_FACTS_VERSION must change whenever the classification changes: any command
@@ -97,11 +99,6 @@ _CHECK_KINDS = frozenset({"read_only", "test", "build"})
 _RISK_ORDER: tuple[str, ...] = ("deploy", "merge", "git_push", "delete", "outside_write")
 _SAFE_ORDER: tuple[str, ...] = ("build", "test", "read_only")
 
-# Tool names (lower case) that run a shell command, across the supported
-# agent transcripts: Claude Code Bash, OpenClaw exec and bash, Codex.
-SHELL_TOOL_NAMES = frozenset(
-    {"bash", "exec", "shell", "shell_command", "exec_command", "local_shell"}
-)
 
 _MAX_COMMAND_CHARS = 16_384
 _MAIN_BRANCHES = frozenset({"main", "master", "trunk"})
