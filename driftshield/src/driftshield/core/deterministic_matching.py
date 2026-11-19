@@ -80,6 +80,7 @@ _CANDIDATES: dict[str, CandidateDefinition] = {
 # The check families a signature hit can name (`mechanism_id`, signature id `mechanism:<family>`).
 CHECK_FAMILIES: tuple[str, ...] = tuple(_CANDIDATES)
 
+
 def build_deterministic_match(
     *,
     canonical_analysis: dict[str, Any],

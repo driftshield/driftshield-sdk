@@ -370,7 +370,9 @@ class TestFailOnChecks:
         reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
         assert len(reasons) == 1
         assert "verification_failure" in reasons[0]
-        assert "claims-run-2026-11-12-0042" in reasons[0] or "insurance_claims" in reasons[0]
+        assert reasons[0] == (
+            "FAIL: verification_failure check fired in insurance_claims (--fail-on verification_failure)"
+        )
 
     def test_signature_id_form_is_accepted(self):
         result = runner.invoke(
@@ -432,6 +434,41 @@ class TestFailOnChecks:
         reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
         assert any("assumption_mutation" in line for line in reasons)
         assert not any("constraint_violation" in line for line in reasons)
+
+    def test_name_in_both_lists_names_the_check_and_the_step_risk(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "assumption_mutation",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "FAIL: assumption_mutation check fired and step risk on 1 event in "
+            "sample_claude_code_session (--fail-on assumption_mutation)"
+        ) in ANSI_RE.sub("", result.stderr)
+
+    def test_reasons_print_under_quiet_and_threshold_reasons_go_to_stderr(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--quiet",
+                "--fail-threshold",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "FAIL:" not in result.stdout
+        assert "FAIL: 1 flagged events in sample_claude_code_session (threshold: 1)" in ANSI_RE.sub(
+            "", result.stderr
+        )
 
     def test_unknown_name_is_a_usage_error(self):
         result = runner.invoke(
