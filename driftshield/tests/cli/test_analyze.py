@@ -345,3 +345,130 @@ class TestCheckHitsAlwaysShown:
         data = json.loads(result.stdout)
         assert isinstance(data, list) and len(data) == 2
         assert all("signature_hits" in item for item in data)
+
+INSURANCE_SESSION = FIXTURES_DIR / "events_v1" / "insurance_claims.jsonl"
+INSURANCE_MAP = Path(__file__).parent.parent / "fixtures" / "tool_maps" / "insurance_claims.json"
+
+
+class TestFailOnChecks:
+    """--fail-on takes check family names as well as the older step risk flags."""
+
+    def test_check_family_fails_the_run(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "verification_failure",
+            ],
+        )
+
+        assert result.exit_code == 1
+        reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
+        assert len(reasons) == 1
+        assert "verification_failure" in reasons[0]
+        assert "claims-run-2026-11-12-0042" in reasons[0] or "insurance_claims" in reasons[0]
+
+    def test_signature_id_form_is_accepted(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "mechanism:verification_failure",
+            ],
+        )
+
+        assert result.exit_code == 1
+
+    def test_check_that_did_not_fire_passes(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "state_conflict",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "FAIL:" not in result.output
+
+    def test_check_hits_without_a_tool_map_use_the_default_coding_map(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_tool_error_at_end.jsonl"),
+                "--fail-on",
+                "tool_misuse",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "tool_misuse" in ANSI_RE.sub("", result.stderr)
+
+    def test_older_risk_flag_names_still_work(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "constraint_violation, assumption_mutation",
+            ],
+        )
+
+        assert result.exit_code == 1
+        reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
+        assert any("assumption_mutation" in line for line in reasons)
+        assert not any("constraint_violation" in line for line in reasons)
+
+    def test_unknown_name_is_a_usage_error(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "verification_failur",
+            ],
+        )
+
+        assert result.exit_code == 2
+        output = ANSI_RE.sub("", result.output)
+        assert "verification_failur" in output
+        assert "verification_failure" in output
+
+    def test_json_stays_parseable_when_the_run_fails(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "verification_failure",
+                "--json",
+            ],
+        )
+
+        assert result.exit_code == 1
+        json.loads(result.stdout)
+
+    def test_help_lists_the_check_families(self):
+        result = runner.invoke(app, ["analyze", "--help"])
+
+        output = ANSI_RE.sub("", result.output)
+        assert "verification_failure" in output
+        assert "state_conflict" in output

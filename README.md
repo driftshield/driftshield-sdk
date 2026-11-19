@@ -522,6 +522,12 @@ driftshield list
 # Analyse a session for risk signals
 driftshield analyze <session-id-or-path>
 
+# Fail a CI job (exit 1, one FAIL line per reason on stderr) when a check fires or a step risk is flagged.
+# Takes check families (verification_failure, state_conflict, policy_divergence, coverage_gap,
+# retrieval_omission, tool_misuse, assumption_mutation) and step risks (assumption_mutation,
+# policy_divergence, constraint_violation, context_contamination, coverage_gap). An unknown name exits 2.
+driftshield analyze <session-id-or-path> --fail-on verification_failure,state_conflict
+
 # Inspect a specific node in the decision graph
 driftshield inspect <file.jsonl> --node 0
 
