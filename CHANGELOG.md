@@ -24,6 +24,13 @@ notes for each tag are taken from the matching section of this file.
   tool calls and results, confirmations and handoffs. Detected from content, redacted like every
   other format. `docs/events-v1.md` describes it, with a worked insurance claims session and its
   tool map in `docs/examples/insurance-claims/`. No change to existing formats or results.
+- A pull request read that follows a heredoc in the same shell step now counts. An apostrophe
+  in a heredoc body (a pull request description) opened a quote that hid the statements after
+  it, so a `gh pr view` loop just before a merge was missed and the merge was flagged. Heredoc
+  bodies fed to anything but a shell are now skipped as text, and their words no longer count
+  as reads. Step facts stay `step-facts.v7`, which no release has sent yet. On 138 local
+  sessions this removes two founder labelled false alarms and keeps all 9 labelled real
+  failures (#315).
 
 ## 0.3.5 - 2026-11-19
 

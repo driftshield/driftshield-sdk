@@ -79,13 +79,82 @@ def _gh_call(unit: str, pattern: re.Pattern[str]) -> list[str] | None:
     return words
 
 
+# Programs whose heredoc body is shell, so its statements run (and may read).
+_SHELL_BODY_RUNNERS = frozenset({"bash", "sh", "zsh", "ssh"})
+_HEREDOC_START = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
+
+
+def _without_heredoc_bodies(command: str) -> str:
+    """``command`` without the body and closing line of each heredoc fed to a program that is
+    not a shell (``cat > pr.md <<'EOF'``, ``python3 - <<EOF``).
+
+    The body is text, not shell: an apostrophe in it would open a quote that swallows the
+    statements after the heredoc, and its words are not commands. A body fed to ``bash``,
+    ``sh``, ``zsh`` or ``ssh`` is kept, since its statements run.
+    """
+    if "<<" not in command:
+        return command
+    out: list[str] = []
+    pending: list[tuple[str, bool, bool]] = []  # (delimiter, strip tabs, keep the body)
+    quote = ""
+    statement_start = 0
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote:
+            if char == quote:
+                quote = ""
+            elif char == "\\" and quote == '"':
+                out.append(command[index : index + 2])
+                index += 2
+                continue
+        elif char in "'\"":
+            quote = char
+        elif char in ";&|":
+            statement_start = len(out) + 1
+        elif command.startswith("<<", index) and not command.startswith("<<<", index):
+            match = _HEREDOC_START.match(command, index)
+            if match is not None:
+                words = _program(_words("".join(out[statement_start:])))
+                runner = words[0].rsplit("/", 1)[-1] if words else ""
+                pending.append(
+                    (match.group(3), match.group(1) == "-", runner in _SHELL_BODY_RUNNERS)
+                )
+                out.append(match.group(0))
+                index = match.end()
+                continue
+        elif char == "\n" and pending:
+            out.append(char)
+            index += 1
+            for delimiter, strip_tabs, keep in pending:
+                while index < len(command):
+                    end = command.find("\n", index)
+                    end = len(command) if end == -1 else end
+                    line = command[index:end]
+                    index = end + 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+                    if keep:
+                        out.append(line + "\n")
+            pending = []
+            statement_start = len(out)
+            continue
+        if char == "\n" and not quote:
+            statement_start = len(out) + 1
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def _split_units(command: str) -> list[str]:
     """Statements of ``command`` in order, a whole loop (to its ``done``) as one unit.
 
     Splits on unquoted ``&&``, ``||``, ``|``, ``;``, ``&`` and newlines, keeping ``$(...)`` and
-    quoted text inside the statement. This reader is generous: it never fails, so an odd
-    command still yields its statements.
+    quoted text inside the statement. A heredoc body fed to a program that is not a shell is
+    dropped first (:func:`_without_heredoc_bodies`). This reader is generous: it never fails,
+    so an odd command still yields its statements.
     """
+    command = _without_heredoc_bodies(command)
     parts: list[str] = []
     current = ""
     quote = ""
