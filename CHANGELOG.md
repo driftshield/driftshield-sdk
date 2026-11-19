@@ -11,6 +11,14 @@ notes for each tag are taken from the matching section of this file.
   shape as before; no field is renamed or removed, and `tool_coverage` still appears only with
   a tool map.
 
+- `driftshield analyze --fail-on` takes check family names (`verification_failure`,
+  `state_conflict`, `policy_divergence`, `coverage_gap`, `retrieval_omission`, `tool_misuse`,
+  `assumption_mutation`, also as `mechanism:<name>`) as well as the five step risk flags, so a
+  CI job can fail on a check hit. A name in both lists fails on either. The run exits 1 with
+  one `FAIL:` line per reason on stderr, `--fail-threshold` reasons included, so stdout stays
+  valid JSON with `--json`. The reasons now print under `--quiet` too, which used to hide
+  them. An unknown name exits 2 instead of being ignored.
+
 ## 0.3.6 - 2026-11-19
 
 ### Tool maps, a neutral event format and two false alarms fewer

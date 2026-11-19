@@ -9,6 +9,8 @@ from rich.console import Console
 
 from driftshield.cli.output import format_summary, format_json, format_verbose_table, format_quiet
 from driftshield.cli.discovery import discover_sessions, resolve_session
+from driftshield.core.deterministic_matching import CHECK_FAMILIES
+from driftshield.core.models import RiskClassification
 from driftshield.public import NoParseableEventsError, UnsupportedFormatError, analyse_run
 from driftshield.tool_map import ToolMapError, load_tool_map
 
@@ -53,7 +55,10 @@ def analyze(
     fail_on: Optional[str] = typer.Option(
         None,
         "--fail-on",
-        help="Exit 1 if specified risks detected (comma-separated).",
+        help="Exit 1 if any named check fires or step risk is flagged (comma separated). "
+        "Checks: " + ", ".join(CHECK_FAMILIES) + " (also accepted as mechanism:<name>). "
+        "Step risks: " + ", ".join(RiskClassification.FLAG_FIELDS) + ". "
+        "An unknown name exits 2.",
     ),
     fail_threshold: Optional[int] = typer.Option(
         None,
@@ -71,6 +76,8 @@ def analyze(
     """Analyse session(s) for reasoning risks."""
     claude_home = os.environ.get("CLAUDE_HOME")
     claude_base = Path(claude_home) if claude_home else None
+
+    fail_on_names = _parse_fail_on(fail_on)
 
     try:
         tool_map = load_tool_map(tool_map_path)
@@ -137,12 +144,9 @@ def analyze(
     fail_reasons: list[str] = []
 
     for file_path, result in all_results:
-        if fail_on:
-            risk_types = [r.strip() for r in fail_on.split(",")]
-            for risk_type in risk_types:
-                if result.risk_summary.get(risk_type, 0) > 0:
-                    should_fail = True
-                    fail_reasons.append(f"{risk_type} detected in {file_path.stem}")
+        for reason in _fail_on_reasons(fail_on_names, result, mapped_runs[file_path], file_path.stem):
+            should_fail = True
+            fail_reasons.append(reason)
 
         if fail_threshold is not None:
             if result.flagged_events >= fail_threshold:
@@ -187,11 +191,8 @@ def analyze(
 
     # Exit with failure if CI conditions met
     if should_fail:
-        if not quiet:
-            console.print()
-            console.print("[red]FAIL:[/red]")
-            for reason in fail_reasons:
-                console.print(f"  - {reason}")
+        for reason in fail_reasons:
+            err_console.print(f"[red]FAIL:[/red] {reason}", highlight=False, soft_wrap=True)
         raise typer.Exit(1)
 
 
@@ -204,6 +205,37 @@ def _run_fields(run, *, with_tool_map: bool) -> dict:
         for hit in run.signature_hits
     ]
     return fields
+
+def _parse_fail_on(fail_on: Optional[str]) -> list[str]:
+    """The --fail-on names, with ``mechanism:`` stripped. An unknown name is a usage error."""
+    if not fail_on:
+        return []
+    names = []
+    for raw in fail_on.split(","):
+        name = raw.strip().removeprefix("mechanism:")
+        if not name:
+            continue
+        if name not in CHECK_FAMILIES and name not in RiskClassification.FLAG_FIELDS:
+            known = ", ".join(sorted({*CHECK_FAMILIES, *RiskClassification.FLAG_FIELDS}))
+            raise typer.BadParameter(f"unknown name {raw.strip()!r}. Known: {known}", param_hint="--fail-on")
+        names.append(name)
+    return list(dict.fromkeys(names))
+
+
+def _fail_on_reasons(names: list[str], result, run, session: str) -> list[str]:
+    """One line per --fail-on name that fired: a check hit, a step risk flag, or both."""
+    fired_checks = {hit.mechanism_id for hit in run.signature_hits}
+    reasons = []
+    for name in names:
+        parts = []
+        if name in fired_checks:
+            parts.append("check fired")
+        flagged = result.risk_summary.get(name, 0) if name in RiskClassification.FLAG_FIELDS else 0
+        if flagged > 0:
+            parts.append(f"step risk on {flagged} event{'s' if flagged != 1 else ''}")
+        if parts:
+            reasons.append(f"{name} {' and '.join(parts)} in {session} (--fail-on {name})")
+    return reasons
 
 
 def _hits_summary(run, *, with_tool_map: bool) -> str:
