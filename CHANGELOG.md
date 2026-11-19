@@ -3,17 +3,15 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.7 - 2026-11-19
 
-- `driftshield analyze --quiet` names the checks that fired, for example
-  `⚠ 1 check fired: verification_failure`, and no longer says `No risks detected` when a check
-  fired with no step risk flagged. It stays one line per session.
+### The analyze command can fail CI on a check, and always shows its hits
 
-- `driftshield analyze` prints its signature hits (`Signature hits: mechanism:...`, or `none`)
-  for every session, not only with `--tool-map`; with no map the default coding map applies,
-  as in the rules. `--json` gains a `signature_hits` list for every session, with the same
-  shape as before; no field is renamed or removed, and `tool_coverage` still appears only with
-  a tool map.
+In short: `driftshield analyze --fail-on verification_failure` now fails a CI job when that
+check fires, and the analyze output lists the signature hits of every session, with or without
+a tool map, and `--quiet` no longer calls a run with a check hit clean. CLI only: no rule,
+step fact or upload changes. Rules version stays `phase-3g-deterministic-rules-v6`, step facts
+`step-facts.v7`.
 
 - `driftshield analyze --fail-on` takes check family names (`verification_failure`,
   `state_conflict`, `policy_divergence`, `coverage_gap`, `retrieval_omission`, `tool_misuse`,
@@ -22,6 +20,14 @@ notes for each tag are taken from the matching section of this file.
   one `FAIL:` line per reason on stderr, `--fail-threshold` reasons included, so stdout stays
   valid JSON with `--json`. The reasons now print under `--quiet` too, which used to hide
   them. An unknown name exits 2 instead of being ignored.
+- `driftshield analyze` prints its signature hits (`Signature hits: mechanism:...`, or `none`)
+  for every session, not only with `--tool-map`; with no map the default coding map applies,
+  as in the rules. `--json` gains a `signature_hits` list for every session, with the same
+  shape as before; no field is renamed or removed, and `tool_coverage` still appears only with
+  a tool map.
+- `driftshield analyze --quiet` names the checks that fired, for example
+  `⚠ 1 check fired: verification_failure`, and no longer says `No risks detected` when a check
+  fired with no step risk flagged. It stays one line per session.
 
 ## 0.3.6 - 2026-11-19
 
