@@ -77,6 +77,9 @@ def matching_behaviour() -> dict[str, list[list[Any]]]:
                 tool_map=tool_map,
             )
             out[f"{name}|mapped redacted"] = _hits(again)
+            # What a reader without the map (intel today) makes of the uploaded copy.
+            unmapped = analyse_run(json.dumps(mapped.redacted_transcript), format=mapped.detected_format)
+            out[f"{name}|mapped redacted, no map"] = _hits(unmapped)
     return out
 
 
@@ -242,6 +245,7 @@ MAPPED_TOOL_MAP = tool_map_from_dict(
             "email_broker": "outside_send",
             "cancel_policy": "delete_outside",
             "search_documents": "read",
+            "ask_supervisor": "confirmation",
         }
     }
 )
@@ -253,6 +257,8 @@ MAPPED_SEQUENCES: list[list[str]] = [
     ["lookup_claim", "unknown_tool", "cancel_policy"],
     ["git status", "issue_payment"],
     ["lookup_claim", "gh pr merge 3", "issue_payment"],
+    ["ask_supervisor", "issue_payment", "cancel_policy"],
+    ["issue_payment", "ask_supervisor", "cancel_policy"],
 ]
 
 

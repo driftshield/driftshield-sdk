@@ -216,9 +216,17 @@
  },
  "mapped_sequences": {
   "step-facts.v7": {
+   "[\"ask_supervisor\", \"issue_payment\", \"cancel_policy\"]": [
+    "issue_payment outside_write False False",
+    "cancel_policy delete False False"
+   ],
    "[\"git status\", \"issue_payment\"]": [
     "Bash read_only False False",
     "issue_payment outside_write True False"
+   ],
+   "[\"issue_payment\", \"ask_supervisor\", \"cancel_policy\"]": [
+    "issue_payment outside_write False True",
+    "cancel_policy delete False False"
    ],
    "[\"issue_payment\"]": [
     "issue_payment outside_write False True"
@@ -1121,6 +1129,14 @@
     ]
    ],
    "tool_map/insurance_claims_claude_code.jsonl|mapped redacted": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.65
+    ]
+   ],
+   "tool_map/insurance_claims_claude_code.jsonl|mapped redacted, no map": [
     [
      "mechanism:verification_failure",
      "verification_failure",

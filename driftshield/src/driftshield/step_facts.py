@@ -2600,7 +2600,8 @@ def compute_step_facts(
     default coding map decides which tools are shell steps. A tool the map gives a ``check``,
     ``outside_write``, ``outside_send`` or ``delete_outside`` kind gets facts from its name
     alone: a check counts like a read in a shell step, and an outside call with no check since
-    the previous outside step is marked ``unchecked_tool_step``.
+    the previous outside step and no confirmation tool call earlier in the run is marked
+    ``unchecked_tool_step``.
     """
     from driftshield.step_facts_pr import (
         clear_reads,
@@ -2625,12 +2626,18 @@ def compute_step_facts(
     # outside step on them. Only a merge reads this, and only for its own pull request.
     pr_reads: set[tuple[str, str]] = set()
     kinds = tool_map if tool_map is not None else DEFAULT_CODING_MAP
+    # A confirmation tool call anywhere earlier in the run excuses a later mapped outside call,
+    # as the verification rule's own confirmation check does, so the redacted copy carries the
+    # same answer when it is analysed again without the map.
+    confirmed = False
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
             raw_input = node.get("input") if "input" in node else node.get("arguments")
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
             tool_kind = kinds.kind_for(name)
+            if tool_kind == "confirmation":
+                confirmed = True
             if tool_kind == "shell":
                 command = _command_from_input(raw_input)
                 hidden = command is None and carried is not None
@@ -2692,7 +2699,7 @@ def compute_step_facts(
                 if tool_kind == "check":
                     seen_check = True
                 else:
-                    facts["unchecked_tool_step"] = not seen_check
+                    facts["unchecked_tool_step"] = not seen_check and not confirmed
                     seen_check = False
                 facts_by_node[id(node)] = facts
                 is_shell = False

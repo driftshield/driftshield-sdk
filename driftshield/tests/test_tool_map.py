@@ -124,6 +124,7 @@ def test_insurance_session_fires_on_unchecked_outside_tools_with_its_map():
     assert facts["issue_payment"]["unchecked_tool_step"] is True
     assert facts["email_broker"]["command_kind"] == "send_outside"
     assert facts["cancel_policy"]["command_kind"] == "delete"
+    assert facts["cancel_policy"]["unchecked_tool_step"] is False
     # cancel_policy is unchecked but an underwriter approved it first, so it is excused.
     assert _unconfirmed_tools(run) == ["email_broker", "issue_payment"]
     assert run.tool_coverage == {
@@ -140,9 +141,11 @@ def test_mapped_facts_survive_redaction_and_reanalysis():
     run = analyse_run(INSURANCE.read_bytes(), source=INSURANCE.name, tool_map=tool_map)
     again = analyse_run(json.dumps(run.redacted_transcript), format=run.detected_format, tool_map=tool_map)
     assert _facts_by_tool(again) == _facts_by_tool(run)
-    # Without the map, the carried facts are still believed for a hidden input.
+    # Without the map, the carried facts are still believed for a hidden input, and the
+    # excused cancel_policy stays excused: the same steps are unconfirmed.
     plain = analyse_run(json.dumps(run.redacted_transcript), format=run.detected_format)
     assert [h.signature_id for h in plain.signature_hits] == ["mechanism:verification_failure"]
+    assert _unconfirmed_tools(plain) == _unconfirmed_tools(run) == ["email_broker", "issue_payment"]
 
 
 def _hits_and_facts(run):
