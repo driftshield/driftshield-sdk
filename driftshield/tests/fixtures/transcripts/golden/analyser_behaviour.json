@@ -1009,6 +1009,32 @@
      0.74
     ]
    ],
+   "events_v1/insurance_claims.jsonl|mapped": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.63
+    ]
+   ],
+   "events_v1/insurance_claims.jsonl|mapped redacted": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.63
+    ]
+   ],
+   "events_v1/insurance_claims.jsonl|mapped redacted, no map": [
+    [
+     "mechanism:verification_failure",
+     "verification_failure",
+     "medium",
+     0.63
+    ]
+   ],
+   "events_v1/insurance_claims.jsonl|raw": [],
+   "events_v1/insurance_claims.jsonl|redacted": [],
    "sample_chatgpt_export.json|raw": [],
    "sample_claude_code_scoped_checks.jsonl|raw": [],
    "sample_claude_code_scoped_checks.jsonl|redacted": [],

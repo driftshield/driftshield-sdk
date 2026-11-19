@@ -19,6 +19,11 @@ notes for each tag are taken from the matching section of this file.
   `send_outside`, new field `unchecked_tool_step`) and rules version
   `phase-3g-deterministic-rules-v6`. With no map, every flag and every step fact is the same as
   0.3.5 apart from the new `unchecked_tool_step: false` key, checked on 96 local sessions.
+- New neutral event format `driftshield.events.v1` (JSON Lines, format name
+  `driftshield_events_v1`) for agents with no transcript format DriftShield reads: messages,
+  tool calls and results, confirmations and handoffs. Detected from content, redacted like every
+  other format. `docs/events-v1.md` describes it, with a worked insurance claims session and its
+  tool map in `docs/examples/insurance-claims/`. No change to existing formats or results.
 
 ## 0.3.5 - 2026-11-19
 

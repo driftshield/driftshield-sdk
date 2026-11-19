@@ -98,7 +98,9 @@ _VISIBILITY_ALIASES: dict[str, str] = {
 # Formats whose native transcript is line-delimited JSON. The shareable copy of
 # one of these is the record list under ``events`` (plus the promoted session
 # id), the same shape the submit path has always uploaded.
-_LINE_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw", "openclaw_trajectory"})
+_LINE_FORMATS = frozenset(
+    {"claude_code", "codex_cli", "openclaw", "openclaw_trajectory", "driftshield_events_v1"}
+)
 
 # How many unreadable lines are named individually before the rest are counted.
 _WARNING_DETAIL_LIMIT = 10
@@ -469,7 +471,7 @@ def _parse_bytes(
 
 
 # The formats whose parsers read ``step_facts`` off a tool call block into the events.
-_STEP_FACT_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw"})
+_STEP_FACT_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw", "driftshield_events_v1"})
 
 
 def _with_step_facts(

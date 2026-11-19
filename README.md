@@ -59,10 +59,16 @@ graph, inspect the inflection node, and read the generated forensic report.
 | Codex CLI | JSONL | Experimental |
 | Codex Desktop | JSON | Experimental |
 | OpenClaw | JSONL | Experimental |
+| Your own agent (`driftshield.events.v1`) | JSONL | Experimental |
 
 ChatGPT export reads one conversation from `conversations.json` (the branch ending at `current_node`); a file holding several conversations is refused for now.
 
 Codex CLI covers the rollout files under `~/.codex/sessions/`; the Codex app and its VS Code extension write the same files.
+
+For an agent with none of these formats (an insurance claims agent, a support agent), write
+its log as `driftshield.events.v1` JSON Lines and say what each tool does in a tool map. See
+[docs/events-v1.md](docs/events-v1.md) and the worked insurance example in
+[docs/examples/insurance-claims](docs/examples/insurance-claims).
 
 DriftShield uses a parser protocol. New sources can be added by implementing a single interface.
 
