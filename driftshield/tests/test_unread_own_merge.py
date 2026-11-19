@@ -428,3 +428,64 @@ def test_each_create_in_one_step_gets_its_own_link():
     )
     assert _fired([two, "gh pr view b", "gh pr merge 21"]) == 1
     assert _fired([two, "gh pr view a", "gh pr merge 21"]) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Heredoc bodies are text, not shell: their quotes and words do not hide later reads
+# --------------------------------------------------------------------------- #
+
+_BODY = (
+    "## Summary\n\nComments only. The module's AST is unchanged.\n\n"
+    "for the record, nothing else moved.\n\n## Evidence\n\n- tests pass\n"
+)
+
+
+@pytest.mark.parametrize("delimiter", ["'EOF'", "EOF", '"EOF"', "-EOF"])
+def test_a_read_after_a_heredoc_with_an_apostrophe_clears_the_merge(delimiter: str):
+    # Founder labelled false alarms (home session, steps 90 and 132): push, a PR body heredoc
+    # with an apostrophe, ``gh pr create`` of the next pull request, then a loop reading the
+    # two to merge. The apostrophe opened a quote that swallowed the create and the reads.
+    end = "EOF"
+    step = (
+        "cd /w/x; git commit -qam m && git push -q -u origin HEAD 2>&1 | grep -v remote; "
+        f"cat > /tmp/pr.md <<{delimiter}\n{_BODY}{end}\n"
+        "gh pr create --head next --title t --body-file /tmp/pr.md; "
+        "for n in 501 502; do echo \"#$n\"; gh pr view $n --json headRefOid,comments "
+        "--jq '.headRefOid, (.comments[].body|split(\"\\n\")[0])'; done"
+    )
+    steps: list[Step] = [
+        ("git push -u origin a && gh pr create --head a --fill", LINK.format(501), False),
+        ("git push -u origin b && gh pr create --head b --fill", LINK.format(502), False),
+        (step, f"{LINK.format(503)}\n#501\nabc\n#502\ndef\n", False),
+        "gh pr merge 501 --squash --match-head-commit abc && "
+        "gh pr merge 502 --squash --match-head-commit def",
+    ]
+    assert _fired(steps) == 0
+    # The pull request the heredoc step opened is still unread.
+    assert _fired([*steps, "gh pr merge 503 --squash"]) == 1
+
+
+def test_a_heredoc_body_does_not_count_as_a_read():
+    step = "cat > /tmp/pr.md <<'EOF'\nmerge gh pr view 12 after review\nEOF\necho done"
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 1
+
+
+def test_a_heredoc_body_run_by_a_shell_still_reads():
+    step = "bash <<'EOF'\ngh pr view 12 --json state\nEOF"
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "cat <<'EOF' | sh\ngh pr view 12 --json state\nEOF",
+        "cat <<EOF | /bin/bash -s\ngh pr view 12\nEOF",
+    ],
+)
+def test_a_heredoc_body_piped_into_a_shell_still_reads(step: str):
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0
+
+
+def test_a_shift_in_arithmetic_is_not_a_heredoc():
+    step = "x=$((1<<y))\ngh pr view 12 --json state\ny\necho z"
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0
