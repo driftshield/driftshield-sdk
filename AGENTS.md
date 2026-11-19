@@ -23,7 +23,7 @@ Everything tracked here is public. Every file must make sense without any privat
 
 ## Step facts and rules
 
-- Step facts (`step_facts.py`, `step_facts_pr.py`, `step_facts_own_merge.py`, `step_facts_start_label.py`) classify each shell step. `STEP_FACTS_VERSION` in `step_facts.py` changes whenever any command's classification changes.
+- Step facts (`step_facts.py`, `step_facts_pr.py`, `step_facts_own_merge.py`, `step_facts_start_label.py`) classify each shell step, and each tool a tool map (`tool_map.py`) names. `STEP_FACTS_VERSION` in `step_facts.py` changes whenever any command's classification changes.
 - The matching rules are in `core/deterministic_matching.py`. `RULESET_VERSION` changes whenever a rule's behaviour changes.
 - Both versions are sent with every upload and pinned per version by `driftshield/tests/test_analyser_versions.py`, so a behaviour change without a version bump fails the build. Record each bump in `CHANGELOG.md`.
 

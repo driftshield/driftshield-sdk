@@ -23,7 +23,7 @@ from driftshield.step_facts import (
 
 FACT_KEYS = {
     "command_kind", "target_kind", "exit_status", "checked_before", "error_class",
-    "unread_own_merge", "unread_start_label",
+    "unread_own_merge", "unread_start_label", "unchecked_tool_step",
 }
 
 # (command, command_kind, target_kind). Every command kind and every target
@@ -937,7 +937,8 @@ def test_classification_table(command: str, kind: str, target: str):
 
 
 def test_the_table_covers_every_command_kind_and_target_kind():
-    assert {kind for _, kind, _ in CLASSIFICATION_TABLE} == set(COMMAND_KINDS)
+    # ``send_outside`` comes only from a tool map, never from a shell command.
+    assert {kind for _, kind, _ in CLASSIFICATION_TABLE} == set(COMMAND_KINDS) - {"send_outside"}
     assert {target for _, _, target in CLASSIFICATION_TABLE} == set(TARGET_KINDS)
 
 
@@ -994,6 +995,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "error_class": "none",
         "unread_own_merge": False,
         "unread_start_label": False,
+        "unchecked_tool_step": False,
     }
     assert sanitise_step_facts("a string") is None
     assert sanitise_step_facts(None) is None
@@ -1348,6 +1350,7 @@ def test_a_step_facts_key_in_the_input_is_never_copied_through():
         "error_class": "none",
         "unread_own_merge": False,
         "unread_start_label": False,
+        "unchecked_tool_step": False,
     }
 
 
@@ -1417,6 +1420,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "error_class": "none",
             "unread_own_merge": False,
             "unread_start_label": False,
+            "unchecked_tool_step": False,
         },
         {
             "command_kind": "git_push",
@@ -1426,6 +1430,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "error_class": "other",
             "unread_own_merge": False,
             "unread_start_label": False,
+            "unchecked_tool_step": False,
         },
     ]
     # The second pass must not reset a hidden command to unknown: its own

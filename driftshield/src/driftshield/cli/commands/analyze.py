@@ -10,6 +10,7 @@ from rich.console import Console
 from driftshield.cli.output import format_summary, format_json, format_verbose_table, format_quiet
 from driftshield.cli.discovery import discover_sessions, resolve_session
 from driftshield.public import NoParseableEventsError, UnsupportedFormatError, analyse_run
+from driftshield.tool_map import ToolMapError, load_tool_map
 
 
 console = Console(force_terminal=True)
@@ -59,10 +60,22 @@ def analyze(
         "--fail-threshold",
         help="Exit 1 if N or more events flagged.",
     ),
+    tool_map_path: Optional[str] = typer.Option(
+        None,
+        "--tool-map",
+        help="JSON file saying what each tool does (read, check, outside_write, ...). "
+        "Defaults to $DRIFTSHIELD_TOOL_MAP. Adds the tool coverage and signature hits to the output.",
+    ),
 ) -> None:
     """Analyse session(s) for reasoning risks."""
     claude_home = os.environ.get("CLAUDE_HOME")
     claude_base = Path(claude_home) if claude_home else None
+
+    try:
+        tool_map = load_tool_map(tool_map_path)
+    except ToolMapError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     # Collect files to analyze
     files_to_analyze: list[Path] = []
@@ -89,12 +102,14 @@ def analyze(
 
     # Analyse each file through the door
     all_results = []
+    mapped_runs = {}
     for file_path in files_to_analyze:
         try:
             run = analyse_run(
                 file_path.read_bytes(),
                 source=str(file_path),
                 format=None if parser == "auto" else parser,
+                tool_map=tool_map,
             )
         except UnsupportedFormatError as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -110,6 +125,7 @@ def analyze(
         for warning in run.warnings:
             err_console.print(f"[yellow]Warning:[/yellow] {file_path.name}: {warning}")
         all_results.append((file_path, run.analysis))
+        mapped_runs[file_path] = run
 
     if not all_results:
         console.print("No sessions analyzed.")
@@ -138,7 +154,14 @@ def analyze(
     # Output results
     if json_output:
         import json
-        if len(all_results) == 1:
+        if tool_map is not None:
+            data = []
+            for file_path, result in all_results:
+                item = json.loads(format_json(result))
+                item.update(_tool_map_fields(mapped_runs[file_path]))
+                data.append(item)
+            typer.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
+        elif len(all_results) == 1:
             typer.echo(format_json(all_results[0][1]))
         else:
             data = []
@@ -163,6 +186,9 @@ def analyze(
                 console.print()
 
             console.print(format_summary(result))
+            if tool_map is not None:
+                console.print()
+                console.print(_tool_map_summary(mapped_runs[file_path]))
 
             if verbose:
                 console.print()
@@ -176,3 +202,27 @@ def analyze(
             for reason in fail_reasons:
                 console.print(f"  - {reason}")
         raise typer.Exit(1)
+
+
+def _tool_map_fields(run) -> dict:
+    return {
+        "tool_coverage": run.tool_coverage,
+        "signature_hits": [
+            {"signature_id": hit.signature_id, "mechanism_id": hit.mechanism_id}
+            for hit in run.signature_hits
+        ],
+    }
+
+
+def _tool_map_summary(run) -> str:
+    coverage = run.tool_coverage or {}
+    total = coverage.get("tool_calls", 0)
+    mapped = coverage.get("mapped_calls", 0)
+    lines = [f"Tool map: {mapped} of {total} tool calls checked"]
+    not_checked = coverage.get("not_checked_tools") or {}
+    if not_checked:
+        names = ", ".join(f"{name} ({count})" for name, count in not_checked.items())
+        lines.append(f"Not checked (not in the tool map): {names}")
+    hits = sorted({hit.signature_id for hit in run.signature_hits})
+    lines.append(f"Signature hits: {', '.join(hits) if hits else 'none'}")
+    return "\n".join(lines)

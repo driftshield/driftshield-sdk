@@ -299,18 +299,19 @@ leave them out.
 Redaction replaces every tool input with a placeholder, so by default nothing
 tells `ls` and `git push` apart. For each shell step (Claude Code `Bash`,
 OpenClaw `exec` and `bash`, and Codex shell calls) the redacted transcript
-keeps one extra key, `step_facts`, with exactly six values. Each value is
+keeps one extra key, `step_facts`, with exactly the values below. Each value is
 picked from a fixed list. This is always on. There is no option to turn it off
 or to lower it.
 
 | Field | Allowed values |
 |-------|----------------|
-| `command_kind` | `read_only`, `test`, `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `unknown` |
+| `command_kind` | `read_only`, `test`, `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `send_outside`, `unknown` |
 | `target_kind` | `own_checkout`, `main_branch`, `outside_service`, `unknown` |
 | `exit_status` | `success`, `failure`, `unknown` |
 | `checked_before` | `true` or `false` |
 | `unread_own_merge` | `true` or `false` |
 | `unread_start_label` | `true` or `false` |
+| `unchecked_tool_step` | `true` or `false` |
 | `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
 
 `command_kind` and `target_kind` are decided on your machine by reading the
@@ -364,8 +365,9 @@ variable, `$(...)`, the current branch) is not checked. The number is worked out
 machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
 are `unknown`.
 
-`unread_own_merge` and `unread_start_label` are what the verification failure check reads,
-and the only things it fires on. `unread_own_merge` is true for a step that merges pull request N when the run opened N (a
+`unread_own_merge` and `unread_start_label` are what the verification failure check reads
+for shell steps, and the only things it fires on there (for other tools, see the tool map
+below). `unread_own_merge` is true for a step that merges pull request N when the run opened N (a
 `gh pr create` whose result shows N's link) or pushed to N's branch, and no read of N came
 between the last open or push and the merge. A read is generous: any statement naming N
 (by number, link or branch) that runs `gh`, `curl`, a script or a shell function counts,
@@ -381,6 +383,37 @@ fresh read of N. A read is fresh when it is in the same command, before or after
 in the previous ten shell steps and after the run's own last edit, comment or label change
 on N in an earlier step. Other labels, removals and a number in a variable are not judged.
 Only the boolean leaves.
+
+### Tools that are not shell commands: the tool map
+
+A shell step is judged from its command line. Any other tool (`issue_payment`,
+`cancel_policy`, `email_broker`) is judged only if a tool map says what it does. A tool map is
+a JSON file from tool name to kind:
+
+```json
+{"version": 1, "coding_defaults": false,
+ "tools": {"lookup_claim": "check", "issue_payment": "outside_write",
+           "email_broker": "outside_send", "cancel_policy": "delete_outside",
+           "request_underwriter_approval": "confirmation", "transfer_to_human": "handoff",
+           "log_note": "ignore"}}
+```
+
+Kinds: `read` (changes nothing), `check` (reads the thing about to be changed),
+`outside_write`, `outside_send` (sends data beyond your own systems), `delete_outside`,
+`confirmation` (a person was asked and answered), `handoff`, `ignore`, and for coding agents
+`shell` and `file_write`. The coding agent tools above are in the default map; a map file adds
+to it entry by entry, or switches it off with `"coding_defaults": false`. Pass it with
+`driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`), or
+`analyse_run(..., tool_map=load_tool_map("map.json"))`.
+
+A mapped tool gets `step_facts` from its name alone: `check` is `read_only`, `outside_write`
+stays `outside_write`, `outside_send` is `send_outside` and `delete_outside` is `delete`, all
+on an `outside_service`. A check counts like a read in a shell step for `checked_before`.
+`unchecked_tool_step` is true for a mapped outside call with no check since the previous
+outside step and no confirmation earlier in the run; the verification failure check fires on it. It
+needs no stated safeguard in the instructions, since the map already says the tool is risky.
+A tool the map does not name is **not checked**, never clean: the analysis reports how many
+tool calls the map named and lists the rest. Only tool names are read, never arguments.
 
 `error_class` says why a step failed, and only a label leaves, never the error text.
 It is read from the failed result on your machine before redaction hides it, by looking

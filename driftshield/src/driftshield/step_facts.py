@@ -49,7 +49,15 @@ import re
 import shlex
 from typing import Any
 
-from driftshield.tool_map import SHELL_TOOL_NAMES
+from driftshield.tool_map import DEFAULT_CODING_MAP, ToolMap
+
+# A tool map kind that gives a non shell tool call step facts: (command kind, target kind).
+_MAPPED_STEP_KINDS: dict[str, tuple[str, str]] = {
+    "check": ("read_only", "outside_service"),
+    "outside_write": ("outside_write", "outside_service"),
+    "outside_send": ("send_outside", "outside_service"),
+    "delete_outside": ("delete", "outside_service"),
+}
 
 STEP_FACTS_KEY = "step_facts"
 
@@ -69,7 +77,11 @@ STEP_FACTS_KEY = "step_facts"
 # v6: 0.3.5 (a loop over ``repo:N`` or ``owner/repo/N`` items names N for an own merge read;
 # a bare ``git push`` after ``cd`` pushes that checkout's branch; a merge through
 # ``gh api -i`` is judged; a new ``unread_start_label`` field).
-STEP_FACTS_VERSION = "step-facts.v6"
+# v7: (tool map) a tool call that is not a shell step gets facts from the kind a tool map gives
+# its name: ``check`` is ``read_only``, ``outside_write`` stays ``outside_write``, the new
+# ``send_outside`` kind, ``delete_outside`` is ``delete``, all on an ``outside_service``; a new
+# ``unchecked_tool_step`` field. With no tool map every step gets the same facts as v6.
+STEP_FACTS_VERSION = "step-facts.v7"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -80,6 +92,7 @@ COMMAND_KINDS: tuple[str, ...] = (
     "deploy",
     "delete",
     "outside_write",
+    "send_outside",
     "unknown",
 )
 TARGET_KINDS: tuple[str, ...] = ("own_checkout", "main_branch", "outside_service", "unknown")
@@ -121,6 +134,7 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "error_class": "none",
         "unread_own_merge": False,
         "unread_start_label": False,
+        "unchecked_tool_step": False,
     }
 
 
@@ -137,7 +151,7 @@ def is_outside_step(command_kind: object, target_kind: object) -> bool:
         return target_kind != "own_checkout"
     if command_kind == "delete":
         return target_kind == "outside_service"
-    return command_kind in {"deploy", "outside_write"}
+    return command_kind in {"deploy", "outside_write", "send_outside"}
 
 
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
@@ -164,6 +178,7 @@ def sanitise_step_facts(value: object) -> dict[str, Any] | None:
         ),
         "unread_own_merge": value.get("unread_own_merge") is True,
         "unread_start_label": value.get("unread_start_label") is True,
+        "unchecked_tool_step": value.get("unchecked_tool_step") is True,
     }
 
 
@@ -2565,7 +2580,7 @@ def _result_id_and_status(node: Mapping[str, Any]) -> tuple[str | None, str]:
 
 
 def compute_step_facts(
-    transcript: object, *, skip_keys: Collection[str] = ()
+    transcript: object, *, skip_keys: Collection[str] = (), tool_map: ToolMap | None = None
 ) -> dict[int, dict[str, Any]]:
     """Facts for every shell step in a raw transcript, keyed by ``id()`` of its block.
 
@@ -2580,6 +2595,13 @@ def compute_step_facts(
     the same answer as the first analysis; an unmarked one gets ``unknown`` values. A
     step whose command is visible never keeps facts from the input: they are
     recomputed.
+
+    ``tool_map`` says what each tool does (:mod:`driftshield.tool_map`). With no map the
+    default coding map decides which tools are shell steps. A tool the map gives a ``check``,
+    ``outside_write``, ``outside_send`` or ``delete_outside`` kind gets facts from its name
+    alone: a check counts like a read in a shell step, and an outside call with no check since
+    the previous outside step and no confirmation tool call earlier in the run is marked
+    ``unchecked_tool_step``.
     """
     from driftshield.step_facts_pr import (
         clear_reads,
@@ -2603,12 +2625,20 @@ def compute_step_facts(
     # Pull requests whose state, checks, reviews or comments were read since the previous
     # outside step on them. Only a merge reads this, and only for its own pull request.
     pr_reads: set[tuple[str, str]] = set()
+    kinds = tool_map if tool_map is not None else DEFAULT_CODING_MAP
+    # A confirmation tool call anywhere earlier in the run excuses a later mapped outside call,
+    # as the verification rule's own confirmation check does, so the redacted copy carries the
+    # same answer when it is analysed again without the map.
+    confirmed = False
     for role, node in _carriers(transcript, skip_keys):
         if role == "call":
             name = node["name"]
             raw_input = node.get("input") if "input" in node else node.get("arguments")
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
-            if name.lower() in SHELL_TOOL_NAMES:
+            tool_kind = kinds.kind_for(name)
+            if tool_kind == "confirmation":
+                confirmed = True
+            if tool_kind == "shell":
                 command = _command_from_input(raw_input)
                 hidden = command is None and carried is not None
                 if hidden and carried is not None:
@@ -2661,6 +2691,18 @@ def compute_step_facts(
                         pr_reads |= command_pr_reads(command)
                 facts_by_node[id(node)] = facts
                 is_shell = True
+            elif tool_map is not None and tool_kind in _MAPPED_STEP_KINDS:
+                # The kind comes from the tool's name, which redaction keeps, so these facts
+                # are always worked out again, never carried.
+                facts = unknown_facts(checked_before=seen_check)
+                facts["command_kind"], facts["target_kind"] = _MAPPED_STEP_KINDS[tool_kind]
+                if tool_kind == "check":
+                    seen_check = True
+                else:
+                    facts["unchecked_tool_step"] = not seen_check and not confirmed
+                    seen_check = False
+                facts_by_node[id(node)] = facts
+                is_shell = False
             else:
                 # Any other tool call gets facts only if its result turns out to be an
                 # error (below). Facts already on a call whose input is hidden were
@@ -2694,7 +2736,9 @@ def compute_step_facts(
     return facts_by_node
 
 
-def annotate_step_facts(transcript: object, *, skip_keys: Collection[str] = ()) -> None:
+def annotate_step_facts(
+    transcript: object, *, skip_keys: Collection[str] = (), tool_map: ToolMap | None = None
+) -> None:
     """Write ``step_facts`` on every shell call block of ``transcript``, in place.
 
     Same facts as :func:`compute_step_facts`. A call block that is not a shell step loses
@@ -2702,7 +2746,7 @@ def annotate_step_facts(transcript: object, *, skip_keys: Collection[str] = ()) 
     hidden step, validated again) are ever believed. Local analysis uses this on a copy it
     owns so the parsers see the same facts an upload carries.
     """
-    facts_by_node = compute_step_facts(transcript, skip_keys=skip_keys)
+    facts_by_node = compute_step_facts(transcript, skip_keys=skip_keys, tool_map=tool_map)
     for role, node in _carriers(transcript, skip_keys):
         if role != "call":
             continue

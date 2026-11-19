@@ -443,6 +443,7 @@ def test_nothing_but_the_boolean_leaves():
             "error_class",
             "unread_own_merge",
             "unread_start_label",
+            "unchecked_tool_step",
         }
         for f in facts
     )
