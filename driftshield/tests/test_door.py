@@ -46,6 +46,7 @@ _SOURCE_FIXTURES = {
     "crewai": FIXTURES / "sample_crewai_session.json",
     "langchain": FIXTURES / "sample_langchain_session.json",
     "chatgpt_export": FIXTURES / "sample_chatgpt_export.json",
+    "driftshield_events_v1": FIXTURES / "events_v1" / "insurance_claims.jsonl",
 }
 
 _OPENCLAW_SESSION_LINES = "\n".join(
@@ -153,7 +154,7 @@ def test_content_alone_detects_every_supported_format(expected: str, fixture: Pa
     assert run.detected_format == expected
     assert run.events and run.source is None
     summary = run.canonical_analysis["extraction_quality_summary"]
-    if expected == "claude_code":
+    if expected in _COUNTING_PARSERS:
         assert summary["skipped_record_count"] == 0
         assert summary["skipped_records_by_reason"] == {}
     else:
@@ -199,6 +200,9 @@ def _assert_skip_counts_well_typed(parser: object) -> None:
     assert count == sum(by_reason.values())
 
 
+# Parsers that count the records they skip (the others report None).
+_COUNTING_PARSERS = frozenset({"claude_code", "driftshield_events_v1"})
+
 _PARSER_INPUTS = {**{k: v.read_text() for k, v in _SOURCE_FIXTURES.items()},
                   "openclaw": _OPENCLAW_SESSION_LINES}
 
@@ -216,7 +220,7 @@ def test_ac4_every_registry_parser_declares_well_typed_skip_counts_and_resets(na
         assert parser.skipped_records_by_reason == {"not_json": 1, "not_an_object": 1}
     parser.parse(text)
     _assert_skip_counts_well_typed(parser)
-    if name == "claude_code":
+    if name in _COUNTING_PARSERS:
         assert parser.skipped_records_by_reason == {}
         assert parser.skipped_record_count == 0
     else:

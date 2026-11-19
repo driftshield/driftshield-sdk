@@ -2428,6 +2428,8 @@ def _text_of(value: object) -> str:
 
 def _result_text(node: Mapping[str, Any]) -> str:
     """The visible text of a tool result block, for any supported adapter."""
+    if node.get("schema") == _EVENTS_V1_SCHEMA and node.get("error") is not None:
+        return _text_of(node["error"])
     for key in ("content", "output"):
         if key in node:
             return _text_of(node[key])
@@ -2439,6 +2441,9 @@ def _result_text(node: Mapping[str, Any]) -> str:
 # --------------------------------------------------------------------------- #
 
 _CALL_BLOCK_TYPES = frozenset({"tool_use", "toolCall"})
+# DriftShield's own neutral format (parsers/events_v1.py): calls name their tool in ``tool``.
+_EVENTS_V1_SCHEMA = "driftshield.events.v1"
+_EVENTS_V1_STEP_TYPES = frozenset({"tool_call", "tool_result", "confirmation"})
 _CODEX_CALL_TYPES = frozenset({"function_call", "custom_tool_call"})
 _CODEX_OUTPUT_TYPES = frozenset({"function_call_output", "custom_tool_call_output"})
 _MAX_DEPTH = 64
@@ -2525,7 +2530,14 @@ def _carriers(
         return found
     if isinstance(node, dict):
         kind = _block_type(node)
-        if kind in _CALL_BLOCK_TYPES and isinstance(node.get("name"), str):
+        if node.get("schema") == _EVENTS_V1_SCHEMA and kind in _EVENTS_V1_STEP_TYPES:
+            if kind == "confirmation":
+                found.append(("confirmation", node))
+            elif kind == "tool_result":
+                found.append(("result", node))
+            elif isinstance(node.get("tool"), str):
+                found.append(("call", node))
+        elif kind in _CALL_BLOCK_TYPES and isinstance(node.get("name"), str):
             found.append(("call", node))
         elif kind in _CODEX_CALL_TYPES and isinstance(node.get("name"), str):
             found.append(("call", node))
@@ -2563,8 +2575,19 @@ def _call_id(node: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _call_name(node: Mapping[str, Any]) -> str:
+    name = node.get("tool") if node.get("schema") == _EVENTS_V1_SCHEMA else node["name"]
+    return name if isinstance(name, str) else ""
+
+
 def _result_id_and_status(node: Mapping[str, Any]) -> tuple[str | None, str]:
     kind = _block_type(node)
+    if node.get("schema") == _EVENTS_V1_SCHEMA:
+        call_id = node.get("call_id")
+        status = node.get("status")
+        return (call_id if isinstance(call_id, str) else None), (
+            "failure" if status == "error" else "success" if status == "ok" else "unknown"
+        )
     if kind == "tool_result":
         call_id = node.get("tool_use_id")
         return (call_id if isinstance(call_id, str) else None), (
@@ -2631,8 +2654,11 @@ def compute_step_facts(
     # same answer when it is analysed again without the map.
     confirmed = False
     for role, node in _carriers(transcript, skip_keys):
+        if role == "confirmation":
+            confirmed = True
+            continue
         if role == "call":
-            name = node["name"]
+            name = _call_name(node)
             raw_input = node.get("input") if "input" in node else node.get("arguments")
             carried = sanitise_step_facts(node.get(STEP_FACTS_KEY))
             tool_kind = kinds.kind_for(name)

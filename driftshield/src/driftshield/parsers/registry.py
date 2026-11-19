@@ -18,6 +18,7 @@ from driftshield.parsers.claude_desktop import ClaudeDesktopParser
 from driftshield.parsers.codex_cli import CodexCliParser, is_rollout_record
 from driftshield.parsers.codex_desktop import CodexDesktopParser
 from driftshield.parsers.crewai import CrewAIParser
+from driftshield.parsers.events_v1 import EventsV1Parser, is_events_v1_record
 from driftshield.parsers.langchain import LangChainParser
 from driftshield.parsers.openclaw import OpenClawParser
 from driftshield.parsers.openclaw_trajectory import OpenClawTrajectoryParser
@@ -30,6 +31,7 @@ PARSERS: dict[str, type[TranscriptParser]] = {
     "codex_cli": CodexCliParser,
     "codex_desktop": CodexDesktopParser,
     "crewai": CrewAIParser,
+    "driftshield_events_v1": EventsV1Parser,
     "langchain": LangChainParser,
     "openclaw": OpenClawParser,
     "openclaw_trajectory": OpenClawTrajectoryParser,
@@ -151,6 +153,9 @@ def _detect_records(objects: list[dict[str, Any]]) -> str | None:
     """Detect the line-delimited formats from their leading records."""
     if not objects:
         return None
+    # DriftShield's own format names itself on every line, so it is checked first.
+    if any(is_events_v1_record(obj) for obj in objects):
+        return "driftshield_events_v1"
     types = {kind for obj in objects if isinstance(kind := obj.get("type"), str)}
 
     if any(_OPENCLAW_TRAJECTORY_KEYS.issubset(obj.keys()) for obj in objects) or (
@@ -234,7 +239,8 @@ def detect_format(text: str, *, path_hint: str | None = None) -> tuple[str | Non
     from_path = detect_from_path(path_hint) if path_hint else None
     if from_content is not None:
         warning = None
-        if from_path is not None and from_path != from_content:
+        # DriftShield's own format names itself on every line; a path cannot contradict it.
+        if from_path is not None and from_path != from_content and from_content != "driftshield_events_v1":
             warning = f"path suggested '{from_path}' but content detected '{from_content}'"
         return from_content, warning
     return from_path, None

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "coding_defaults": false,
+  "tools": {
+    "lookup_claim": "check",
+    "search_documents": "read",
+    "update_claim_status": "outside_write",
+    "issue_payment": "outside_write",
+    "email_broker": "outside_send",
+    "cancel_policy": "delete_outside",
+    "request_underwriter_approval": "confirmation",
+    "transfer_to_human": "handoff",
+    "log_note": "ignore"
+  }
+}

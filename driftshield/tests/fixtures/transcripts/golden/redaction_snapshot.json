@@ -4,6 +4,7 @@
   "dogfood/constraint_violation_session.jsonl": "697c61c63124da5d55beb30ca987f517115dd9f7b315e6df32a2418af894147f",
   "dogfood/multi_flag_session.jsonl": "000f553626570917d0188b50acba4896a5dfc9fea6ceeebb78500500b524ed15",
   "dogfood/policy_divergence_session.jsonl": "870be613d1ee5ea71f5fc3e7f0a46464c95a22b02bfefd45c27bb6f970940e65",
+  "events_v1/insurance_claims.jsonl": "87b2ce964c8ceba5963a55858fc239466f95680aebb43e643bf1ac896b056d02",
   "redactor_corpus/claude_code.json": "0cbe5a9ce003761984908748e410b7f692b3e7d9995a8d05b94c2b5b960fe71f",
   "redactor_corpus/claude_desktop.json": "ce173e5466e6b81336d0c9e1bd3e8a2ff89ea10fb442e69b22a55cae8a4cb61a",
   "redactor_corpus/codex.json": "7d6937c1097fcdb443c2be81dfac089340b25d76f3fa5dac0754af20e069ec8d",
