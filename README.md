@@ -410,7 +410,9 @@ Kinds: `read` (changes nothing), `check` (reads the thing about to be changed),
 `shell` and `file_write`. The coding agent tools above are in the default map; a map file adds
 to it entry by entry, or switches it off with `"coding_defaults": false`. Pass it with
 `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`), or
-`analyse_run(..., tool_map=load_tool_map("map.json"))`.
+`analyse_run(..., tool_map=load_tool_map("map.json"))`. `driftshield analyze` prints the
+signature hits of every session either way; the map adds a line saying how many tool calls it
+checked.
 
 A mapped tool gets `step_facts` from its name alone: `check` is `read_only`, `outside_write`
 stays `outside_write`, `outside_send` is `send_outside` and `delete_outside` is `delete`, all

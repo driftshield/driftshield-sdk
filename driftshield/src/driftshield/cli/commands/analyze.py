@@ -64,7 +64,8 @@ def analyze(
         None,
         "--tool-map",
         help="JSON file saying what each tool does (read, check, outside_write, ...). "
-        "Defaults to $DRIFTSHIELD_TOOL_MAP. Adds the tool coverage and signature hits to the output.",
+        "Defaults to $DRIFTSHIELD_TOOL_MAP. Adds the tool coverage to the output. "
+        "Signature hits always print; with no map the default coding map applies.",
     ),
 ) -> None:
     """Analyse session(s) for reasoning risks."""
@@ -154,21 +155,12 @@ def analyze(
     # Output results
     if json_output:
         import json
-        if tool_map is not None:
-            data = []
-            for file_path, result in all_results:
-                item = json.loads(format_json(result))
-                item.update(_tool_map_fields(mapped_runs[file_path]))
-                data.append(item)
-            typer.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
-        elif len(all_results) == 1:
-            typer.echo(format_json(all_results[0][1]))
-        else:
-            data = []
-            for file_path, result in all_results:
-                import json as json_lib
-                data.append(json_lib.loads(format_json(result)))
-            typer.echo(json.dumps(data, indent=2))
+        data = []
+        for file_path, result in all_results:
+            item = json.loads(format_json(result))
+            item.update(_run_fields(mapped_runs[file_path], with_tool_map=tool_map is not None))
+            data.append(item)
+        typer.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
     elif quiet:
         for file_path, result in all_results:
             if len(all_results) > 1:
@@ -186,9 +178,8 @@ def analyze(
                 console.print()
 
             console.print(format_summary(result))
-            if tool_map is not None:
-                console.print()
-                console.print(_tool_map_summary(mapped_runs[file_path]))
+            console.print()
+            console.print(_hits_summary(mapped_runs[file_path], with_tool_map=tool_map is not None))
 
             if verbose:
                 console.print()
@@ -204,25 +195,28 @@ def analyze(
         raise typer.Exit(1)
 
 
-def _tool_map_fields(run) -> dict:
-    return {
-        "tool_coverage": run.tool_coverage,
-        "signature_hits": [
-            {"signature_id": hit.signature_id, "mechanism_id": hit.mechanism_id}
-            for hit in run.signature_hits
-        ],
-    }
+def _run_fields(run, *, with_tool_map: bool) -> dict:
+    fields: dict = {}
+    if with_tool_map:
+        fields["tool_coverage"] = run.tool_coverage
+    fields["signature_hits"] = [
+        {"signature_id": hit.signature_id, "mechanism_id": hit.mechanism_id}
+        for hit in run.signature_hits
+    ]
+    return fields
 
 
-def _tool_map_summary(run) -> str:
-    coverage = run.tool_coverage or {}
-    total = coverage.get("tool_calls", 0)
-    mapped = coverage.get("mapped_calls", 0)
-    lines = [f"Tool map: {mapped} of {total} tool calls checked"]
-    not_checked = coverage.get("not_checked_tools") or {}
-    if not_checked:
-        names = ", ".join(f"{name} ({count})" for name, count in not_checked.items())
-        lines.append(f"Not checked (not in the tool map): {names}")
+def _hits_summary(run, *, with_tool_map: bool) -> str:
+    lines = []
+    if with_tool_map:
+        coverage = run.tool_coverage or {}
+        total = coverage.get("tool_calls", 0)
+        mapped = coverage.get("mapped_calls", 0)
+        lines.append(f"Tool map: {mapped} of {total} tool calls checked")
+        not_checked = coverage.get("not_checked_tools") or {}
+        if not_checked:
+            names = ", ".join(f"{name} ({count})" for name, count in not_checked.items())
+            lines.append(f"Not checked (not in the tool map): {names}")
     hits = sorted({hit.signature_id for hit in run.signature_hits})
     lines.append(f"Signature hits: {', '.join(hits) if hits else 'none'}")
     return "\n".join(lines)

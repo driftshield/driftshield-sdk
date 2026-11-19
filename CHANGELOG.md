@@ -3,6 +3,14 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+- `driftshield analyze` prints its signature hits (`Signature hits: mechanism:...`, or `none`)
+  for every session, not only with `--tool-map`; with no map the default coding map applies,
+  as in the rules. `--json` gains a `signature_hits` list for every session, with the same
+  shape as before; no field is renamed or removed, and `tool_coverage` still appears only with
+  a tool map.
+
 ## 0.3.6 - 2026-11-19
 
 ### Tool maps, a neutral event format and two false alarms fewer
