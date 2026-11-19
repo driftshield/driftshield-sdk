@@ -3,7 +3,15 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## Unreleased
+## 0.3.6 - 2026-11-19
+
+### Tool maps, a neutral event format and two false alarms fewer
+
+In short: a tool map tells DriftShield what each tool of a non coding agent does, so
+verification failure can judge those tools too, and a new neutral event format lets any agent
+send its runs. With no map, results are the same as 0.3.5 apart from two false alarms fewer:
+a pull request read after a heredoc in the same step is now seen. Rules version
+`phase-3g-deterministic-rules-v6`, step facts `step-facts.v7`.
 
 - New `driftshield.tool_map` module: a table from tool name to what the tool does (`read`,
   `check`, `outside_write`, `outside_send`, `delete_outside`, `confirmation`, `handoff`,
