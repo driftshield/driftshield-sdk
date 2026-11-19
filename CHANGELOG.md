@@ -3,7 +3,7 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
-## 0.3.5 - 2026-11-18
+## 0.3.5 - 2026-11-19
 
 ### Verification failure: fewer false alarms, one more shape
 
