@@ -10,6 +10,15 @@ notes for each tag are taken from the matching section of this file.
   `ignore`, `shell`, `file_write`). `DEFAULT_CODING_MAP` holds the tools of the supported
   coding agents; the shell tool list, the confirmation tool list and the file edit tool list
   are now read from it. No change to any result.
+- Rules and step facts read an optional tool map: `analyse_run(..., tool_map=...)` and
+  `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). A tool the map names
+  as `check`, `outside_write`, `outside_send` or `delete_outside` gets step facts from its name;
+  verification failure fires on a mapped outside call with no check since the previous outside
+  step and no confirmation before it. Tools the map does not name are reported as not checked
+  (`AnalysedRun.tool_coverage`). Step facts version `step-facts.v7` (new command kind
+  `send_outside`, new field `unchecked_tool_step`) and rules version
+  `phase-3g-deterministic-rules-v6`. With no map, every flag and every step fact is the same as
+  0.3.5 apart from the new `unchecked_tool_step: false` key, checked on 96 local sessions.
 
 ## 0.3.5 - 2026-11-19
 

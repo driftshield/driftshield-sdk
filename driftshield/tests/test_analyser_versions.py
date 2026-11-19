@@ -5,7 +5,8 @@ that a verdict made by older rules can be told from a newer one. That only works
 version changes whenever behaviour does. This pins the behaviour per version:
 
 * ``matching``: the signature hits of every bundled fixture, analysed raw and after
-  redaction (the redacted copy carries step facts, which the verification rules read).
+  redaction (the redacted copy carries step facts, which the verification rules read). A
+  fixture with a tool map of the same name in ``fixtures/tool_maps`` is also analysed with it.
 * ``step_facts``: the classification of a frozen set of shell commands.
 
 If one of these tests fails because behaviour changed, do not edit the stored entry for the
@@ -30,10 +31,12 @@ import pytest
 from driftshield import NoParseableEventsError, analyse_run
 from driftshield.core.deterministic_matching import RULESET_VERSION
 from driftshield.step_facts import STEP_FACTS_VERSION, classify_command, classify_error
+from driftshield.tool_map import load_tool_map, tool_map_from_dict
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GOLDEN = FIXTURES / "transcripts" / "golden" / "analyser_behaviour.json"
 _TRANSCRIPTS = FIXTURES / "transcripts"
+_TOOL_MAPS = FIXTURES / "tool_maps"
 
 
 def _fixture_paths() -> list[Path]:
@@ -63,6 +66,17 @@ def matching_behaviour() -> dict[str, list[list[Any]]]:
         except NoParseableEventsError:
             continue  # a shape whose redacted copy cannot be read again carries no facts to pin
         out[f"{name}|redacted"] = _hits(redacted)
+        map_path = _TOOL_MAPS / f"{path.stem}.json"
+        if map_path.exists():
+            tool_map = load_tool_map(map_path)
+            mapped = analyse_run(path.read_bytes(), source=name, tool_map=tool_map)
+            out[f"{name}|mapped"] = _hits(mapped)
+            again = analyse_run(
+                json.dumps(mapped.redacted_transcript),
+                format=mapped.detected_format,
+                tool_map=tool_map,
+            )
+            out[f"{name}|mapped redacted"] = _hits(again)
     return out
 
 
@@ -218,6 +232,64 @@ START_LABEL_SEQUENCES: list[list[str]] = [
 ]
 
 
+# Sequences of tool calls whose step facts under a tool map are pinned per step facts version
+# (from v7), as ``command_kind checked_before unchecked_tool_step`` per step.
+MAPPED_TOOL_MAP = tool_map_from_dict(
+    {
+        "tools": {
+            "lookup_claim": "check",
+            "issue_payment": "outside_write",
+            "email_broker": "outside_send",
+            "cancel_policy": "delete_outside",
+            "search_documents": "read",
+        }
+    }
+)
+MAPPED_SEQUENCES: list[list[str]] = [
+    ["issue_payment"],
+    ["lookup_claim", "issue_payment"],
+    ["lookup_claim", "issue_payment", "email_broker"],
+    ["search_documents", "cancel_policy"],
+    ["lookup_claim", "unknown_tool", "cancel_policy"],
+    ["git status", "issue_payment"],
+    ["lookup_claim", "gh pr merge 3", "issue_payment"],
+]
+
+
+def mapped_sequences_behaviour() -> dict[str, list[str]]:
+    """Step facts of each frozen tool call sequence under :data:`MAPPED_TOOL_MAP`."""
+    records: list[dict[str, Any]]
+    out: dict[str, list[str]] = {}
+    for names in MAPPED_SEQUENCES:
+        records = [{"type": "user", "sessionId": "s1", "timestamp": "2026-09-01T09:00:00.000Z",
+                    "message": {"role": "user", "content": "do it"}}]
+        for index, name in enumerate(names):
+            tool, payload = ("Bash", {"command": name}) if " " in name else (name, {"id": "x"})
+            records.append(
+                {
+                    "type": "assistant",
+                    "sessionId": "s1",
+                    "timestamp": f"2026-09-01T09:{index + 1:02d}:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "model": "m",
+                        "content": [{"type": "tool_use", "id": f"c{index}", "name": tool, "input": payload}],
+                    },
+                }
+            )
+        run = analyse_run(
+            "\n".join(json.dumps(r) for r in records), format="claude_code", tool_map=MAPPED_TOOL_MAP
+        )
+        out[json.dumps(names)] = [
+            f"{block['name']} {block['step_facts']['command_kind']} "
+            f"{block['step_facts']['checked_before']} {block['step_facts']['unchecked_tool_step']}"
+            for record in run.redacted_transcript["events"]
+            for block in record.get("message", {}).get("content", [])
+            if isinstance(block, dict) and "step_facts" in block
+        ]
+    return out
+
+
 def _sequence_flags(sequences: list[list[str]], key: str) -> dict[str, list[bool]]:
     from tests.test_step_facts import claude_code
 
@@ -361,6 +433,17 @@ def test_unread_start_label_matches_the_pinned_sequences_for_the_current_version
     )
 
 
+def test_mapped_tool_steps_match_the_pinned_sequences_for_the_current_version():
+    pinned = _load().get("mapped_sequences", {}).get(STEP_FACTS_VERSION)
+    assert pinned, "no mapped sequences pinned for this step facts version; run --write"
+    current = mapped_sequences_behaviour()
+    changed = sorted(k for k in pinned if current.get(k) != pinned[k])
+    assert not changed, (
+        f"Step facts under a tool map changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}."
+    )
+
+
 def test_error_classes_match_the_pinned_ones_for_the_current_version():
     pinned = _load()["error_classes"][STEP_FACTS_VERSION]
     current = error_class_behaviour(list(pinned))
@@ -401,6 +484,9 @@ def _write() -> None:
     start = data.setdefault("start_label_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
     for key, value in start_label_sequences_behaviour().items():
         start.setdefault(key, value)
+    mapped = data.setdefault("mapped_sequences", {}).setdefault(STEP_FACTS_VERSION, {})
+    for key, value in mapped_sequences_behaviour().items():
+        mapped.setdefault(key, value)
     GOLDEN.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 

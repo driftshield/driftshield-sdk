@@ -14,7 +14,7 @@ receipt = submit(run)  # community lane, redacted, no key
 Both calls are synchronous. `analyse_run` touches no network, database or
 filesystem; `submit` is the only call that sends anything off the machine.
 
-## `analyse_run(content, *, source=None, format=None, run_id=None) -> AnalysedRun`
+## `analyse_run(content, *, source=None, format=None, run_id=None, tool_map=None) -> AnalysedRun`
 
 Analyse one agent run.
 
@@ -24,6 +24,7 @@ Analyse one agent run.
 | `source` | Optional provenance label, usually the file path. Only a hint for format detection; the content decides. Also recorded on the run and used as the upload file name. |
 | `format` | Force a parser instead of detecting one: `chatgpt_export`, `claude_code`, `claude_desktop`, `codex_cli`, `codex_desktop`, `crewai`, `langchain`, `openclaw`, `openclaw_trajectory`. |
 | `run_id` | Fix the run identity (a `uuid.UUID`). Event ids derive from it, so the same content with the same `run_id` always yields the same ids. |
+| `tool_map` | Optional `driftshield.tool_map.ToolMap` saying what each tool does (`load_tool_map(path)` reads a JSON file; see the README section on the tool map). With none, only shell steps and the built in coding tools are judged and the result is exactly as before. |
 
 Supported inputs: native Claude Code, Codex CLI, OpenClaw session and
 trajectory JSONL; Claude Desktop, Codex Desktop, CrewAI and LangChain single
@@ -48,6 +49,7 @@ The result. Local only; nothing in it leaves the machine until `submit`.
 | `source` | The `source` you passed, or `None`. |
 | `detected_format` | The parser that read the run (one of the names above, or `"events"` for an event sequence with no parser provenance). |
 | `warnings` | Exactly what could not be read and why, for example `line 12: not valid JSON, skipped`. Empty when everything parsed. |
+| `tool_coverage` | Only with a `tool_map`: `tool_calls`, `mapped_calls`, `not_checked_calls`, `not_checked_tools` (name to count) and `tool_map_version`. A tool the map does not name is not checked, never clean. `None` without a map. |
 
 Convenience properties: `session_observed_at` (the last event's timestamp,
 the run's own end time) and `signature_summary` (the hits in the shape a

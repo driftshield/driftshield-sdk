@@ -45,6 +45,7 @@ from typing import Any
 
 from driftshield.intake_contract import REQUIRED_REDACTION_FIELDS
 from driftshield.step_facts import STEP_FACTS_KEY, annotate_step_facts, compute_step_facts
+from driftshield.tool_map import ToolMap
 
 
 logger = logging.getLogger(__name__)
@@ -500,7 +501,7 @@ def _strip_step_facts(payload: Any) -> None:
             stack.extend(child for child in node if isinstance(child, (dict, list)))
 
 
-def add_step_facts(payload: Any) -> None:
+def add_step_facts(payload: Any, *, tool_map: ToolMap | None = None) -> None:
     """Write step facts on the shell blocks of ``payload`` in place (a copy the caller owns).
 
     The same classifier and the same skipped keys as :func:`redact`, so a locally analysed
@@ -509,7 +510,7 @@ def add_step_facts(payload: Any) -> None:
     with one warning that names only the exception type.
     """
     try:
-        annotate_step_facts(payload, skip_keys=_DROPPED_KEYS)
+        annotate_step_facts(payload, skip_keys=_DROPPED_KEYS, tool_map=tool_map)
     except Exception as error:  # noqa: BLE001
         logger.warning("step facts dropped for this transcript: %s", type(error).__name__)
         # Exactly as redact does when it cannot compute facts: no fact the transcript
@@ -517,7 +518,7 @@ def add_step_facts(payload: Any) -> None:
         _strip_step_facts(payload)
 
 
-def redact(payload: dict[str, Any]) -> RedactionResult:
+def redact(payload: dict[str, Any], *, tool_map: ToolMap | None = None) -> RedactionResult:
     """Recursively redact ``payload`` and return the rewritten copy plus entries.
 
     The public manifest claim (REQUIRED_REDACTION_FIELDS) stays accurate: the
@@ -528,7 +529,7 @@ def redact(payload: dict[str, Any]) -> RedactionResult:
     """
     entries: list[RedactionEntry] = []
     try:
-        facts = compute_step_facts(payload, skip_keys=_DROPPED_KEYS)
+        facts = compute_step_facts(payload, skip_keys=_DROPPED_KEYS, tool_map=tool_map)
     except Exception as error:  # noqa: BLE001
         # Step facts are extra data: a shape they cannot read must never stop
         # analysis. Say that facts were dropped and why (the exception type only,

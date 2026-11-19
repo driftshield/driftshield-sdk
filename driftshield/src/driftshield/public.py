@@ -38,6 +38,7 @@ from driftshield.core.deterministic_matching import (
 from driftshield.core.models import (
     CanonicalEvent,
     EnvironmentClass,
+    EventType,
     RunProvenance,
     Session,
     SessionStatus,
@@ -80,6 +81,7 @@ from driftshield.remote_upload import (
 )
 from driftshield.signatures.community import load_builtin_community_pack
 from driftshield.step_facts import STEP_FACTS_VERSION
+from driftshield.tool_map import DEFAULT_CODING_MAP, ToolMap
 from driftshield.telemetry import TelemetryService, effective_oss_intake_url
 
 Visibility = Literal["community", "workspace"]
@@ -184,6 +186,8 @@ class AnalysedRun:
     session: Session
     analysis: AnalysisResult
     canonical_analysis: dict[str, Any] = field(repr=False)
+    # Set only when a tool map was given: how many tool calls it named (see ``tool_coverage``).
+    tool_coverage: dict[str, Any] | None = None
 
     @property
     def session_observed_at(self) -> datetime:
@@ -250,6 +254,7 @@ def analyse_run(
     source: str | None = None,
     format: str | None = None,
     run_id: uuid.UUID | None = None,
+    tool_map: ToolMap | None = None,
 ) -> AnalysedRun:
     """Analyse one agent run. Synchronous, pure, local.
 
@@ -258,7 +263,9 @@ def analyse_run(
     path; it is only a hint for format detection, the content decides.
     ``format`` forces a parser instead of detecting one. ``run_id`` fixes the
     run identity (event ids derive from it) so re-analysing the same content
-    yields the same ids.
+    yields the same ids. ``tool_map`` says what each tool does
+    (:mod:`driftshield.tool_map`); with none, the default coding map is used and the result
+    has no ``tool_coverage``.
 
     Raises :class:`UnsupportedFormatError` for an unknown ``format`` name and
     :class:`NoParseableEventsError` when no event could be read.
@@ -274,7 +281,7 @@ def analyse_run(
     if isinstance(content, (bytes, str)):
         raw = content if isinstance(content, bytes) else content.encode("utf-8")
         events, detected, transcript, warnings, skipped = _parse_bytes(
-            raw, source=source, format=format
+            raw, source=source, format=format, tool_map=tool_map
         )
     else:
         events = list(content)
@@ -292,6 +299,8 @@ def analyse_run(
         )
 
     _stabilise_event_ids(events, run_id)
+    if tool_map is not None:
+        _apply_tool_map(events, tool_map)
     normalize_events(events, source_type=detected, source_path=source)
     analysis = analyze_session(events, session_id=events[0].session_id or str(run_id))
     analysis.skipped_records_by_reason = skipped
@@ -316,7 +325,7 @@ def analyse_run(
     )
     qualification = canonical.get("qualification") or {}
 
-    redaction = redact(transcript)
+    redaction = redact(transcript, tool_map=tool_map)
     redacted = redaction.payload
     if not isinstance(redacted, dict):
         raise NoParseableEventsError("parse_failed", "redacted transcript is not a JSON object", warnings)
@@ -348,11 +357,63 @@ def analyse_run(
         session=session,
         analysis=analysis,
         canonical_analysis=canonical,
+        tool_coverage=tool_coverage(events, tool_map) if tool_map is not None else None,
     )
 
 
+_CALL_TYPES = (EventType.TOOL_CALL, EventType.HANDOFF, EventType.CONSTRAINT_CHECK)
+
+
+def _tool_name(event: CanonicalEvent) -> str | None:
+    if event.event_type not in _CALL_TYPES:
+        return None
+    name = (event.tool_activity or {}).get("name") or event.action
+    return name if isinstance(name, str) and name else None
+
+
+def _apply_tool_map(events: list[CanonicalEvent], tool_map: ToolMap) -> None:
+    """A tool the map calls a confirmation or a handoff becomes one, where the coding defaults differ.
+
+    Only entries that differ from the default coding map change an event, so a map that only
+    adds tools leaves every coding agent tool as the parser read it.
+    """
+    for event in events:
+        name = _tool_name(event)
+        if name is None:
+            continue
+        kind = tool_map.kind_for(name)
+        if kind == DEFAULT_CODING_MAP.kind_for(name):
+            continue
+        if kind == "confirmation":
+            event.event_type = EventType.CONSTRAINT_CHECK
+        elif kind == "handoff":
+            event.event_type = EventType.HANDOFF
+
+
+def tool_coverage(events: Iterable[CanonicalEvent], tool_map: ToolMap) -> dict[str, Any]:
+    """How many tool calls ``tool_map`` names. A call it does not name is not checked."""
+    mapped = 0
+    unmapped: dict[str, int] = {}
+    for event in events:
+        name = _tool_name(event)
+        if name is None:
+            continue
+        if tool_map.kind_for(name) is None:
+            unmapped[name.lower()] = unmapped.get(name.lower(), 0) + 1
+        else:
+            mapped += 1
+    total = mapped + sum(unmapped.values())
+    return {
+        "tool_map_version": tool_map.version,
+        "tool_calls": total,
+        "mapped_calls": mapped,
+        "not_checked_calls": total - mapped,
+        "not_checked_tools": dict(sorted(unmapped.items())),
+    }
+
+
 def _parse_bytes(
-    raw: bytes, *, source: str | None, format: str | None
+    raw: bytes, *, source: str | None, format: str | None, tool_map: ToolMap | None = None
 ) -> tuple[list[CanonicalEvent], str, dict[str, Any], list[str], dict[str, int] | None]:
     warnings: list[str] = []
     text = raw.decode("utf-8", errors="replace")
@@ -394,7 +455,7 @@ def _parse_bytes(
         transcript = _line_records(text, warnings)
 
     if detected in _STEP_FACT_FORMATS:
-        parse_input = _with_step_facts(parse_input, wrapper)
+        parse_input = _with_step_facts(parse_input, wrapper, tool_map=tool_map)
 
     try:
         parser = get_parser(detected)
@@ -411,7 +472,9 @@ def _parse_bytes(
 _STEP_FACT_FORMATS = frozenset({"claude_code", "codex_cli", "openclaw"})
 
 
-def _with_step_facts(text: str, wrapper: dict[str, Any] | None = None) -> str:
+def _with_step_facts(
+    text: str, wrapper: dict[str, Any] | None = None, *, tool_map: ToolMap | None = None
+) -> str:
     """``text`` with step facts written on its shell tool calls, for the parser only.
 
     Local analysis then sees the same facts an upload of the run carries, so the verdict
@@ -423,7 +486,7 @@ def _with_step_facts(text: str, wrapper: dict[str, Any] | None = None) -> str:
     """
     if wrapper is not None:
         document = copy.deepcopy(wrapper)
-        add_step_facts(document)
+        add_step_facts(document, tool_map=tool_map)
         return "\n".join(json.dumps(record) for record in document["events"])
     lines = text.split("\n")
     records: list[Any] = []
@@ -439,7 +502,7 @@ def _with_step_facts(text: str, wrapper: dict[str, Any] | None = None) -> str:
         slots.append(index)
     if not records:
         return text
-    add_step_facts({"events": records})
+    add_step_facts({"events": records}, tool_map=tool_map)
     for index, record in zip(slots, records):
         lines[index] = json.dumps(record)
     return "\n".join(lines)
