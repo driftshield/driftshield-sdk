@@ -346,6 +346,23 @@ class TestCheckHitsAlwaysShown:
         assert isinstance(data, list) and len(data) == 2
         assert all("signature_hits" in item for item in data)
 
+    def test_text_for_several_sessions_shows_hits_for_each(self, tmp_path, monkeypatch):
+        from driftshield.cli.discovery import path_to_project_key
+
+        sessions_dir = tmp_path / ".claude" / "projects" / path_to_project_key(tmp_path)
+        sessions_dir.mkdir(parents=True)
+        for name in ("sample_claude_code_tool_error_at_end.jsonl", "sample_claude_code_tool_success.jsonl"):
+            (sessions_dir / name).write_bytes((FIXTURES_DIR / name).read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / ".claude"))
+
+        result = runner.invoke(app, ["analyze", "--project"])
+
+        output = ANSI_RE.sub("", result.output)
+        assert output.count("Signature hits:") == 2
+        assert "Signature hits: mechanism:tool_misuse" in output
+        assert "Signature hits: none" in output
+
 INSURANCE_SESSION = FIXTURES_DIR / "events_v1" / "insurance_claims.jsonl"
 INSURANCE_MAP = Path(__file__).parent.parent / "fixtures" / "tool_maps" / "insurance_claims.json"
 
