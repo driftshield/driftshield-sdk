@@ -298,3 +298,50 @@ class TestAnalyzeToolErrorAtSessionEnd:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["candidate_break_point"]["status"] == "no_clear_break_point"
+
+
+class TestCheckHitsAlwaysShown:
+    """Check hits print with or without --tool-map; with no map the default coding map applies."""
+
+    TOOL_ERROR = FIXTURES_DIR / "sample_claude_code_tool_error_at_end.jsonl"
+    QUIET_RUN = FIXTURES_DIR / "sample_claude_code_tool_success.jsonl"
+
+    def test_text_output_shows_hits_without_a_tool_map(self):
+        result = runner.invoke(app, ["analyze", str(self.TOOL_ERROR)])
+
+        output = ANSI_RE.sub("", result.output)
+        assert result.exit_code == 0
+        assert "Signature hits: mechanism:tool_misuse" in output
+        assert "Tool map:" not in output
+
+    def test_text_output_says_none_when_nothing_fired(self):
+        result = runner.invoke(app, ["analyze", str(self.QUIET_RUN)])
+
+        assert "Signature hits: none" in ANSI_RE.sub("", result.output)
+
+    def test_json_adds_hits_without_a_tool_map(self):
+        result = runner.invoke(app, ["analyze", str(self.TOOL_ERROR), "--json"])
+
+        data = json.loads(result.stdout)
+        assert data["signature_hits"] == [
+            {"signature_id": "mechanism:tool_misuse", "mechanism_id": "tool_misuse"}
+        ]
+        assert "tool_coverage" not in data
+        # The fields that were there before stay.
+        assert {"session_id", "total_events", "flagged_events", "candidate_break_point"} <= data.keys()
+
+    def test_json_for_several_sessions_adds_hits_to_each(self, tmp_path, monkeypatch):
+        from driftshield.cli.discovery import path_to_project_key
+
+        sessions_dir = tmp_path / ".claude" / "projects" / path_to_project_key(tmp_path)
+        sessions_dir.mkdir(parents=True)
+        for name in ("sample_claude_code_tool_error_at_end.jsonl", "sample_claude_code_tool_success.jsonl"):
+            (sessions_dir / name).write_bytes((FIXTURES_DIR / name).read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / ".claude"))
+
+        result = runner.invoke(app, ["analyze", "--project", "--json"])
+
+        data = json.loads(result.stdout)
+        assert isinstance(data, list) and len(data) == 2
+        assert all("signature_hits" in item for item in data)
