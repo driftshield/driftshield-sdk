@@ -473,3 +473,19 @@ def test_a_heredoc_body_does_not_count_as_a_read():
 def test_a_heredoc_body_run_by_a_shell_still_reads():
     step = "bash <<'EOF'\ngh pr view 12 --json state\nEOF"
     assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "cat <<'EOF' | sh\ngh pr view 12 --json state\nEOF",
+        "cat <<EOF | /bin/bash -s\ngh pr view 12\nEOF",
+    ],
+)
+def test_a_heredoc_body_piped_into_a_shell_still_reads(step: str):
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0
+
+
+def test_a_shift_in_arithmetic_is_not_a_heredoc():
+    step = "x=$((1<<y))\ngh pr view 12 --json state\ny\necho z"
+    assert _fired([_create(12), step, "gh pr merge 12 --squash"]) == 0

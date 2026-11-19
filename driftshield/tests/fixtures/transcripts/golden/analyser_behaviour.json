@@ -1299,6 +1299,24 @@
     false,
     false
    ],
+   "[\"gh pr checkout 4\", \"git push\", \"cat <<'EOF' | sh\\ngh pr view 4\\nEOF\", \"gh pr merge 4\"]": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "[\"gh pr checkout 4\", \"git push\", \"cat > b.md <<'EOF'\\ngh pr view 4\\nEOF\", \"gh pr merge 4\"]": [
+    false,
+    false,
+    false,
+    true
+   ],
+   "[\"gh pr checkout 4\", \"git push\", \"cat > b.md <<'EOF'\\nit's done\\nEOF\\ngh pr view 4\", \"gh pr merge 4\"]": [
+    false,
+    false,
+    false,
+    false
+   ],
    "[\"gh pr checkout 4\", \"git push\", \"for p in 4; do gh pr view $p; done\", \"gh pr merge 4\"]": [
     false,
     false,

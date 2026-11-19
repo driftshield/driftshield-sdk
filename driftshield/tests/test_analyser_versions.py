@@ -218,6 +218,11 @@ OWN_MERGE_SEQUENCES: list[list[str]] = [
         "gh pr merge 4",
     ],
     ["gh pr checkout 4", "git push", "gh api -i repos/o/r/pulls/4/merge -X PUT"],
+    # A heredoc body is text: its quotes do not hide the read after it, its words are not a
+    # read, and a body a shell runs still reads (from v7).
+    ["gh pr checkout 4", "git push", "cat > b.md <<'EOF'\nit's done\nEOF\ngh pr view 4", "gh pr merge 4"],
+    ["gh pr checkout 4", "git push", "cat > b.md <<'EOF'\ngh pr view 4\nEOF", "gh pr merge 4"],
+    ["gh pr checkout 4", "git push", "cat <<'EOF' | sh\ngh pr view 4\nEOF", "gh pr merge 4"],
 ]
 
 

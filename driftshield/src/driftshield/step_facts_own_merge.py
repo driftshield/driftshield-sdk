@@ -82,6 +82,8 @@ def _gh_call(unit: str, pattern: re.Pattern[str]) -> list[str] | None:
 # Programs whose heredoc body is shell, so its statements run (and may read).
 _SHELL_BODY_RUNNERS = frozenset({"bash", "sh", "zsh", "ssh"})
 _HEREDOC_START = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
+# A pipe into a shell later on the heredoc's line (``cat <<EOF | sh``) runs the body too.
+_PIPE_TO_SHELL = re.compile(r"\|\s*(?:\S*/)?(?:bash|sh|zsh|ssh)(?![\w.-])")
 
 
 def _without_heredoc_bodies(command: str) -> str:
@@ -90,13 +92,15 @@ def _without_heredoc_bodies(command: str) -> str:
 
     The body is text, not shell: an apostrophe in it would open a quote that swallows the
     statements after the heredoc, and its words are not commands. A body fed to ``bash``,
-    ``sh``, ``zsh`` or ``ssh`` is kept, since its statements run.
+    ``sh``, ``zsh`` or ``ssh``, directly or through a pipe on the same line, is kept, since its
+    statements run. ``<<`` inside ``((...))`` is a shift, not a heredoc.
     """
     if "<<" not in command:
         return command
     out: list[str] = []
     pending: list[tuple[str, bool, bool]] = []  # (delimiter, strip tabs, keep the body)
     quote = ""
+    arithmetic = 0  # depth of ``((`` ... ``))``
     statement_start = 0
     index = 0
     while index < len(command):
@@ -110,16 +114,26 @@ def _without_heredoc_bodies(command: str) -> str:
                 continue
         elif char in "'\"":
             quote = char
+        elif command.startswith("((", index) or (arithmetic and command.startswith("))", index)):
+            arithmetic += 1 if char == "(" else -1
+            out.append(command[index : index + 2])
+            index += 2
+            continue
         elif char in ";&|":
             statement_start = len(out) + 1
-        elif command.startswith("<<", index) and not command.startswith("<<<", index):
+        elif (
+            not arithmetic
+            and command.startswith("<<", index)
+            and not command.startswith("<<<", index)
+        ):
             match = _HEREDOC_START.match(command, index)
             if match is not None:
                 words = _program(_words("".join(out[statement_start:])))
                 runner = words[0].rsplit("/", 1)[-1] if words else ""
-                pending.append(
-                    (match.group(3), match.group(1) == "-", runner in _SHELL_BODY_RUNNERS)
-                )
+                line_end = command.find("\n", match.end())
+                rest = command[match.end() : len(command) if line_end == -1 else line_end]
+                keep = runner in _SHELL_BODY_RUNNERS or bool(_PIPE_TO_SHELL.search(rest))
+                pending.append((match.group(3), match.group(1) == "-", keep))
                 out.append(match.group(0))
                 index = match.end()
                 continue
