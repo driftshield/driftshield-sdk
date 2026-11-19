@@ -5,6 +5,10 @@ notes for each tag are taken from the matching section of this file.
 
 ## Unreleased
 
+- `driftshield analyze --quiet` names the checks that fired, for example
+  `⚠ 1 check fired: verification_failure`, and no longer says `No risks detected` when a check
+  fired with no step risk flagged. It stays one line per session.
+
 - `driftshield analyze` prints its signature hits (`Signature hits: mechanism:...`, or `none`)
   for every session, not only with `--tool-map`; with no map the default coding map applies,
   as in the rules. `--json` gains a `signature_hits` list for every session, with the same
