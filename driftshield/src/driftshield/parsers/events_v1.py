@@ -127,7 +127,8 @@ class EventsV1Parser:
 
         if kind == "message":
             text = record.get("text")
-            agent = actor if actor in {"user", "system"} else "agent"
+            # A person other than the user (an underwriter, a handler) is a human too.
+            agent = "user" if actor in {"user", "person"} else "system" if actor == "system" else "agent"
             metadata["semantic_action_category"] = "user_input" if agent == "user" else "reasoning"
             return CanonicalEvent(
                 id=uuid4(),
@@ -173,7 +174,8 @@ class EventsV1Parser:
 
 
 def _name(value: object) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
+    """The tool name exactly as written (never trimmed, so step facts see the same name), or None."""
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _timestamp(value: object) -> datetime:

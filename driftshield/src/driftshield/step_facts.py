@@ -2535,7 +2535,7 @@ def _carriers(
                 found.append(("confirmation", node))
             elif kind == "tool_result":
                 found.append(("result", node))
-            elif isinstance(node.get("tool"), str):
+            elif isinstance(node.get("tool"), str) and node["tool"].strip():
                 found.append(("call", node))
         elif kind in _CALL_BLOCK_TYPES and isinstance(node.get("name"), str):
             found.append(("call", node))

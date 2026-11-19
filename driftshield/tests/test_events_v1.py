@@ -110,3 +110,23 @@ def test_a_confirmation_line_excuses_a_later_mapped_outside_call_in_the_step_fac
     assert run.signature_hits == []
     again = analyse_run(json.dumps(run.redacted_transcript), format=run.detected_format)
     assert again.signature_hits == []
+
+
+def test_a_person_message_is_human_words_not_agent_reasoning():
+    events = EventsV1Parser().parse(_lines({"type": "message", "actor": "person", "text": "approved"}))
+    assert events[0].actor["role"] == "user"
+
+
+def test_tool_names_are_read_as_written_by_parser_and_step_facts_alike():
+    tool_map = load_tool_map(FIXTURE_MAP)
+    run = analyse_run(
+        _lines(
+            {"type": "tool_call", "tool": " issue_payment", "call_id": "c1"},
+            {"type": "tool_call", "tool": "  ", "call_id": "c2"},
+        ),
+        tool_map=tool_map,
+    )
+    assert [e.action for e in run.events] == [" issue_payment"]
+    assert "step_facts" not in run.redacted_transcript["events"][0]
+    assert "step_facts" not in run.redacted_transcript["events"][1]
+    assert run.tool_coverage["not_checked_tools"] == {" issue_payment": 1}

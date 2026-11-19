@@ -17,7 +17,7 @@ JSON Lines: one JSON object per line, in the order things happened. Every line c
 | `timestamp` | yes | ISO 8601, for example `2026-11-12T10:02:00Z`. |
 | `type` | yes | `message`, `tool_call`, `tool_result`, `confirmation` or `handoff`. |
 | `actor` | no | A role, never a person's name: `user`, `agent`, `person` or `system`. |
-| `tool` | on `tool_call` | The tool name, exactly as the tool map names it. Optional on `confirmation` and `handoff`. |
+| `tool` | on `tool_call` | The tool name, exactly as the tool map names it (case does not matter, spaces do). Optional on `confirmation` and `handoff`. |
 | `call_id` | on `tool_call` and `tool_result` | Ties a result to its call. |
 | `input` | no | The tool input, any JSON value. |
 | `output` | no | The tool output, any JSON value. |
@@ -25,7 +25,8 @@ JSON Lines: one JSON object per line, in the order things happened. Every line c
 | `error` | no | Error text on a failed result. |
 | `text` | no | The words of a `message`, `confirmation` or `handoff`. |
 
-- `message`: something a user, the system or the agent said.
+- `message`: something a user, the system or the agent said. A `person` (an underwriter, a
+  claims handler) is read as a human, like `user`.
 - `tool_call` and `tool_result`: the agent called a tool, and what came back. A result with no
   earlier call of the same `call_id` is skipped.
 - `confirmation`: a person was asked and answered. A tool the tool map calls `confirmation`
