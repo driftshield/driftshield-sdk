@@ -139,14 +139,37 @@ Risk detectors are additive. Each implements a `RiskHeuristic` interface and can
 A shell step is judged from its command line. Any other tool (`issue_payment`, `cancel_policy`, `email_broker`) is judged when a tool map says what it does:
 
 ```json
-{"version": 1, "coding_defaults": false,
- "tools": {"lookup_claim": "check", "issue_payment": "outside_write",
-           "email_broker": "outside_send", "cancel_policy": "delete_outside",
-           "request_underwriter_approval": "confirmation", "transfer_to_human": "handoff",
-           "log_note": "ignore"}}
+{
+  "version": 1,
+  "coding_defaults": false,
+  "tools": {
+    "lookup_claim": "check",
+    "search_documents": "read",
+    "update_claim_status": "outside_write",
+    "issue_payment": "outside_write",
+    "email_broker": "outside_send",
+    "cancel_policy": "delete_outside",
+    "request_underwriter_approval": "confirmation",
+    "transfer_to_human": "handoff",
+    "log_note": "ignore"
+  }
+}
 ```
 
-Kinds: `read` (changes nothing), `check` (reads the thing about to be changed), `outside_write`, `outside_send` (sends data beyond your own systems), `delete_outside`, `confirmation` (a person was asked and answered), `handoff`, `ignore`, and for coding agents `shell` and `file_write`. The coding agent tools are in the default map. Pass it with `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). Only tool names are read, never arguments.
+| Kind | What it means | Example tool |
+|------|---------------|--------------|
+| `read` | Changes nothing | `search_documents` |
+| `check` | Reads the thing about to be changed | `lookup_claim` |
+| `outside_write` | Changes something in another system | `issue_payment` |
+| `outside_send` | Sends data beyond your own systems | `email_broker` |
+| `delete_outside` | Deletes something in another system | `cancel_policy` |
+| `confirmation` | A person was asked and answered | `request_underwriter_approval` |
+| `handoff` | Passes the work to a person or another agent | `transfer_to_human` |
+| `ignore` | Not judged | `log_note` |
+
+For coding agents there are two more kinds, `shell` and `file_write`. The coding agent tools are in the default map.
+
+Pass it with `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). Only tool names are read, never arguments.
 
 ## In CI
 
@@ -155,7 +178,21 @@ driftshield analyze run.jsonl --fail-on constraint_violation,policy_divergence
 driftshield analyze run.jsonl --fail-threshold 1
 ```
 
-`--fail-on` exits 1 when any of the named risks fires (`assumption_mutation`, `policy_divergence`, `constraint_violation`, `context_contamination`, `coverage_gap`). `--fail-threshold N` exits 1 when N or more steps are flagged. For many files at once, `driftshield batch <directory-or-archive> --json`.
+`--fail-on` exits 1 when any of the named risks fires. The names match the risk detectors above:
+
+| Risk name | Detector |
+|-----------|----------|
+| `coverage_gap` | Coverage Gap |
+| `assumption_mutation` | Assumption Mutation |
+| `policy_divergence` | Policy Divergence |
+| `constraint_violation` | Constraint Violation |
+| `context_contamination` | Context Contamination |
+
+`--fail-threshold N` exits 1 when N or more steps are flagged. For many files at once:
+
+```bash
+driftshield batch <directory-or-archive> --json
+```
 
 ## Supported Sources
 
@@ -189,7 +226,13 @@ DriftShield uses a parser protocol. New sources can be added by implementing a s
 - Prompts, code, tool inputs and outputs, file contents, paths and error text are replaced with placeholders.
 - What stays is a small, fixed set of labels per step, for example `command_kind: merge` or `checked_before: false`. The value of each field is checked against its list before it is written, so a mistake in the classifier can only produce `unknown`, never free text.
 - `driftshield analyze` works fully on your machine. Only `submit` uploads.
-- Inspect what the redactor would strip, without uploading: `driftshield submit --path <session.json> --dry-run-redaction`.
+
+Inspect what the redactor would strip, without uploading:
+
+```bash
+driftshield submit --path <session.json> --dry-run-redaction
+driftshield submit --path <session.json> --show-manifest
+```
 
 Why keep any labels at all: a run that pushed to the main branch without any earlier check is a very different run from one that listed a directory, and the placeholder hides the difference. The full list is in [docs/privacy.md](docs/privacy.md).
 
@@ -292,8 +335,13 @@ The engine has two public calls, `analyse_run` and `submit`; the CLI is a thin s
 ```python
 from driftshield import analyse_run, submit
 
-run = analyse_run(open("session.jsonl", "rb").read(), source="session.jsonl")
-print(run.detected_format, run.qualification_state, [h.signature_id for h in run.signature_hits])
+run = analyse_run(
+    open("session.jsonl", "rb").read(),
+    source="session.jsonl",
+)
+print(run.detected_format)
+print(run.qualification_state)
+print([h.signature_id for h in run.signature_hits])
 receipt = submit(run)  # community lane: keyless, redacted
 ```
 
@@ -302,7 +350,10 @@ With a tool map:
 ```python
 from driftshield.tool_map import load_tool_map
 
-run = analyse_run(open("run.jsonl", "rb").read(), tool_map=load_tool_map("tool_map.json"))
+run = analyse_run(
+    open("run.jsonl", "rb").read(),
+    tool_map=load_tool_map("tool_map.json"),
+)
 run.signature_hits   # for example verification_failure
 ```
 

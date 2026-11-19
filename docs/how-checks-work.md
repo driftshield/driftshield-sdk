@@ -17,11 +17,21 @@ A shell step is judged from its command line. Any other tool (`issue_payment`,
 a JSON file from tool name to kind:
 
 ```json
-{"version": 1, "coding_defaults": false,
- "tools": {"lookup_claim": "check", "issue_payment": "outside_write",
-           "email_broker": "outside_send", "cancel_policy": "delete_outside",
-           "request_underwriter_approval": "confirmation", "transfer_to_human": "handoff",
-           "log_note": "ignore"}}
+{
+  "version": 1,
+  "coding_defaults": false,
+  "tools": {
+    "lookup_claim": "check",
+    "search_documents": "read",
+    "update_claim_status": "outside_write",
+    "issue_payment": "outside_write",
+    "email_broker": "outside_send",
+    "cancel_policy": "delete_outside",
+    "request_underwriter_approval": "confirmation",
+    "transfer_to_human": "handoff",
+    "log_note": "ignore"
+  }
+}
 ```
 
 Kinds: `read` (changes nothing), `check` (reads the thing about to be changed),
