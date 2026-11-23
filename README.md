@@ -1,10 +1,21 @@
-# DriftShield
-
-Find where an AI agent first went wrong.
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="DriftShield SDK: find where an AI agent first went wrong. A terminal runs driftshield analyze on a session and shows one flagged step, an assumption mutation, with the candidate break point at event 8" width="100%">
+</p>
 
 <p align="center">
-  <img src="docs/media/driftshield-hero.gif" alt="DriftShield: a failed AI run reconstructed as a decision graph with the inflection point and a matched failure signature" width="100%" />
+  <b>Find where an AI agent first went wrong.</b><br>
+  Open source failed-run investigation for AI workflows. Runs on your machine.
 </p>
+
+<p align="center">
+  <a href="https://pypi.org/project/driftshield-sdk/"><img src="https://img.shields.io/pypi/v/driftshield-sdk?style=flat-square&color=3b5cf6&label=pypi" alt="PyPI version"></a>
+  <img src="https://img.shields.io/badge/python-3.12%2B-0f1d45?style=flat-square" alt="Python 3.12 or later">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-0f1d45?style=flat-square" alt="AGPL-3.0 licence"></a>
+  <a href="https://github.com/driftshield/driftshield-sdk/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/driftshield/driftshield-sdk/ci.yml?branch=main&style=flat-square&label=ci" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/reads-Claude%20Code%20%7C%20Codex%20%7C%20OpenClaw%20%7C%20your%20own%20agent-5c7bff?style=flat-square" alt="Reads Claude Code, Codex, OpenClaw and your own agent">
+</p>
+
+---
 
 DriftShield is an open source failed-run investigation tool for AI workflows. When a run
 breaks, teams often fall back on logs, traces, and guesswork. DriftShield reconstructs the run
@@ -19,10 +30,6 @@ The OSS core focuses on one failed run at a time. It helps teams explain what ha
 where the run broke, recognise known failure mechanisms within that run, and produce an
 investigation-grade artefact for debugging, review, and follow-up.
 
-Optional private-path enrichment can add richer per-run analysis when a team explicitly enables
-it. Broader recurrence tracking and organisation-level prioritisation are later product layers,
-not bundled OSS guarantees.
-
 ## Why DriftShield
 
 - Move from raw logs and traces to an inspectable failure investigation
@@ -35,6 +42,44 @@ not bundled OSS guarantees.
 - AI engineers building multi-step or agentic workflows
 - Product teams shipping AI-powered features
 - Teams where reliability and correctness matter
+
+## What it checks
+
+- **Finished when it was not.** A tool failed, the agent did not try again and still gave its answer. Or it answered without looking up what it needed. Or the run ended on an error nothing fixed.
+- **Acted without checking.** The agent merged a pull request it opened or pushed to, with no read of it since. With a tool map, a write, send or delete outside your own systems with no check since the last one and no person approving it first.
+- **Wrote over a change.** A write that clashed with something the agent read earlier, with no confirmation between.
+- **Drift inside the run.** The five built-in risk detectors below, on every step.
+- **Your own tools.** A small JSON tool map says what tools such as `issue_payment` or `email_broker` do, so their steps are judged too.
+
+## Quick start
+
+Needs Python 3.12 or later.
+
+```bash
+pip install driftshield-sdk
+
+# Analyse one run: a file path, or a Claude Code session id
+driftshield analyze <session-id-or-path>
+
+# Tell it what your own tools do
+driftshield analyze --tool-map tool_map.json run.jsonl
+
+# Upload a redacted copy for hosted investigation (optional)
+driftshield submit --path run.jsonl
+```
+
+Try the worked example in this repo, an insurance claims agent:
+
+```console
+$ driftshield analyze docs/examples/insurance-claims/session.jsonl \
+    --tool-map docs/examples/insurance-claims/tool_map.json
+...
+Signature hits: mechanism:verification_failure
+```
+
+The payment and the email to the broker went out with no fresh check, so verification failure fires.
+
+To run the local API and dashboard from a clone, see [docs/self-host.md](docs/self-host.md).
 
 ## Demo
 
@@ -49,229 +94,11 @@ graph, inspect the inflection node, and read the generated forensic report.
 -->
 <img src="docs/media/driftshield-dashboard-demo.gif" alt="DriftShield dashboard walkthrough: triaging a flagged run, the decision graph, the inflection node, and the forensic report" width="100%" />
 
-## Supported Sources
+## How it works
 
-| Source | Format | Status |
-|--------|--------|--------|
-| Claude Code | JSONL | Stable |
-| ChatGPT export | JSON | Experimental |
-| Claude Desktop | JSON | Experimental |
-| Codex CLI | JSONL | Experimental |
-| Codex Desktop | JSON | Experimental |
-| OpenClaw | JSONL | Experimental |
-| Your own agent (`driftshield.events.v1`) | JSONL | Experimental |
-
-ChatGPT export reads one conversation from `conversations.json` (the branch ending at `current_node`); a file holding several conversations is refused for now.
-
-Codex CLI covers the rollout files under `~/.codex/sessions/`; the Codex app and its VS Code extension write the same files.
-
-For an agent with none of these formats (an insurance claims agent, a support agent), write
-its log as `driftshield.events.v1` JSON Lines and say what each tool does in a tool map. See
-[docs/events-v1.md](docs/events-v1.md) and the worked insurance example in
-[docs/examples/insurance-claims](docs/examples/insurance-claims).
-
-DriftShield uses a parser protocol. New sources can be added by implementing a single interface.
-
-## Community signature packs
-
-The OSS repo supports a deliberately simple pull flow for community-safe signature packs. Packs are versioned JSON manifests that follow the public contract and can be fetched directly from a Git ref or tag.
-
-Example:
-
-```bash
-source .venv/bin/activate
-driftshield signatures pull community-general --ref <git-tag-or-commit>
-```
-
-By default this pulls from `driftshield/driftshield-sdk` and stores the validated manifest under `~/.local/share/driftshield/signatures/<pack-name>/<pack-version>/`.
-
-If you need to test or mirror a pack source, override the source URL directly:
-
-```bash
-driftshield signatures pull community-general \
-  --ref local-smoke \
-  --url http://127.0.0.1:8000/community-general.json
-```
-
-Compatibility rules for the current OSS pull path:
-
-- `schema_version` is the compatibility gate and is validated before installation
-- `pack_metadata.version` is the pack release version and determines the install path
-- only `pack_kind: community` is accepted by the OSS pull path
-- the pull flow is intentionally replaceable later without committing DriftShield to a marketplace design
-
-## OSS scope and product boundary
-
-This public repo is the OSS recognition and investigation layer.
-
-It includes:
-
-- transcript parsing and ingestion
-- per-run investigation and reporting
-- community signature-pack support
-- public-safe dashboards, CLI flows, and API paths for failed-run analysis
-
-It does not by itself claim to provide:
-
-- controlled cross-run recurrence tracking
-- organisation-level prioritisation or ranking
-- governance, assurance, or enterprise workflow policy layers
-
-If a public sentence sounds like a bundled promise about what repeats across runs or what matters most across an organisation, it is too strong for this OSS surface.
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.12+
-- Node.js 20+
-- Docker (optional, but needed for the local API/dashboard Postgres path)
-
-### 1. Setup from a clean clone
-
-```bash
-git clone https://github.com/driftshield/driftshield-sdk.git
-cd driftshield-sdk
-./scripts/dev-setup.sh
-```
-
-This creates local env files, installs backend and frontend dependencies, and starts local
-Postgres if Docker is available. No private credentials or proprietary setup steps are
-required for the OSS path.
-
-### 2. Get a first useful result
-
-```bash
-cd driftshield
-source .venv/bin/activate
-driftshield report tests/fixtures/transcripts/sample_claude_code_session.jsonl --type summary
-```
-
-This generates a forensic report from the bundled sample transcript, which is the shortest
-supported path from a clean clone to a meaningful DriftShield investigation artifact.
-
-### 3. Verify the repo
-
-```bash
-cd ..
-./scripts/dev-verify.sh
-```
-
-### 4. Upload a session for hosted investigation
-
-`driftshield submit` is the customer upload command. The client redacts the transcript
-locally before upload. No raw transcript data leaves the machine unredacted.
-
-OSS community lane (unauthenticated):
-
-```bash
-cd driftshield
-source .venv/bin/activate
-driftshield submit --path <session.json>
-```
-
-Teams lane (authenticated; requires `DRIFTSHIELD_API_KEY`):
-
-```bash
-cd driftshield
-source .venv/bin/activate
-DRIFTSHIELD_API_KEY=... driftshield submit --path <session.json> --tier teams
-```
-
-Pass `--include-analysis` to attach the local matcher verdict. The hosted investigation then uses the same verdict your local matcher produced:
-
-```bash
-driftshield submit --path <session.json> --include-analysis
-```
-
-The hosted intel layer persists the investigation and makes it available on the investigation surface.
-Every tier uses the same built-in DriftShield address; the API key decides the workspace. Teams and Enterprise customers need only `DRIFTSHIELD_API_KEY` and `--tier teams`; no other configuration is needed.
-
-### 5. Run the full local stack
-
-The local API and web dashboard expect a local Postgres instance. The supported dev path
-is `docker-compose.dev.yml`; the production `docker-compose.yml` is not the primary quickstart.
-
-Start the backend:
-
-```bash
-cd driftshield
-source .venv/bin/activate
-set -a
-source .env
-set +a
-driftshield-api
-```
-
-The backend reads `API_KEY` and `DATABASE_URL` from process env, so source `driftshield/.env`
-before starting it.
-
-Start the frontend (in a separate terminal):
-
-```bash
-cd driftshield/frontend
-npm run dev
-```
-
-Open http://localhost:5173 to view ingested sessions.
-
-The dashboard reconstructs each run as a decision graph. Click a node to inspect
-its risk flags, evidence, and inflection explanation, and open the generated
-forensic report inline.
-
-![DriftShield dashboard, session triage view](docs/media/theme-shots/after/01-sessions-desktop.png)
-
-![DriftShield dashboard, investigation graph view](docs/media/theme-shots/after/02-investigation-desktop.png)
-
-### 6. Feed the local dashboard (self-host path)
-
-`driftshield ingest` uploads directly to a running local `/api/ingest` server. This is the
-self-host and vetted-integration path, not the normal customer upload path.
-
-```bash
-cd driftshield
-source .venv/bin/activate
-set -a
-source .env
-set +a
-DRIFTSHIELD_API_URL=http://localhost:8080 \
-driftshield ingest --path tests/fixtures/transcripts/sample_claude_code_session.jsonl
-```
-
-Or ingest the latest Claude Code session for the current project:
-
-```bash
-set -a
-source .env
-set +a
-source .venv/bin/activate
-driftshield ingest --latest
-```
-
-### Generate a forensic report through the API
-
-With the backend running and `API_KEY` exported from `driftshield/.env`, upload a
-transcript directly to the API and get the persisted `forensic_report.v1` payload
-back in one call:
-
-```bash
-cd driftshield
-source .venv/bin/activate
-set -a
-source .env
-set +a
-curl -sS \
-  -X POST http://localhost:8080/api/forensics/report \
-  -H "X-API-Key: $API_KEY" \
-  -F "file=@tests/fixtures/transcripts/sample_claude_code_session.jsonl" \
-  -F "format=claude_code" \
-  -F "report_type=summary"
-```
-
-This returns the ingested `session_id`, persisted forensic case metadata, and the
-full JSON report contract that the CLI and dashboard surfaces share.
-
-## How It Works
+<p align="center">
+  <img src="docs/assets/how-it-works.svg" alt="On your machine, the agent transcript is read into events and the checks run, with an optional tool map. analyze gives a report and a CI exit code. submit redacts everything private first, and only labels go to the DriftShield cloud for investigation" width="100%">
+</p>
 
 ```
 Transcript → Parser → Canonical Events → Decision Graph → Risk Heuristics → Report
@@ -283,204 +110,13 @@ Transcript → Parser → Canonical Events → Decision Graph → Risk Heuristic
 4. **Inflection detection** scores points in the session where the agent's trajectory changed
 5. **Reports** present findings as Markdown, JSON, or through the web dashboard
 
-### What says which analyser made an upload
+### One risky step
 
-Every upload carries one more small block, `metadata.analyser`, next to the declared
-environment in the shared copy of the run. It has four fixed strings and nothing else:
+<p align="center">
+  <img src="docs/assets/check-flow.svg" alt="An agent takes an outside step. If it was checked since the last outside step, it is fine. If not, and a person approved it first, it is excused. Otherwise it is a verification failure" width="100%">
+</p>
 
-| Field | Value | Meaning |
-|-------|-------|---------|
-| `schema_version` | `analyser.v1` | The format of this block |
-| `sdk_version` | for example `0.3.2` | The `driftshield` package version (`driftshield.__version__`). Sent as `unknown` if it is not a plain version number |
-| `matching_rules_version` | for example `phase-3g-deterministic-rules-v2` | The version of the deterministic matching rules. It changes whenever a rule's firing behaviour changes |
-| `step_facts_version` | for example `step-facts.v5` | The version of the step facts below: the labels of shell steps and the error class of a failed tool call. It changes whenever either changes |
-
-They let a stored verdict or step fact be told apart from one made by an older SDK. They
-come from the installed package, never from the transcript or the machine: a block already
-present in a transcript is replaced. Nothing private is in them, and there is no setting to
-leave them out.
-
-### What is sent for each shell step
-
-Redaction replaces every tool input with a placeholder, so by default nothing
-tells `ls` and `git push` apart. For each shell step (Claude Code `Bash`,
-OpenClaw `exec` and `bash`, and Codex shell calls) the redacted transcript
-keeps one extra key, `step_facts`, with exactly the values below. Each value is
-picked from a fixed list. This is always on. There is no option to turn it off
-or to lower it.
-
-| Field | Allowed values |
-|-------|----------------|
-| `command_kind` | `read_only`, `test`, `build`, `git_push`, `merge`, `deploy`, `delete`, `outside_write`, `send_outside`, `unknown` |
-| `target_kind` | `own_checkout`, `main_branch`, `outside_service`, `unknown` |
-| `exit_status` | `success`, `failure`, `unknown` |
-| `checked_before` | `true` or `false` |
-| `unread_own_merge` | `true` or `false` |
-| `unread_start_label` | `true` or `false` |
-| `unchecked_tool_step` | `true` or `false` |
-| `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
-
-`command_kind` and `target_kind` are decided on your machine by reading the
-command, then only the label leaves. A command that does not match a known shape
-is `unknown`. The rule is fail closed: `read_only`, `test` and `build` are only
-given to a step where every part is a plain command from a fixed allowlist with
-no flag that writes files, and the parts are joined only by `&&`, `||`, `|`, `;` or a newline.
-`cd repo && git status` and `gh pr view 1 | head` are `read_only`. A `jq` stage is a plain filter and counts too (`gh pr view 1 --json comments | jq ...`), unless it reads another file or loads modules (`--rawfile`, `-f`, `-L`, `import`). Any other
-shell syntax (brackets, `$(...)`, backticks, `&`, a comment, a heredoc, a loop), a
-redirect to a file, any part that is not an allowlisted check, and a chain of only `cd`
-make the step `unknown`. Redirects that write no file (`2>&1`, `>/dev/null`) are ignored.
-The only things skipped in a chain are `cd`, `pushd` and `sleep N`:
-`export`, `PATH` changes, `hash`, `alias`, `source`, `.` and environment
-assignments such as `FOO=1 ls` can change what a later part runs, so they make
-the step `unknown`. A `cd` to an absolute path, `~`, a variable or up out of the
-checkout (`..`) makes the target `unknown`. A formatter, a `--fix` or `-w` run, or a
-download that saves a file is never a check. A local `git merge` is `unknown`
-(`merge` means a pull request merge, as in `gh pr merge`), and so are
-`gh pr create`, every `aws ... invoke`, and housekeeping on pull requests and issues
-(a comment, a body edit, closing, reopening, a draft toggle, creating an issue or a label,
-a sub issue link, a branch update), which is low risk: it neither fires
-the verification check nor ends the scope of an earlier check. A flag that deletes
-(`gh pr close --delete-branch` or `-d`, `gh pr comment --delete-last`) makes the call a `delete`,
-and taking a project, milestone, assignee or reviewer off (`--remove-project` and the like) is
-`outside_write`. Adding a label (in any written
-form), a workflow dispatch (it starts a run that can deploy), a review, a
-merge, a release, a delete, a secret or variable change, and any repo, ruleset, ref or
-collaborator change are not housekeeping and keep their kind. `aws s3 cp` from S3 to a local
-path is a read, and `gh api -X GET` stays a read even with fields. A write
-kind (`git_push`, `merge`, `deploy`, `delete`, `outside_write`) is still found
-in any part of a chain, so `pytest && git push origin main` is a `git_push` on
-`main_branch`. Comment and here document text is scanned like any other text and
-can only make a step look more like a write, never less.
-`exit_status` comes from the tool result's own error flag or exit code.
-`checked_before` is true when a shell step that is `read_only`, `test` or `build` ran after
-the previous outside step (a push to a main branch, a merge, a deploy, a delete on an outside
-service or an outside write), or after the start of the run for the first one, or earlier in
-the same command line (`cd x; git status; vercel --prod`). One early check does not excuse
-every later outside step. A confirmation step before an outside step still counts.
-
-A merge (`gh pr merge N`, `gh api .../pulls/N/merge`) is the exception: it is checked only by
-a read of **that same pull request**, never by a local read, a test, a build or a read of
-another pull request. The read is `gh pr view N`, `gh pr checks N`, or `gh api` on the pull
-request, its reviews or its comments, and it counts if it came after the previous outside
-step on that pull request, or earlier in the same command line, including inside `$(...)` or
-a loop (`until gh pr checks 5 | grep -q pass; do sleep 10; done; gh pr merge 5`). Inside
-`$(...)` or a loop, only reads and `sleep` count: another command, a redirect to a file, a
-nested substitution or a write there makes the whole part unsafe and nothing before the
-merge is trusted. A merge whose pull request number cannot be read from the command (a
-variable, `$(...)`, the current branch) is not checked. The number is worked out on your
-machine and never leaves: only `checked_before` is sent. Local changes such as `git commit` or `mkdir`
-are `unknown`.
-
-`unread_own_merge` and `unread_start_label` are what the verification failure check reads
-for shell steps, and the only things it fires on there (for other tools, see the tool map
-below). `unread_own_merge` is true for a step that merges pull request N when the run opened N (a
-`gh pr create` whose result shows N's link) or pushed to N's branch, and no read of N came
-between the last open or push and the merge. A read is generous: any statement naming N
-(by number, link or branch) that runs `gh`, `curl`, a script or a shell function counts,
-inside a loop or `$(...)` too, and so does a read earlier in the merge command itself. A
-diff of N (`gh pr diff N`) is not a read: it shows the change, not whether the pull request
-is ready. Deploys, pushes to main, deletes, other outside writes and merges of a pull request
-the run did not open or push to never fire this check. The number, branch and link are
-worked out on your machine; only the boolean leaves.
-
-`unread_start_label` is true for a step that adds the label that starts an agent's work on
-issue N (`agent:go`, by `gh issue edit N --add-label` or a `POST` to N's labels) with no
-fresh read of N. A read is fresh when it is in the same command, before or after the add, or
-in the previous ten shell steps and after the run's own last edit, comment or label change
-on N in an earlier step. Other labels, removals and a number in a variable are not judged.
-Only the boolean leaves.
-
-### Tools that are not shell commands: the tool map
-
-A shell step is judged from its command line. Any other tool (`issue_payment`,
-`cancel_policy`, `email_broker`) is judged only if a tool map says what it does. A tool map is
-a JSON file from tool name to kind:
-
-```json
-{"version": 1, "coding_defaults": false,
- "tools": {"lookup_claim": "check", "issue_payment": "outside_write",
-           "email_broker": "outside_send", "cancel_policy": "delete_outside",
-           "request_underwriter_approval": "confirmation", "transfer_to_human": "handoff",
-           "log_note": "ignore"}}
-```
-
-Kinds: `read` (changes nothing), `check` (reads the thing about to be changed),
-`outside_write`, `outside_send` (sends data beyond your own systems), `delete_outside`,
-`confirmation` (a person was asked and answered), `handoff`, `ignore`, and for coding agents
-`shell` and `file_write`. The coding agent tools above are in the default map; a map file adds
-to it entry by entry, or switches it off with `"coding_defaults": false`. Pass it with
-`driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`), or
-`analyse_run(..., tool_map=load_tool_map("map.json"))`. `driftshield analyze` prints the
-signature hits of every session either way; the map adds a line saying how many tool calls it
-checked.
-
-A mapped tool gets `step_facts` from its name alone: `check` is `read_only`, `outside_write`
-stays `outside_write`, `outside_send` is `send_outside` and `delete_outside` is `delete`, all
-on an `outside_service`. A check counts like a read in a shell step for `checked_before`.
-`unchecked_tool_step` is true for a mapped outside call with no check since the previous
-outside step and no confirmation earlier in the run; the verification failure check fires on it. It
-needs no stated safeguard in the instructions, since the map already says the tool is risky.
-A tool the map does not name is **not checked**, never clean: the analysis reports how many
-tool calls the map named and lists the rest. Only tool names are read, never arguments.
-
-`error_class` says why a step failed, and only a label leaves, never the error text.
-It is read from the failed result on your machine before redaction hides it, by looking
-for fixed phrases, in this order (the first class with a match wins). Phrases are looked
-for only in the lead line (the first line, skipping an `Exit code N` header), in later
-lines that start like an error (`Error:`, `fatal`, `ValueError:`, an `error` field) and in
-the error fields of a JSON result. A stray word in a quoted snippet or a stack frame below
-does not count. `404` and `409` count only as HTTP status tokens (`HTTP/1.1 409`,
-`status 404`, `"code": "404"`, `404 Not Found`), never as a number inside an id, a hash or
-a line number:
-
-| Value | Meaning | Examples of what it matches |
-|-------|---------|-----------------------------|
-| `permission_denied` | The tool or the system refused the call | permission denied, `EACCES`, `EPERM`, a permission the user has not granted, a tool use the user rejected |
-| `precondition_failed` | An edit was refused and nothing was written because the file was not as the edit expected | text to replace not found, more than one match, file not read yet, file changed since it was read, a patch that did not apply |
-| `conflict` | Two writers disagreed | a merge conflict, already exists, `EEXIST`, HTTP 409, a version mismatch |
-| `not_found` | The target is missing | `ENOENT`, no such file, command not found |
-| `timeout` | The call ran out of time | timed out, `ETIMEDOUT` |
-| `other` | The call failed for a reason none of the lists name | everything else that failed |
-| `none` | The step did not fail, or its reason could not be read | |
-
-Every shell step carries `error_class`. Any other tool call (an edit, a write, a read)
-gets a `step_facts` block only when its result was an error, with `command_kind` and
-`target_kind` set to `unknown` and the reason in `error_class`. A call that worked has no
-`step_facts`. A value that is not in the list, or no value at all (an older upload), reads
-as `none`. State conflict uses it: a write the tool rejected after an earlier read counts
-only when the class is `conflict` or `other`, never for `precondition_failed`,
-`permission_denied`, `not_found` or `timeout`, where nothing was written.
-
-Never sent: the command text, any path or argument, prompts, code, file
-contents, the error text, and any hash or fingerprint of them. The value of each field is
-checked against its list before it is written, so a mistake in the classifier
-can only produce `unknown`, never free text.
-
-Why: a run that pushed to the main branch without any earlier check is a very
-different run from one that listed a directory, and the placeholder hides the
-difference. Four fixed list labels show it without revealing what you typed.
-
-### What counts as a failure
-
-A run qualifies as a failure (`qualification_state` is `qualified_failure`) when the
-transcript reads cleanly and shows a material gap between what was asked and what
-happened. Two kinds of evidence count:
-
-- A risk detector fired on at least one step (see the table below).
-- The session ended on a tool call that reported an error and no later tool call
-  completed. This is the failure signal for coding agent sessions such as Claude
-  Code, which rarely carry the inputs the risk detectors need. The verdict names the
-  reason `unrecovered_tool_error_at_session_end` and the break point is that final
-  failed call.
-
-A tool error the agent recovered from is not a failure on its own, but recovery needs
-evidence tied to the failure: a later completed call of the same tool on the same
-command or target (the failed test rerun and passing, the file that failed to write
-written). A later call that merely succeeded at something else clears nothing. The
-failed event records the recovering call as `recovered_by`, or a `recovery_reason`
-code saying why none counted. A failure the run carried on past without recovering
-also qualifies, with that failed call as the break point. A run with neither kind of
-evidence is `unclassified`, not a success claim.
+A check only covers the next outside step after it. For a merge, the check is a read of that same pull request. More in [docs/how-checks-work.md](docs/how-checks-work.md).
 
 ## Built-in Risk Detectors
 
@@ -494,9 +130,153 @@ evidence is `unclassified`, not a success claim.
 
 Risk detectors are additive. Each implements a `RiskHeuristic` interface and can be extended without modifying existing code.
 
+## The tool map
+
+<p align="center">
+  <img src="docs/assets/tool-map.svg" alt="lookup_claim is a check, issue_payment an outside write, email_broker an outside send and request_underwriter_approval a confirmation" width="80%">
+</p>
+
+A shell step is judged from its command line. Any other tool (`issue_payment`, `cancel_policy`, `email_broker`) is judged when a tool map says what it does:
+
+```json
+{
+  "version": 1,
+  "coding_defaults": false,
+  "tools": {
+    "lookup_claim": "check",
+    "search_documents": "read",
+    "update_claim_status": "outside_write",
+    "issue_payment": "outside_write",
+    "email_broker": "outside_send",
+    "cancel_policy": "delete_outside",
+    "request_underwriter_approval": "confirmation",
+    "transfer_to_human": "handoff",
+    "log_note": "ignore"
+  }
+}
+```
+
+| Kind | What it means | Example tool |
+|------|---------------|--------------|
+| `read` | Changes nothing | `search_documents` |
+| `check` | Reads the thing about to be changed | `lookup_claim` |
+| `outside_write` | Changes something in another system | `issue_payment` |
+| `outside_send` | Sends data beyond your own systems | `email_broker` |
+| `delete_outside` | Deletes something in another system | `cancel_policy` |
+| `confirmation` | A person was asked and answered | `request_underwriter_approval` |
+| `handoff` | Passes the work to a person or another agent | `transfer_to_human` |
+| `ignore` | Not judged | `log_note` |
+
+For coding agents there are two more kinds, `shell` and `file_write`. The coding agent tools are in the default map.
+
+Pass it with `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). Only tool names are read, never arguments. `driftshield analyze` prints the signature hits of every session either way.
+
+## In CI
+
+```bash
+driftshield analyze run.jsonl --fail-on verification_failure,state_conflict
+driftshield analyze run.jsonl --fail-threshold 1
+```
+
+`--fail-on` exits 1 when any named check fires or a named step risk is flagged, and prints one `FAIL` line per reason on stderr. An unknown name exits 2. It takes these names:
+
+| Name | What fires it |
+|------|---------------|
+| `verification_failure` | An outside step went ahead with no check and no person approving it |
+| `state_conflict` | A write clashed with something the agent read earlier |
+| `tool_misuse` | A tool failed and the agent finished anyway |
+| `retrieval_omission` | The agent answered without looking up what it needed |
+| `coverage_gap` | The Coverage Gap check or detector |
+| `assumption_mutation` | The Assumption Mutation check or detector |
+| `policy_divergence` | The Policy Divergence check or detector |
+| `constraint_violation` | The Constraint Violation detector |
+| `context_contamination` | The Context Contamination detector |
+
+`--fail-threshold N` exits 1 when N or more steps are flagged. For many files at once:
+
+```bash
+driftshield batch <directory-or-archive> --json
+```
+
+## Supported Sources
+
+| Source | Format | Status |
+|--------|--------|--------|
+| Claude Code | JSONL | Stable |
+| ChatGPT export | JSON | Experimental |
+| Claude Desktop | JSON | Experimental |
+| Codex CLI | JSONL | Experimental |
+| Codex Desktop | JSON | Experimental |
+| OpenClaw | JSONL | Experimental |
+| LangChain / LangSmith export | JSON | Experimental |
+| CrewAI run export | JSON | Experimental |
+| Your own agent (`driftshield.events.v1`) | JSONL | Experimental |
+
+ChatGPT export reads one conversation from `conversations.json` (the branch ending at `current_node`).
+
+Codex CLI covers the rollout files under `~/.codex/sessions/`; the Codex app and its VS Code extension write the same files.
+
+For an agent with none of these formats (an insurance claims agent, a support agent), write
+its log as `driftshield.events.v1` JSON Lines and say what each tool does in a tool map. See
+[docs/events-v1.md](docs/events-v1.md) and the worked insurance example in
+[docs/examples/insurance-claims](docs/examples/insurance-claims).
+
+DriftShield uses a parser protocol. New sources can be added by implementing a single interface.
+
+## Privacy
+
+`driftshield submit` is the customer upload command. The client redacts the transcript locally before upload. No raw transcript data leaves the machine unredacted.
+
+- Prompts, code, tool inputs and outputs, file contents, paths and error text are replaced with placeholders.
+- What stays is a small, fixed set of labels per step, for example `command_kind: merge` or `checked_before: false`. The value of each field is checked against its list before it is written, so a mistake in the classifier can only produce `unknown`, never free text.
+- `driftshield analyze` works fully on your machine. Only `submit` uploads.
+
+Inspect what the redactor would strip, without uploading:
+
+```bash
+driftshield submit --path <session.json> --dry-run-redaction
+driftshield submit --path <session.json> --show-manifest
+```
+
+Why keep any labels at all: a run that pushed to the main branch without any earlier check is a very different run from one that listed a directory, and the placeholder hides the difference. The full list is in [docs/privacy.md](docs/privacy.md).
+
+## Hosted DriftShield
+
+This public repo is the OSS recognition and investigation layer.
+
+It includes:
+
+- transcript parsing and ingestion
+- per-run investigation and reporting
+- community signature-pack support
+- public-safe dashboards, CLI flows, and API paths for failed-run analysis
+
+Upload a run for hosted investigation with `driftshield submit`.
+
+OSS community lane (unauthenticated):
+
+```bash
+driftshield submit --path <session.json>
+```
+
+Teams lane (authenticated; requires `DRIFTSHIELD_API_KEY`):
+
+```bash
+DRIFTSHIELD_API_KEY=... driftshield submit --path <session.json> --tier teams
+```
+
+Pass `--include-analysis` to attach the local matcher verdict. The hosted investigation then uses the same verdict your local matcher produced:
+
+```bash
+driftshield submit --path <session.json> --include-analysis
+```
+
+The hosted intel layer persists the investigation and makes it available on the investigation surface.
+Every tier uses the same built-in DriftShield address; the API key decides the workspace. Teams and Enterprise customers need only `DRIFTSHIELD_API_KEY` and `--tier teams`; no other configuration is needed.
+
 ## CLI Reference
 
-All commands run from the `driftshield/` directory after `source .venv/bin/activate`.
+After `pip install driftshield-sdk`, or from the `driftshield/` directory of a clone after `source .venv/bin/activate`.
 
 ```bash
 # Upload a session for hosted failure investigation (OSS community lane)
@@ -522,11 +302,17 @@ driftshield list
 # Analyse a session for risk signals
 driftshield analyze <session-id-or-path>
 
+# Say what your own tools do, so their steps are judged too
+driftshield analyze <file.jsonl> --tool-map tool_map.json
+
 # Fail a CI job (exit 1, one FAIL line per reason on stderr) when a check fires or a step risk is flagged.
 # Takes check families (verification_failure, state_conflict, policy_divergence, coverage_gap,
 # retrieval_omission, tool_misuse, assumption_mutation) and step risks (assumption_mutation,
 # policy_divergence, constraint_violation, context_contamination, coverage_gap). An unknown name exits 2.
 driftshield analyze <session-id-or-path> --fail-on verification_failure,state_conflict
+
+# Or exit 1 when N or more steps are flagged
+driftshield analyze <file.jsonl> --fail-threshold 1
 
 # Inspect a specific node in the decision graph
 driftshield inspect <file.jsonl> --node 0
@@ -558,74 +344,40 @@ The engine has two public calls, `analyse_run` and `submit`; the CLI is a thin s
 ```python
 from driftshield import analyse_run, submit
 
-run = analyse_run(open("session.jsonl", "rb").read(), source="session.jsonl")
-print(run.detected_format, run.qualification_state, [h.signature_id for h in run.signature_hits])
+run = analyse_run(
+    open("session.jsonl", "rb").read(),
+    source="session.jsonl",
+)
+print(run.detected_format)
+print(run.qualification_state)
+print([h.signature_id for h in run.signature_hits])
 receipt = submit(run)  # community lane: keyless, redacted
 ```
 
-`docs/public-api.md` documents both calls, their types and error modes.
+With a tool map:
 
-## Tech Stack
+```python
+from driftshield.tool_map import load_tool_map
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic |
-| CLI | Typer + Rich |
-| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query |
-| Graph visualisation | @xyflow/react |
-| Database | PostgreSQL 16 (production), SQLite in-memory (tests) |
-| Testing | pytest (backend), Playwright (e2e), Vitest (frontend unit) |
-| Infrastructure | Docker, docker-compose, GitHub Actions |
-
-## Project Structure
-
-```
-driftshield/
-├── src/driftshield/
-│   ├── api/            # FastAPI routes (ingest, sessions, reports, connectors)
-│   ├── cli/            # Typer commands and session discovery
-│   ├── connectors/     # Auto-discovery of transcript sources
-│   ├── core/
-│   │   ├── analysis/   # Risk heuristics, inflection detection, session analysis
-│   │   ├── graph/      # Decision graph builder and models
-│   │   └── models.py   # Domain models (CanonicalEvent, RiskClassification)
-│   ├── db/             # SQLAlchemy models, persistence, Alembic migrations
-│   ├── parsers/        # Transcript format parsers (protocol + implementations)
-│   └── reports/        # Jinja2 report templates
-├── frontend/           # React investigation dashboard
-├── tests/              # Backend test suite
-└── docker-compose.yml  # Production deployment
+run = analyse_run(
+    open("run.jsonl", "rb").read(),
+    tool_map=load_tool_map("tool_map.json"),
+)
+run.signature_hits   # for example verification_failure
 ```
 
-## Docker Deployment
+[`docs/public-api.md`](docs/public-api.md) documents both calls, their types and error modes.
 
-```bash
-cd driftshield
+## Docs
 
-# Create .env with required values
-cp .env.example .env
-# Edit .env: set API_KEY and DB_PASSWORD
-
-# Start the stack
-docker compose up -d
-```
-
-The production compose file runs the app on port 8080 with PostgreSQL 16. Both `API_KEY` and `DB_PASSWORD` are required and will fail on startup if missing.
-
-### CLI-only image
-
-A separate `cli` build target packages just the `driftshield` CLI (no frontend, no web server), for running `batch`/`analyze`/`submit` standalone in CI or a customer environment:
-
-```bash
-cd driftshield
-docker build --target cli -t driftshield-cli .
-
-# Analyse every transcript under a mounted directory
-docker run --rm -v $(pwd)/transcripts:/data driftshield-cli batch /data
-
-# ...and submit the successfully analysed ones (opt-in; requires network egress)
-docker run --rm -v $(pwd)/transcripts:/data driftshield-cli batch /data --submit
-```
+- [How DriftShield checks a run](docs/how-checks-work.md): the pipeline, the tool map, what counts as a failure and the OSS scope.
+- [What leaves your machine](docs/privacy.md): every label that is sent for each step.
+- [Run DriftShield from a clone](docs/self-host.md): the local API, dashboard, Docker and project structure.
+- [Neutral event format](docs/events-v1.md): log any agent so DriftShield can read it.
+- [Public API](docs/public-api.md): `analyse_run` and `submit`.
+- [Community signature packs](docs/signature-packs.md)
+- [OpenClaw connector](docs/openclaw-connector.md)
+- [Changelog](CHANGELOG.md)
 
 ## Contributing
 
@@ -651,7 +403,7 @@ All pull requests are reviewed and merged by Tomasz Borys, DriftShield's founder
 
 ### Adding a parser
 
-Implement the `ParserProtocol` interface in `src/driftshield/parsers/`. Each parser converts a raw transcript format into a list of `CanonicalEvent` objects. See `claude_code.py` for a reference implementation.
+Implement the `ParserProtocol` interface in `driftshield/src/driftshield/parsers/`. Each parser converts a raw transcript format into a list of `CanonicalEvent` objects. See `claude_code.py` for a reference implementation.
 
 ## Licence
 
