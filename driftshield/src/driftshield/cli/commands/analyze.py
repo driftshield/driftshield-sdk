@@ -9,6 +9,8 @@ from rich.console import Console
 
 from driftshield.cli.output import format_summary, format_json, format_verbose_table, format_quiet
 from driftshield.cli.discovery import discover_sessions, resolve_session
+from driftshield.core.deterministic_matching import CHECK_FAMILIES
+from driftshield.core.models import RiskClassification
 from driftshield.public import NoParseableEventsError, UnsupportedFormatError, analyse_run
 from driftshield.tool_map import ToolMapError, load_tool_map
 
@@ -53,7 +55,10 @@ def analyze(
     fail_on: Optional[str] = typer.Option(
         None,
         "--fail-on",
-        help="Exit 1 if specified risks detected (comma-separated).",
+        help="Exit 1 if any named check fires or step risk is flagged (comma separated). "
+        "Checks: " + ", ".join(CHECK_FAMILIES) + " (also accepted as mechanism:<name>). "
+        "Step risks: " + ", ".join(RiskClassification.FLAG_FIELDS) + ". "
+        "An unknown name exits 2.",
     ),
     fail_threshold: Optional[int] = typer.Option(
         None,
@@ -64,12 +69,15 @@ def analyze(
         None,
         "--tool-map",
         help="JSON file saying what each tool does (read, check, outside_write, ...). "
-        "Defaults to $DRIFTSHIELD_TOOL_MAP. Adds the tool coverage and signature hits to the output.",
+        "Defaults to $DRIFTSHIELD_TOOL_MAP. Adds the tool coverage to the output. "
+        "Signature hits always print; with no map the default coding map applies.",
     ),
 ) -> None:
     """Analyse session(s) for reasoning risks."""
     claude_home = os.environ.get("CLAUDE_HOME")
     claude_base = Path(claude_home) if claude_home else None
+
+    fail_on_names = _parse_fail_on(fail_on)
 
     try:
         tool_map = load_tool_map(tool_map_path)
@@ -136,12 +144,9 @@ def analyze(
     fail_reasons: list[str] = []
 
     for file_path, result in all_results:
-        if fail_on:
-            risk_types = [r.strip() for r in fail_on.split(",")]
-            for risk_type in risk_types:
-                if result.risk_summary.get(risk_type, 0) > 0:
-                    should_fail = True
-                    fail_reasons.append(f"{risk_type} detected in {file_path.stem}")
+        for reason in _fail_on_reasons(fail_on_names, result, mapped_runs[file_path], file_path.stem):
+            should_fail = True
+            fail_reasons.append(reason)
 
         if fail_threshold is not None:
             if result.flagged_events >= fail_threshold:
@@ -154,26 +159,18 @@ def analyze(
     # Output results
     if json_output:
         import json
-        if tool_map is not None:
-            data = []
-            for file_path, result in all_results:
-                item = json.loads(format_json(result))
-                item.update(_tool_map_fields(mapped_runs[file_path]))
-                data.append(item)
-            typer.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
-        elif len(all_results) == 1:
-            typer.echo(format_json(all_results[0][1]))
-        else:
-            data = []
-            for file_path, result in all_results:
-                import json as json_lib
-                data.append(json_lib.loads(format_json(result)))
-            typer.echo(json.dumps(data, indent=2))
+        data = []
+        for file_path, result in all_results:
+            item = json.loads(format_json(result))
+            item.update(_run_fields(mapped_runs[file_path], with_tool_map=tool_map is not None))
+            data.append(item)
+        typer.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
     elif quiet:
         for file_path, result in all_results:
             if len(all_results) > 1:
                 console.print(f"[bold]{file_path.stem}:[/bold] ", end="")
-            console.print(format_quiet(result))
+            fired = (hit.mechanism_id or hit.signature_id for hit in mapped_runs[file_path].signature_hits)
+            console.print(format_quiet(result, fired))
     else:
         for i, (file_path, result) in enumerate(all_results):
             if i > 0:
@@ -186,9 +183,8 @@ def analyze(
                 console.print()
 
             console.print(format_summary(result))
-            if tool_map is not None:
-                console.print()
-                console.print(_tool_map_summary(mapped_runs[file_path]))
+            console.print()
+            console.print(_hits_summary(mapped_runs[file_path], with_tool_map=tool_map is not None))
 
             if verbose:
                 console.print()
@@ -196,33 +192,64 @@ def analyze(
 
     # Exit with failure if CI conditions met
     if should_fail:
-        if not quiet:
-            console.print()
-            console.print("[red]FAIL:[/red]")
-            for reason in fail_reasons:
-                console.print(f"  - {reason}")
+        for reason in fail_reasons:
+            err_console.print(f"[red]FAIL:[/red] {reason}", highlight=False, soft_wrap=True)
         raise typer.Exit(1)
 
 
-def _tool_map_fields(run) -> dict:
-    return {
-        "tool_coverage": run.tool_coverage,
-        "signature_hits": [
-            {"signature_id": hit.signature_id, "mechanism_id": hit.mechanism_id}
-            for hit in run.signature_hits
-        ],
-    }
+def _run_fields(run, *, with_tool_map: bool) -> dict:
+    fields: dict = {}
+    if with_tool_map:
+        fields["tool_coverage"] = run.tool_coverage
+    fields["signature_hits"] = [
+        {"signature_id": hit.signature_id, "mechanism_id": hit.mechanism_id}
+        for hit in run.signature_hits
+    ]
+    return fields
+
+def _parse_fail_on(fail_on: Optional[str]) -> list[str]:
+    """The --fail-on names, with ``mechanism:`` stripped. An unknown name is a usage error."""
+    if not fail_on:
+        return []
+    names = []
+    for raw in fail_on.split(","):
+        name = raw.strip().removeprefix("mechanism:")
+        if not name:
+            continue
+        if name not in CHECK_FAMILIES and name not in RiskClassification.FLAG_FIELDS:
+            known = ", ".join(sorted({*CHECK_FAMILIES, *RiskClassification.FLAG_FIELDS}))
+            raise typer.BadParameter(f"unknown name {raw.strip()!r}. Known: {known}", param_hint="--fail-on")
+        names.append(name)
+    return list(dict.fromkeys(names))
 
 
-def _tool_map_summary(run) -> str:
-    coverage = run.tool_coverage or {}
-    total = coverage.get("tool_calls", 0)
-    mapped = coverage.get("mapped_calls", 0)
-    lines = [f"Tool map: {mapped} of {total} tool calls checked"]
-    not_checked = coverage.get("not_checked_tools") or {}
-    if not_checked:
-        names = ", ".join(f"{name} ({count})" for name, count in not_checked.items())
-        lines.append(f"Not checked (not in the tool map): {names}")
+def _fail_on_reasons(names: list[str], result, run, session: str) -> list[str]:
+    """One line per --fail-on name that fired: a check hit, a step risk flag, or both."""
+    fired_checks = {hit.mechanism_id for hit in run.signature_hits}
+    reasons = []
+    for name in names:
+        parts = []
+        if name in fired_checks:
+            parts.append("check fired")
+        flagged = result.risk_summary.get(name, 0) if name in RiskClassification.FLAG_FIELDS else 0
+        if flagged > 0:
+            parts.append(f"step risk on {flagged} event{'s' if flagged != 1 else ''}")
+        if parts:
+            reasons.append(f"{name} {' and '.join(parts)} in {session} (--fail-on {name})")
+    return reasons
+
+
+def _hits_summary(run, *, with_tool_map: bool) -> str:
+    lines = []
+    if with_tool_map:
+        coverage = run.tool_coverage or {}
+        total = coverage.get("tool_calls", 0)
+        mapped = coverage.get("mapped_calls", 0)
+        lines.append(f"Tool map: {mapped} of {total} tool calls checked")
+        not_checked = coverage.get("not_checked_tools") or {}
+        if not_checked:
+            names = ", ".join(f"{name} ({count})" for name, count in not_checked.items())
+            lines.append(f"Not checked (not in the tool map): {names}")
     hits = sorted({hit.signature_id for hit in run.signature_hits})
     lines.append(f"Signature hits: {', '.join(hits) if hits else 'none'}")
     return "\n".join(lines)

@@ -83,6 +83,9 @@ Verification failure fires on steps 3 and 4. Without the tool map the same sessi
 findings at all, because nothing says what `issue_payment` does: that silence is what the
 coverage line makes visible.
 
+To fail a CI job on it, add `--fail-on verification_failure`: the run exits 1 and prints
+`FAIL: verification_failure check fired in ...` on stderr.
+
 In Python:
 
 ```python

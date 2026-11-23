@@ -1,7 +1,7 @@
 """Output formatters for CLI."""
 
 import json
-from typing import Any
+from typing import Any, Iterable
 
 from rich.console import Console
 from rich.table import Table
@@ -117,9 +117,14 @@ def format_verbose_table(result: AnalysisResult) -> str:
     return capture.get()
 
 
-def format_quiet(result: AnalysisResult) -> str:
-    """Format analysis result as minimal output."""
-    if result.flagged_events == 0:
+def format_quiet(result: AnalysisResult, fired_checks: Iterable[str] = ()) -> str:
+    """Format analysis result as one line. Clean only when no step risk and no check fired."""
+    checks = sorted(set(fired_checks))
+    parts = []
+    if result.flagged_events:
+        parts.append(f"{result.flagged_events} risk(s) detected")
+    if checks:
+        parts.append(f"{len(checks)} check{'s' if len(checks) != 1 else ''} fired: {', '.join(checks)}")
+    if not parts:
         return "\u2713 No risks detected"
-    else:
-        return f"\u26a0 {result.flagged_events} risk(s) detected"
+    return "\u26a0 " + ", ".join(parts)

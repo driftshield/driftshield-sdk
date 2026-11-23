@@ -298,3 +298,260 @@ class TestAnalyzeToolErrorAtSessionEnd:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["candidate_break_point"]["status"] == "no_clear_break_point"
+
+
+class TestCheckHitsAlwaysShown:
+    """Check hits print with or without --tool-map; with no map the default coding map applies."""
+
+    TOOL_ERROR = FIXTURES_DIR / "sample_claude_code_tool_error_at_end.jsonl"
+    QUIET_RUN = FIXTURES_DIR / "sample_claude_code_tool_success.jsonl"
+
+    def test_text_output_shows_hits_without_a_tool_map(self):
+        result = runner.invoke(app, ["analyze", str(self.TOOL_ERROR)])
+
+        output = ANSI_RE.sub("", result.output)
+        assert result.exit_code == 0
+        assert "Signature hits: mechanism:tool_misuse" in output
+        assert "Tool map:" not in output
+
+    def test_text_output_says_none_when_nothing_fired(self):
+        result = runner.invoke(app, ["analyze", str(self.QUIET_RUN)])
+
+        assert "Signature hits: none" in ANSI_RE.sub("", result.output)
+
+    def test_json_adds_hits_without_a_tool_map(self):
+        result = runner.invoke(app, ["analyze", str(self.TOOL_ERROR), "--json"])
+
+        data = json.loads(result.stdout)
+        assert data["signature_hits"] == [
+            {"signature_id": "mechanism:tool_misuse", "mechanism_id": "tool_misuse"}
+        ]
+        assert "tool_coverage" not in data
+        # The fields that were there before stay.
+        assert {"session_id", "total_events", "flagged_events", "candidate_break_point"} <= data.keys()
+
+    def test_json_for_several_sessions_adds_hits_to_each(self, tmp_path, monkeypatch):
+        from driftshield.cli.discovery import path_to_project_key
+
+        sessions_dir = tmp_path / ".claude" / "projects" / path_to_project_key(tmp_path)
+        sessions_dir.mkdir(parents=True)
+        for name in ("sample_claude_code_tool_error_at_end.jsonl", "sample_claude_code_tool_success.jsonl"):
+            (sessions_dir / name).write_bytes((FIXTURES_DIR / name).read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / ".claude"))
+
+        result = runner.invoke(app, ["analyze", "--project", "--json"])
+
+        data = json.loads(result.stdout)
+        assert isinstance(data, list) and len(data) == 2
+        assert all("signature_hits" in item for item in data)
+
+    def test_text_for_several_sessions_shows_hits_for_each(self, tmp_path, monkeypatch):
+        from driftshield.cli.discovery import path_to_project_key
+
+        sessions_dir = tmp_path / ".claude" / "projects" / path_to_project_key(tmp_path)
+        sessions_dir.mkdir(parents=True)
+        for name in ("sample_claude_code_tool_error_at_end.jsonl", "sample_claude_code_tool_success.jsonl"):
+            (sessions_dir / name).write_bytes((FIXTURES_DIR / name).read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / ".claude"))
+
+        result = runner.invoke(app, ["analyze", "--project"])
+
+        output = ANSI_RE.sub("", result.output)
+        assert output.count("Signature hits:") == 2
+        assert "Signature hits: mechanism:tool_misuse" in output
+        assert "Signature hits: none" in output
+
+INSURANCE_SESSION = FIXTURES_DIR / "events_v1" / "insurance_claims.jsonl"
+INSURANCE_MAP = Path(__file__).parent.parent / "fixtures" / "tool_maps" / "insurance_claims.json"
+
+
+class TestFailOnChecks:
+    """--fail-on takes check family names as well as the older step risk flags."""
+
+    def test_check_family_fails_the_run(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "verification_failure",
+            ],
+        )
+
+        assert result.exit_code == 1
+        reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
+        assert len(reasons) == 1
+        assert "verification_failure" in reasons[0]
+        assert reasons[0] == (
+            "FAIL: verification_failure check fired in insurance_claims (--fail-on verification_failure)"
+        )
+
+    def test_signature_id_form_is_accepted(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "mechanism:verification_failure",
+            ],
+        )
+
+        assert result.exit_code == 1
+
+    def test_check_that_did_not_fire_passes(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "state_conflict",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "FAIL:" not in result.output
+
+    def test_check_hits_without_a_tool_map_use_the_default_coding_map(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_tool_error_at_end.jsonl"),
+                "--fail-on",
+                "tool_misuse",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "tool_misuse" in ANSI_RE.sub("", result.stderr)
+
+    def test_older_risk_flag_names_still_work(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "constraint_violation, assumption_mutation",
+            ],
+        )
+
+        assert result.exit_code == 1
+        reasons = [line for line in ANSI_RE.sub("", result.stderr).splitlines() if line.startswith("FAIL:")]
+        assert any("assumption_mutation" in line for line in reasons)
+        assert not any("constraint_violation" in line for line in reasons)
+
+    def test_name_in_both_lists_names_the_check_and_the_step_risk(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "assumption_mutation",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "FAIL: assumption_mutation check fired and step risk on 1 event in "
+            "sample_claude_code_session (--fail-on assumption_mutation)"
+        ) in ANSI_RE.sub("", result.stderr)
+
+    def test_reasons_print_under_quiet_and_threshold_reasons_go_to_stderr(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--quiet",
+                "--fail-threshold",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "FAIL:" not in result.stdout
+        assert "FAIL: 1 flagged events in sample_claude_code_session (threshold: 1)" in ANSI_RE.sub(
+            "", result.stderr
+        )
+
+    def test_unknown_name_is_a_usage_error(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(FIXTURES_DIR / "sample_claude_code_session.jsonl"),
+                "--fail-on",
+                "verification_failur",
+            ],
+        )
+
+        assert result.exit_code == 2
+        output = ANSI_RE.sub("", result.output)
+        assert "verification_failur" in output
+        assert "verification_failure" in output
+
+    def test_json_stays_parseable_when_the_run_fails(self):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(INSURANCE_SESSION),
+                "--tool-map",
+                str(INSURANCE_MAP),
+                "--fail-on",
+                "verification_failure",
+                "--json",
+            ],
+        )
+
+        assert result.exit_code == 1
+        json.loads(result.stdout)
+
+    def test_help_lists_the_check_families(self):
+        result = runner.invoke(app, ["analyze", "--help"])
+
+        output = ANSI_RE.sub("", result.output)
+        assert "verification_failure" in output
+        assert "state_conflict" in output
+
+
+class TestQuietNamesFiredChecks:
+    """--quiet never says "No risks detected" when a check fired."""
+
+    def test_check_hit_with_no_step_risk(self):
+        result = runner.invoke(
+            app, ["analyze", str(INSURANCE_SESSION), "--tool-map", str(INSURANCE_MAP), "--quiet"]
+        )
+
+        output = ANSI_RE.sub("", result.stdout).strip()
+        assert result.exit_code == 0
+        assert "No risks detected" not in output
+        assert output == "⚠ 1 check fired: verification_failure"
+
+    def test_check_hit_and_step_risk_on_one_line(self):
+        result = runner.invoke(
+            app, ["analyze", str(FIXTURES_DIR / "sample_claude_code_session.jsonl"), "--quiet"]
+        )
+
+        output = ANSI_RE.sub("", result.stdout).strip()
+        assert output == "⚠ 1 risk(s) detected, 1 check fired: assumption_mutation"
+
+    def test_nothing_fired_stays_clean(self):
+        result = runner.invoke(
+            app, ["analyze", str(FIXTURES_DIR / "sample_claude_code_tool_success.jsonl"), "--quiet"]
+        )
+
+        assert ANSI_RE.sub("", result.stdout).strip() == "✓ No risks detected"

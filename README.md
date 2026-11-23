@@ -169,24 +169,28 @@ A shell step is judged from its command line. Any other tool (`issue_payment`, `
 
 For coding agents there are two more kinds, `shell` and `file_write`. The coding agent tools are in the default map.
 
-Pass it with `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). Only tool names are read, never arguments.
+Pass it with `driftshield analyze --tool-map map.json` (or `DRIFTSHIELD_TOOL_MAP`). Only tool names are read, never arguments. `driftshield analyze` prints the signature hits of every session either way.
 
 ## In CI
 
 ```bash
-driftshield analyze run.jsonl --fail-on constraint_violation,policy_divergence
+driftshield analyze run.jsonl --fail-on verification_failure,state_conflict
 driftshield analyze run.jsonl --fail-threshold 1
 ```
 
-`--fail-on` exits 1 when any of the named risks fires. The names match the risk detectors above:
+`--fail-on` exits 1 when any named check fires or a named step risk is flagged, and prints one `FAIL` line per reason on stderr. An unknown name exits 2. It takes these names:
 
-| Risk name | Detector |
-|-----------|----------|
-| `coverage_gap` | Coverage Gap |
-| `assumption_mutation` | Assumption Mutation |
-| `policy_divergence` | Policy Divergence |
-| `constraint_violation` | Constraint Violation |
-| `context_contamination` | Context Contamination |
+| Name | What fires it |
+|------|---------------|
+| `verification_failure` | An outside step went ahead with no check and no person approving it |
+| `state_conflict` | A write clashed with something the agent read earlier |
+| `tool_misuse` | A tool failed and the agent finished anyway |
+| `retrieval_omission` | The agent answered without looking up what it needed |
+| `coverage_gap` | The Coverage Gap check or detector |
+| `assumption_mutation` | The Assumption Mutation check or detector |
+| `policy_divergence` | The Policy Divergence check or detector |
+| `constraint_violation` | The Constraint Violation detector |
+| `context_contamination` | The Context Contamination detector |
 
 `--fail-threshold N` exits 1 when N or more steps are flagged. For many files at once:
 
@@ -301,8 +305,13 @@ driftshield analyze <session-id-or-path>
 # Say what your own tools do, so their steps are judged too
 driftshield analyze <file.jsonl> --tool-map tool_map.json
 
-# Exit 1 in CI when a named risk fires, or when N or more steps are flagged
-driftshield analyze <file.jsonl> --fail-on constraint_violation,policy_divergence
+# Fail a CI job (exit 1, one FAIL line per reason on stderr) when a check fires or a step risk is flagged.
+# Takes check families (verification_failure, state_conflict, policy_divergence, coverage_gap,
+# retrieval_omission, tool_misuse, assumption_mutation) and step risks (assumption_mutation,
+# policy_divergence, constraint_violation, context_contamination, coverage_gap). An unknown name exits 2.
+driftshield analyze <session-id-or-path> --fail-on verification_failure,state_conflict
+
+# Or exit 1 when N or more steps are flagged
 driftshield analyze <file.jsonl> --fail-threshold 1
 
 # Inspect a specific node in the decision graph
