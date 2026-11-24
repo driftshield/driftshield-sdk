@@ -93,6 +93,13 @@ def step_facts_behaviour(commands: list[str]) -> dict[str, list[str]]:
     return {command: list(classify_command(command)) for command in commands}
 
 
+def command_name_behaviour(commands: list[str]) -> dict[str, str]:
+    """The ``command_name`` of each frozen command (pinned from step facts v8)."""
+    from driftshield.step_facts_command_name import shell_command_name
+
+    return {c: shell_command_name(c, classify_command(c)[0]) for c in commands}
+
+
 def _frozen_error_texts() -> list[str]:
     from tests.test_error_class import MULTI_LINE, NOT_STATUS_TOKENS, STATUS_TOKENS, ERROR_TABLE
 
@@ -395,6 +402,20 @@ def test_the_pinned_commands_cover_every_kind_the_table_documents():
     assert {"outside_write", "unknown"} <= kinds
 
 
+def test_command_names_match_the_pinned_ones_for_the_current_version():
+    pinned = _load()["command_names"]
+    assert STEP_FACTS_VERSION in pinned, (
+        f"STEP_FACTS_VERSION is {STEP_FACTS_VERSION!r} but no command names are pinned for it. "
+        "Add them with: PYTHONPATH=src python -m tests.test_analyser_versions --write"
+    )
+    current = command_name_behaviour(list(pinned[STEP_FACTS_VERSION]))
+    changed = sorted(c for c, v in pinned[STEP_FACTS_VERSION].items() if current[c] != v)
+    assert not changed, (
+        f"command_name changed for {changed} but STEP_FACTS_VERSION is still "
+        f"{STEP_FACTS_VERSION!r}. Bump STEP_FACTS_VERSION and pin the new names."
+    )
+
+
 def test_the_step_facts_version_has_pinned_error_classes():
     pinned = _load()["error_classes"]
     assert STEP_FACTS_VERSION in pinned, (
@@ -483,6 +504,9 @@ def _write() -> None:
     earlier = {c for version, pinned in data["step_facts"].items() for c in pinned}
     for command, value in step_facts_behaviour(sorted(set(_frozen_commands()) | earlier)).items():
         facts.setdefault(command, value)
+    names = data.setdefault("command_names", {}).setdefault(STEP_FACTS_VERSION, {})
+    for command, value in command_name_behaviour(sorted(set(_frozen_commands()) | earlier)).items():
+        names.setdefault(command, value)
     classes = data["error_classes"].setdefault(STEP_FACTS_VERSION, {})
     for text, value in error_class_behaviour(_frozen_error_texts()).items():
         classes.setdefault(text, value)

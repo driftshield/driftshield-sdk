@@ -23,7 +23,7 @@ from driftshield.step_facts import (
 
 FACT_KEYS = {
     "command_kind", "target_kind", "exit_status", "checked_before", "error_class",
-    "unread_own_merge", "unread_start_label", "unchecked_tool_step",
+    "unread_own_merge", "unread_start_label", "unchecked_tool_step", "command_name",
 }
 
 # (command, command_kind, target_kind). Every command kind and every target
@@ -985,6 +985,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "checked_before": "yes",
         "error_class": "permission denied for /Users/someone/private",
         "command": "rm -rf /",
+        "command_name": "gh pr merge 41 /Users/someone/private",
         "extra": {"path": "/etc/passwd"},
     }
     assert sanitise_step_facts(hostile) == {
@@ -996,6 +997,7 @@ def test_sanitise_only_lets_fixed_list_values_through():
         "unread_own_merge": False,
         "unread_start_label": False,
         "unchecked_tool_step": False,
+        "command_name": "other",
     }
     assert sanitise_step_facts("a string") is None
     assert sanitise_step_facts(None) is None
@@ -1351,6 +1353,7 @@ def test_a_step_facts_key_in_the_input_is_never_copied_through():
         "unread_own_merge": False,
         "unread_start_label": False,
         "unchecked_tool_step": False,
+        "command_name": "ls",
     }
 
 
@@ -1421,6 +1424,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "unread_own_merge": False,
             "unread_start_label": False,
             "unchecked_tool_step": False,
+            "command_name": "pytest",
         },
         {
             "command_kind": "git_push",
@@ -1431,6 +1435,7 @@ def test_a_redacted_transcript_reanalysed_keeps_its_facts_in_the_normalised_even
             "unread_own_merge": False,
             "unread_start_label": False,
             "unchecked_tool_step": False,
+            "command_name": "git push",
         },
     ]
     # The second pass must not reset a hidden command to unknown: its own
