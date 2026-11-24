@@ -42,6 +42,12 @@ def name(command: str) -> str:
         ("aws --profile prod cloudformation describe-stacks", "aws cloudformation describe-stacks"),
         ("/usr/bin/git status", "git status"),
         ("sleep 5; gh pr checks 3", "gh pr checks"),
+        ("set -euo pipefail; pytest -q", "pytest"),
+        ("PR=$(gh pr list --json number -q '.[0].number'); gh pr merge $PR", "gh pr merge"),
+        ("HEAD=abc123; gh pr view 4", "gh pr view"),
+        ("for f in a b; do echo $f; done", "echo"),
+        ("for id in 1 2; do\n  gh pr view $id\ndone", "gh pr view"),
+        ("FOO=1", "other"),
     ],
 )
 def test_names_keep_program_and_subcommand_only(command: str, expected: str) -> None:
