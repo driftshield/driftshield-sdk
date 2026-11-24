@@ -293,11 +293,24 @@ def name_of_tokens(tokens: list[str]) -> str:
     return checked_command_name(" ".join(words))
 
 
+# Words that open shell set up rather than a command: a loop or case header, its closing word
+# and shell options. The command a step runs comes after them.
+_SETUP_WORDS = frozenset({"for", "select", "case", "done", "fi", "esac", "set", "in"})
+
+
+def _is_setup(segment: list[str]) -> bool:
+    """True for an assignment only part (``PR=$(...)``), ``set -e`` or a loop or case header."""
+    from driftshield import step_facts as sf
+
+    return not sf._strip_prefixes(segment) or segment[0] in _SETUP_WORDS
+
+
 def shell_command_name(command: object, command_kind: str) -> str:
     """The command name of a shell step whose classified kind is ``command_kind``.
 
     A command of several parts is named by its first part of that kind (the part that made
-    the step what it is), else by its first part that is not a ``cd``, ``pushd`` or ``sleep``.
+    the step what it is), else by its first part that is not a ``cd``, ``pushd``, ``sleep``, an
+    assignment only part, ``set`` or a loop or case header.
     An ``unknown`` step is always named by that first part, so a heredoc body or a loop word
     is never picked.
     Never raises.
@@ -322,7 +335,7 @@ def _shell_command_name(command: object, command_kind: str) -> str:
     fallback: list[str] | None = None
     for segment in segments:
         kind = sf._classify_simple(segment)[0]
-        if kind == "neutral":
+        if kind == "neutral" or _is_setup(segment):
             continue
         if kind == command_kind and kind != "unknown":
             return name_of_tokens(segment)
