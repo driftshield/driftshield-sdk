@@ -3,6 +3,24 @@
 All notable changes to `driftshield` are recorded here. The GitHub release
 notes for each tag are taken from the matching section of this file.
 
+## Unreleased
+
+### Each step says which command it ran, never what it ran it on
+
+In short: step facts gain a `command_name` field, so a dashboard can say "ran pytest" or
+"merged with gh pr merge" instead of only "a test" or "a merge". It holds the program and at
+most two subcommand words of a shell step (`gh pr merge`, `git push`, `npm run build`), or the
+tool name of any other step with facts (`issue_payment`). No argument ever leaves the machine.
+Step facts become `step-facts.v8`; every other field is the same as v7. Rules version stays
+`phase-3g-deterministic-rules-v6`: no rule reads the new field.
+
+- The name comes from fixed lists: a known program and, per program, known subcommand words.
+  Anything a user chooses (paths, URLs, branches, numbers, messages, secrets in environment
+  assignments, heredoc bodies, unlisted make targets or npm scripts, scripts run by path)
+  stops the name or makes it `other`. The result must match `[a-z0-9._-]{1,32}`, at most
+  three words, or it is `other`; `sanitise_step_facts` checks a carried name the same way.
+- `docs/privacy.md` lists the field and the rules.
+
 ## 0.3.7 - 2026-11-19
 
 ### The analyze command can fail CI on a check, and always shows its hits

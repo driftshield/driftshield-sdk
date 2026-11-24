@@ -48,6 +48,20 @@ or to lower it.
 | `unread_start_label` | `true` or `false` |
 | `unchecked_tool_step` | `true` or `false` |
 | `error_class` | `none`, `precondition_failed`, `permission_denied`, `conflict`, `not_found`, `timeout`, `other` |
+| `command_name` | the program and at most two subcommand words, from fixed lists (`gh pr merge`, `git push`, `pytest`, `npm run build`), or `other` |
+
+`command_name` says what was run without saying what it was run on. It is worked out on
+your machine from the same parse as `command_kind`: environment assignments, `sudo`, `env`
+and runners (`uv run`, `npx`, `python -m`) are skipped, and a chain is named by the part that
+gave the step its kind (`cd repo && gh pr merge 5` is `gh pr merge`). The program must be in a
+fixed list of known programs and each subcommand word in a fixed list for that program, so an
+argument, path, URL, branch, number, message, heredoc body, make target or script name nobody
+listed never becomes part of the name. A script run by path (`./deploy.sh`) and any unlisted
+program is `other`. The result must be at most three lowercase words of `a-z`, `0-9`, `.`,
+`_` and `-`, each at most 32 characters, or it becomes `other`; a name carried by an already
+redacted step is checked against the same shape again. A tool call that is not a shell step
+and carries step facts (a tool a tool map names, or a failed call) gets its tool name,
+lowercased, under the same shape rule.
 
 `command_kind` and `target_kind` are decided on your machine by reading the
 command, then only the label leaves. A command that does not match a known shape

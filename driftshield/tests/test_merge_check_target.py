@@ -444,6 +444,7 @@ def test_nothing_but_the_boolean_leaves():
             "unread_own_merge",
             "unread_start_label",
             "unchecked_tool_step",
+            "command_name",
         }
         for f in facts
     )

@@ -49,6 +49,12 @@ import re
 import shlex
 from typing import Any
 
+from driftshield.step_facts_command_name import (
+    OTHER as OTHER_COMMAND_NAME,
+    checked_command_name,
+    shell_command_name,
+    tool_command_name,
+)
 from driftshield.tool_map import DEFAULT_CODING_MAP, ToolMap
 
 # A tool map kind that gives a non shell tool call step facts: (command kind, target kind).
@@ -81,7 +87,10 @@ STEP_FACTS_KEY = "step_facts"
 # its name: ``check`` is ``read_only``, ``outside_write`` stays ``outside_write``, the new
 # ``send_outside`` kind, ``delete_outside`` is ``delete``, all on an ``outside_service``; a new
 # ``unchecked_tool_step`` field. With no tool map every step gets the same facts as v6.
-STEP_FACTS_VERSION = "step-facts.v7"
+# v8: a new ``command_name`` field: the program and at most two subcommand words of a shell step
+# (``gh pr merge``), or the tool name of any other step, from fixed lists, never an argument
+# (:mod:`driftshield.step_facts_command_name`). Every other field is the same as v7.
+STEP_FACTS_VERSION = "step-facts.v8"
 
 COMMAND_KINDS: tuple[str, ...] = (
     "read_only",
@@ -135,6 +144,7 @@ def unknown_facts(*, checked_before: bool = False) -> dict[str, Any]:
         "unread_own_merge": False,
         "unread_start_label": False,
         "unchecked_tool_step": False,
+        "command_name": OTHER_COMMAND_NAME,
     }
 
 
@@ -157,10 +167,11 @@ def is_outside_step(command_kind: object, target_kind: object) -> bool:
 def sanitise_step_facts(value: object) -> dict[str, Any] | None:
     """Rebuild ``value`` from the fixed lists, or ``None`` when it is not facts.
 
-    Only the six known keys are read. Each value must be an exact member of
+    Only the known keys are read. Each value must be an exact member of
     its list, otherwise it becomes ``unknown`` (``False`` for the flag, ``none``
     for the error class, so a bad or missing value never reads as a failure
-    reason). No other key and no free text can survive.
+    reason). ``command_name`` must match the fixed name shape, otherwise it becomes
+    ``other``. No other key and no free text can survive.
     """
     if not isinstance(value, Mapping):
         return None
@@ -179,6 +190,7 @@ def sanitise_step_facts(value: object) -> dict[str, Any] | None:
         "unread_own_merge": value.get("unread_own_merge") is True,
         "unread_start_label": value.get("unread_start_label") is True,
         "unchecked_tool_step": value.get("unchecked_tool_step") is True,
+        "command_name": checked_command_name(value.get("command_name")),
     }
 
 
@@ -2673,6 +2685,7 @@ def compute_step_facts(
                     kind, target = classify_command(command)
                     facts = unknown_facts()
                     facts["command_kind"], facts["target_kind"] = kind, target
+                    facts["command_name"] = shell_command_name(command, kind)
                 # A check counts only if it came after the previous outside step (or after the
                 # start of the run for the first one), or earlier in the same command line.
                 # A hidden command keeps the flag it carried (after the usual list validation):
@@ -2722,6 +2735,7 @@ def compute_step_facts(
                 # are always worked out again, never carried.
                 facts = unknown_facts(checked_before=seen_check)
                 facts["command_kind"], facts["target_kind"] = _MAPPED_STEP_KINDS[tool_kind]
+                facts["command_name"] = tool_command_name(name)
                 if tool_kind == "check":
                     seen_check = True
                 else:
@@ -2734,9 +2748,11 @@ def compute_step_facts(
                 # error (below). Facts already on a call whose input is hidden were
                 # written by an earlier redaction and are kept after validation. On a
                 # call whose input is visible they are never believed.
-                facts = (
-                    carried if carried is not None and _input_hidden(raw_input) else unknown_facts()
-                )
+                if carried is not None and _input_hidden(raw_input):
+                    facts = carried
+                else:
+                    facts = unknown_facts()
+                    facts["command_name"] = tool_command_name(name)
                 if facts is carried:
                     facts_by_node[id(node)] = facts
                 is_shell = False
